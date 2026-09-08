@@ -12,17 +12,19 @@ const cli = cac('yuurei');
 
 function withErrorHandling<Args extends unknown[]>(
   action: (...args: Args) => Promise<void>,
+  loggerForArgs: (...args: Args) => ReturnType<typeof loggerForFlags>,
 ): (...args: Args) => Promise<void> {
   return async (...args: Args) => {
     try {
       await action(...args);
     } catch (error) {
+      const logger = loggerForArgs(...args);
       if (error instanceof YuureiError) {
-        console.error(error.message);
+        logger.error(error.message);
         process.exitCode = error.exitCode;
         return;
       }
-      console.error(error instanceof Error ? error.message : String(error));
+      logger.error(error instanceof Error ? error.message : String(error));
       process.exitCode = EXIT_CODES.RUNTIME_EXECUTION_FAILED;
     }
   };
@@ -32,31 +34,40 @@ cli
   .command('doctor', 'Inspect the environment; never mutates it')
   .option('--json', 'Output as JSON')
   .action(
-    withErrorHandling(async (flags: { json?: boolean }) => {
-      const report = await runDoctor();
-      printDoctorReport(report, loggerForFlags(flags));
-    }),
+    withErrorHandling(
+      async (flags: { json?: boolean }) => {
+        const report = await runDoctor();
+        printDoctorReport(report, loggerForFlags(flags));
+      },
+      (flags) => loggerForFlags(flags),
+    ),
   );
 
 cli
   .command('profile <action>', 'Manage profiles (only "list" is supported)')
   .option('--json', 'Output as JSON')
   .action(
-    withErrorHandling(async (action: string, flags: { json?: boolean }) => {
-      if (action !== 'list') {
-        throw new YuureiError(`unknown profile action: ${action}`, EXIT_CODES.CONFIG_ERROR);
-      }
-      await runProfileList(process.cwd(), loggerForFlags(flags));
-    }),
+    withErrorHandling(
+      async (action: string, flags: { json?: boolean }) => {
+        if (action !== 'list') {
+          throw new YuureiError(`unknown profile action: ${action}`, EXIT_CODES.CONFIG_ERROR);
+        }
+        await runProfileList(process.cwd(), loggerForFlags(flags));
+      },
+      (_action, flags) => loggerForFlags(flags),
+    ),
   );
 
 cli
   .command('inspect <profile-name>', 'Resolve a profile without running anything')
   .option('--json', 'Output as JSON')
   .action(
-    withErrorHandling(async (profileName: string, flags: { json?: boolean }) => {
-      await runInspect(process.cwd(), profileName, loggerForFlags(flags));
-    }),
+    withErrorHandling(
+      async (profileName: string, flags: { json?: boolean }) => {
+        await runInspect(process.cwd(), profileName, loggerForFlags(flags));
+      },
+      (_profileName, flags) => loggerForFlags(flags),
+    ),
   );
 
 cli
@@ -96,6 +107,7 @@ cli
           loggerForFlags(flags),
         );
       },
+      (_runName, flags) => loggerForFlags(flags),
     ),
   );
 
@@ -103,12 +115,15 @@ cli
   .command('trace <action> <run-id>', 'Inspect traces (only "show" is supported)')
   .option('--json', 'Output as JSON')
   .action(
-    withErrorHandling(async (action: string, runId: string, flags: { json?: boolean }) => {
-      if (action !== 'show') {
-        throw new YuureiError(`unknown trace action: ${action}`, EXIT_CODES.CONFIG_ERROR);
-      }
-      await runTraceShow(process.cwd(), runId, loggerForFlags(flags));
-    }),
+    withErrorHandling(
+      async (action: string, runId: string, flags: { json?: boolean }) => {
+        if (action !== 'show') {
+          throw new YuureiError(`unknown trace action: ${action}`, EXIT_CODES.CONFIG_ERROR);
+        }
+        await runTraceShow(process.cwd(), runId, loggerForFlags(flags));
+      },
+      (_action, _runId, flags) => loggerForFlags(flags),
+    ),
   );
 
 cli.help();
