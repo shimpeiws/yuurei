@@ -133,4 +133,43 @@ describe('CodexRuntime.normalize()', () => {
       expect.arrayContaining([expect.stringContaining('1 unparseable JSONL line(s)')]),
     );
   });
+
+  it('counts valid-JSON non-objects (null, numbers) as malformed', async () => {
+    const result = makeResult();
+    const withNonObjects = [
+      '{"type":"thread.started","thread_id":"abc"}',
+      'null',
+      '42',
+      '{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":2,"reasoning_output_tokens":0}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, withNonObjects, 'utf8');
+
+    const runtime = new CodexRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.usage).toMatchObject({ input_tokens: 10, output_tokens: 2 });
+    expect(fragment.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('2 unparseable JSONL line(s)')]),
+    );
+  });
+
+  it('counts malformed lines that appear after turn.completed', async () => {
+    const result = makeResult();
+    const withGarbageAfterCompleted = [
+      '{"type":"thread.started","thread_id":"abc"}',
+      '{"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":3,"reasoning_output_tokens":0}}',
+      'trailing garbage line',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, withGarbageAfterCompleted, 'utf8');
+
+    const runtime = new CodexRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.usage).toMatchObject({ input_tokens: 50, output_tokens: 3 });
+    expect(fragment.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('1 unparseable JSONL line(s)')]),
+    );
+  });
 });
