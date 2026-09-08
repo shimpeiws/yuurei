@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CodexRuntime } from './index.js';
-import type { PreparedRun, RuntimeResult } from '../types.js';
+import type { NormalizationContext, RuntimeResult } from '../types.js';
 
 // Real JSONL captured from `codex exec --json "say hello"`.
 // turn.completed: input_tokens:21616, cached_input_tokens:9984, cache_write_input_tokens:0,
@@ -40,19 +40,8 @@ describe('CodexRuntime.normalize()', () => {
     };
   }
 
-  function makeRun(version: string | null): PreparedRun {
-    return {
-      runtimeId: 'codex',
-      command: 'codex',
-      args: [],
-      env: {},
-      cwd: tmpDir,
-      isolation: { strategy: 'level0', rootDir: tmpDir, env: {}, keep: false } as never,
-      cell: {} as never,
-      runtimeVersion: version,
-      credentialFilePaths: [],
-      credentialValuesToRedact: [],
-    };
+  function makeContext(version: string | null): NormalizationContext {
+    return { runtimeVersion: version };
   }
 
   it('extracts usage from real --json JSONL stdout', async () => {
@@ -60,7 +49,7 @@ describe('CodexRuntime.normalize()', () => {
     await writeFile(result.stdoutPath, REAL_CODEX_STDOUT, 'utf8');
 
     const runtime = new CodexRuntime();
-    const fragment = await runtime.normalize(result, makeRun('0.100.0'));
+    const fragment = await runtime.normalize(result, makeContext('0.100.0'));
 
     expect(fragment.usage).toEqual({
       input_tokens: 21616,
@@ -76,22 +65,23 @@ describe('CodexRuntime.normalize()', () => {
     await writeFile(result.stdoutPath, REAL_CODEX_STDOUT, 'utf8');
 
     const runtime = new CodexRuntime();
-    const fragment = await runtime.normalize(result, makeRun('0.100.0'));
+    const fragment = await runtime.normalize(result, makeContext('0.100.0'));
 
     expect(fragment.runtime).toEqual({ id: 'codex', version: '0.100.0' });
   });
 
-  it('returns empty usage when stdout is absent', async () => {
+  it('returns empty usage with no warning when stdout is absent', async () => {
     const result = makeResult();
     // stdoutPath not written — readFile will throw
 
     const runtime = new CodexRuntime();
-    const fragment = await runtime.normalize(result, makeRun(null));
+    const fragment = await runtime.normalize(result, makeContext(null));
 
     expect(fragment.usage).toEqual({});
+    expect(fragment.warnings).toBeUndefined();
   });
 
-  it('returns empty usage when no turn.completed event is present', async () => {
+  it('returns empty usage and a warning when no turn.completed event is present', async () => {
     const result = makeResult();
     const noCompletedEvent = [
       '{"type":"thread.started","thread_id":"abc"}',
@@ -101,9 +91,12 @@ describe('CodexRuntime.normalize()', () => {
     await writeFile(result.stdoutPath, noCompletedEvent, 'utf8');
 
     const runtime = new CodexRuntime();
-    const fragment = await runtime.normalize(result, makeRun(null));
+    const fragment = await runtime.normalize(result, makeContext(null));
 
     expect(fragment.usage).toEqual({});
+    expect(fragment.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('no turn.completed')]),
+    );
   });
 
   it('skips unparseable lines and still finds turn.completed', async () => {
@@ -117,7 +110,7 @@ describe('CodexRuntime.normalize()', () => {
     await writeFile(result.stdoutPath, withGarbage, 'utf8');
 
     const runtime = new CodexRuntime();
-    const fragment = await runtime.normalize(result, makeRun(null));
+    const fragment = await runtime.normalize(result, makeContext(null));
 
     expect(fragment.usage).toMatchObject({ input_tokens: 100, output_tokens: 5 });
   });

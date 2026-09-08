@@ -8,6 +8,7 @@ import { EXIT_CODES, YuureiError } from '../../cli/exit-codes.js';
 import { detectViaVersionFlag, isVersionAtLeast } from '../detect.js';
 import { execCapture } from '../exec.js';
 import type {
+  NormalizationContext,
   NormalizedTraceFragment,
   PreparedRun,
   Runtime,
@@ -224,12 +225,17 @@ export class CodexRuntime implements Runtime {
     });
   }
 
-  async normalize(result: RuntimeResult, run: PreparedRun): Promise<NormalizedTraceFragment> {
+  async normalize(
+    result: RuntimeResult,
+    context: NormalizationContext,
+  ): Promise<NormalizedTraceFragment> {
     const durationMs = new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime();
 
     let usage: Record<string, number | null> = {};
+    const warnings: string[] = [];
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
+      let found = false;
       for (const line of stdout.split('\n')) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -252,7 +258,10 @@ export class CodexRuntime implements Runtime {
                   cache_write_input_tokens: pick('cache_write_input_tokens'),
                   reasoning_output_tokens: pick('reasoning_output_tokens'),
                 };
+              } else {
+                warnings.push('codex: turn.completed event had no usage field — usage unobserved');
               }
+              found = true;
               break;
             }
           }
@@ -260,15 +269,20 @@ export class CodexRuntime implements Runtime {
           // skip unparseable line
         }
       }
+      if (!found) {
+        warnings.push('codex: no turn.completed event found in stdout — usage unobserved');
+      }
     } catch {
-      // stdout absent — leave usage empty (unobserved)
+      // stdout absent — leave usage empty (unobserved); no warning since
+      // a missing log is a normal outcome for killed/timed-out runs
     }
 
     return {
-      runtime: { id: RUNTIME_ID, version: run.runtimeVersion },
+      runtime: { id: RUNTIME_ID, version: context.runtimeVersion },
       model: { requested: '', resolved: null },
       execution: { exitCode: result.exitCode, durationMs },
       usage,
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 }

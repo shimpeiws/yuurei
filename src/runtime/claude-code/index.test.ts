@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeCodeRuntime } from './index.js';
-import type { PreparedRun, RuntimeResult } from '../types.js';
+import type { NormalizationContext, RuntimeResult } from '../types.js';
 
 // Real stdout captured from `claude --print --output-format json "hello"`.
 // input_tokens:3, output_tokens:4, cache_creation_input_tokens:0, cache_read_input_tokens:24335
@@ -37,19 +37,8 @@ describe('ClaudeCodeRuntime.normalize()', () => {
     return { result, stdoutPath };
   }
 
-  function makeRun(version: string | null): PreparedRun {
-    return {
-      runtimeId: 'claude-code',
-      command: 'claude',
-      args: [],
-      env: {},
-      cwd: tmpDir,
-      isolation: { strategy: 'level0', rootDir: tmpDir, env: {}, keep: false } as never,
-      cell: {} as never,
-      runtimeVersion: version,
-      credentialFilePaths: [],
-      credentialValuesToRedact: [],
-    };
+  function makeContext(version: string | null): NormalizationContext {
+    return { runtimeVersion: version };
   }
 
   it('extracts usage from real --output-format json stdout', async () => {
@@ -57,7 +46,7 @@ describe('ClaudeCodeRuntime.normalize()', () => {
     await writeFile(stdoutPath, REAL_CLAUDE_STDOUT, 'utf8');
 
     const runtime = new ClaudeCodeRuntime();
-    const fragment = await runtime.normalize(result, makeRun('2.1.265 (Claude Code)'));
+    const fragment = await runtime.normalize(result, makeContext('2.1.265 (Claude Code)'));
 
     expect(fragment.usage).toEqual({
       input_tokens: 3,
@@ -72,38 +61,45 @@ describe('ClaudeCodeRuntime.normalize()', () => {
     await writeFile(stdoutPath, REAL_CLAUDE_STDOUT, 'utf8');
 
     const runtime = new ClaudeCodeRuntime();
-    const fragment = await runtime.normalize(result, makeRun('2.1.265 (Claude Code)'));
+    const fragment = await runtime.normalize(result, makeContext('2.1.265 (Claude Code)'));
 
     expect(fragment.runtime).toEqual({ id: 'claude-code', version: '2.1.265 (Claude Code)' });
   });
 
-  it('returns empty usage when stdout is absent', async () => {
+  it('returns empty usage with no warning when stdout is absent', async () => {
     const { result } = makeResult();
     // stdoutPath not written — readFile will throw
 
     const runtime = new ClaudeCodeRuntime();
-    const fragment = await runtime.normalize(result, makeRun(null));
+    const fragment = await runtime.normalize(result, makeContext(null));
 
     expect(fragment.usage).toEqual({});
+    expect(fragment.warnings).toBeUndefined();
   });
 
-  it('returns empty usage when stdout is not valid JSON', async () => {
+  it('returns empty usage and a warning when stdout is not valid JSON', async () => {
     const { result, stdoutPath } = makeResult();
     await writeFile(stdoutPath, 'not json\n', 'utf8');
 
     const runtime = new ClaudeCodeRuntime();
-    const fragment = await runtime.normalize(result, makeRun(null));
+    const fragment = await runtime.normalize(result, makeContext(null));
 
     expect(fragment.usage).toEqual({});
+    expect(fragment.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('not valid JSON')]),
+    );
   });
 
-  it('returns empty usage when stdout JSON has no usage field', async () => {
+  it('returns empty usage and a warning when stdout JSON has no usage field', async () => {
     const { result, stdoutPath } = makeResult();
     await writeFile(stdoutPath, '{}', 'utf8');
 
     const runtime = new ClaudeCodeRuntime();
-    const fragment = await runtime.normalize(result, makeRun(null));
+    const fragment = await runtime.normalize(result, makeContext(null));
 
     expect(fragment.usage).toEqual({});
+    expect(fragment.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('no usage field')]),
+    );
   });
 });

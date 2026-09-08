@@ -6,6 +6,7 @@ import type { ResolvedCell } from '../../cell/types.js';
 import { detectViaVersionFlag, isVersionAtLeast } from '../detect.js';
 import { execCapture } from '../exec.js';
 import type {
+  NormalizationContext,
   NormalizedTraceFragment,
   PreparedRun,
   Runtime,
@@ -96,13 +97,23 @@ export class ClaudeCodeRuntime implements Runtime {
     });
   }
 
-  async normalize(result: RuntimeResult, run: PreparedRun): Promise<NormalizedTraceFragment> {
+  async normalize(
+    result: RuntimeResult,
+    context: NormalizationContext,
+  ): Promise<NormalizedTraceFragment> {
     const durationMs = new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime();
 
     let usage: Record<string, number | null> = {};
+    const warnings: string[] = [];
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
-      const parsed: unknown = JSON.parse(stdout.trim());
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(stdout.trim());
+      } catch {
+        warnings.push('claude-code: stdout was not valid JSON — usage unobserved');
+        parsed = null;
+      }
       if (typeof parsed === 'object' && parsed !== null) {
         const obj = parsed as Record<string, unknown>;
         const usageRaw = obj['usage'];
@@ -118,17 +129,21 @@ export class ClaudeCodeRuntime implements Runtime {
             cache_creation_input_tokens: pick('cache_creation_input_tokens'),
             cache_read_input_tokens: pick('cache_read_input_tokens'),
           };
+        } else if (parsed !== null) {
+          warnings.push('claude-code: stdout JSON had no usage field — usage unobserved');
         }
       }
     } catch {
-      // stdout absent or not valid JSON — leave usage empty (unobserved)
+      // stdout absent — leave usage empty (unobserved); no warning since
+      // a missing log is a normal outcome for killed/timed-out runs
     }
 
     return {
-      runtime: { id: RUNTIME_ID, version: run.runtimeVersion },
+      runtime: { id: RUNTIME_ID, version: context.runtimeVersion },
       model: { requested: '', resolved: null },
       execution: { exitCode: result.exitCode, durationMs },
       usage,
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 }
