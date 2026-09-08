@@ -1,3 +1,5 @@
+import type { ProfileContent } from '../profile/types.js';
+
 /**
  * A resolved profile bundled with its content digest. `content` is the
  * fully-loaded profile data (not just a name reference), because cell
@@ -5,7 +7,7 @@
  */
 export interface ResolvedProfileRef {
   name: string;
-  content: unknown;
+  content: ProfileContent;
   digest: string;
 }
 

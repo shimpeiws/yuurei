@@ -15,7 +15,7 @@ export class Level1Isolation implements Isolation {
   async create(_cell: ResolvedCell): Promise<IsolationContext> {
     const rootDir = await createTempDir();
     const homeDir = join(rootDir, 'home');
-    await mkdir(homeDir, { recursive: true });
+    await mkdir(homeDir, { recursive: true, mode: 0o700 });
 
     return {
       strategy: 'level1',

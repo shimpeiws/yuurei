@@ -3,6 +3,7 @@ import { findYuureiDir } from '../config/discovery.js';
 import { loadYuureiConfig } from '../config/yuurei-config.js';
 import { loadProfile } from '../profile/loader.js';
 import { runPipeline } from '../run/pipeline.js';
+import { isPathWithin } from '../util/fs.js';
 import { YuureiError, EXIT_CODES } from './exit-codes.js';
 import type { Logger } from '../util/logger.js';
 
@@ -12,6 +13,14 @@ export interface RunOptions {
   task: string | undefined;
   keep: boolean | undefined;
   model: string | undefined;
+  /**
+   * Opt-in, experimental: bridge the real ~/.codex/auth.json into the
+   * isolated CODEX_HOME (ignored for other runtimes). Off by default because
+   * that file can carry a rotating OAuth token pair — see the Codex
+   * adapter's bridgeCodexAuthFile doc comment. The supported v0.3 auth path
+   * is an explicitly-set OPENAI_API_KEY, forwarded unconditionally.
+   */
+  bridgeCodexAuthFile: boolean | undefined;
 }
 
 const YUUREI_VERSION = '0.0.1';
@@ -34,6 +43,12 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     }
     profileName = runEntry.profile;
     taskPath = join(yuureiDir, runEntry.task);
+    if (!(await isPathWithin(yuureiDir, taskPath))) {
+      throw new YuureiError(
+        `task path escapes the .yuurei directory: ${runEntry.task}`,
+        EXIT_CODES.CONFIG_ERROR,
+      );
+    }
   }
 
   if (!profileName || !taskPath) {
@@ -63,6 +78,8 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     yuureiDir,
     isolationStrategy: 'level1',
     keep: options.keep ?? false,
+    executionOptions: { bridgeCodexAuthFile: options.bridgeCodexAuthFile ?? false },
+    onWarning: (message) => logger.warn(message),
   });
 
   logger.info(`run ${result.runId} finished`, {

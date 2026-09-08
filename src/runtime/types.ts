@@ -18,6 +18,22 @@ export interface PreparedRun {
   cwd: string;
   isolation: IsolationContext;
   cell: ResolvedCell;
+  /**
+   * Absolute paths to any credential material this adapter wrote to disk
+   * during prepare() (empty for adapters that only forward env vars). The
+   * pipeline scrubs these unconditionally before dispose(), even under
+   * `--keep` — `--keep` preserves config/logs for debugging, never credentials.
+   */
+  credentialFilePaths: string[];
+  /**
+   * The actual real credential values this adapter forwarded or wrote,
+   * regardless of where they ended up (an env var, or a field inside a
+   * bridged file like Codex's auth.json). The pipeline redacts each of
+   * these, by exact match, from persisted stdout/stderr — reporting values
+   * rather than env var *names* is deliberate: a name-based list can never
+   * reach a secret embedded inside file content, only one inside `env`.
+   */
+  credentialValuesToRedact: string[];
 }
 
 export interface RuntimeResult {
