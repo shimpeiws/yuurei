@@ -11,7 +11,7 @@ const validTrace = {
   profile: { name: 'default', digest: 'sha256:profile' },
   task: { source: 'task.md', digest: 'sha256:task' },
   isolation: { strategy: 'level1', verified: true },
-  execution: { exit_code: 0, duration_ms: 1000 },
+  execution: { exit_code: 0, duration_ms: 1000, timed_out: false },
   usage: { tokens_in: null },
   cost: null,
   artifacts: [],

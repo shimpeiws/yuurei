@@ -86,6 +86,7 @@ export interface Runtime {
   id(): string;
   detect(): Promise<RuntimeDetection>;
   prepare(cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun>;
-  execute(run: PreparedRun): Promise<RuntimeResult>;
+  /** `timeoutMs` null means no timeout is enforced. */
+  execute(run: PreparedRun, timeoutMs: number | null): Promise<RuntimeResult>;
   normalize(result: RuntimeResult, context: NormalizationContext): Promise<NormalizedTraceFragment>;
 }

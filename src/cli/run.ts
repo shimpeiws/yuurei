@@ -13,6 +13,8 @@ export interface RunOptions {
   task: string | undefined;
   keep: boolean | undefined;
   model: string | undefined;
+  /** Milliseconds before the runtime process is sent SIGTERM. undefined = no timeout. */
+  timeoutMs: number | undefined;
   /**
    * Opt-in, experimental: bridge the real ~/.codex/auth.json into the
    * isolated CODEX_HOME (ignored for other runtimes). Off by default because
@@ -58,6 +60,13 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     );
   }
 
+  if (options.timeoutMs !== undefined && !(options.timeoutMs > 0)) {
+    throw new YuureiError(
+      '--timeout must be a positive number of milliseconds',
+      EXIT_CODES.CONFIG_ERROR,
+    );
+  }
+
   const profileEntry = config.profiles[profileName];
   if (!profileEntry) {
     throw new YuureiError(`unknown profile: ${profileName}`, EXIT_CODES.CONFIG_ERROR);
@@ -78,6 +87,7 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     yuureiDir,
     isolationStrategy: 'level1',
     keep: options.keep ?? false,
+    timeoutMs: options.timeoutMs ?? null,
     executionOptions: { bridgeCodexAuthFile: options.bridgeCodexAuthFile ?? false },
     onWarning: (message) => logger.warn(message),
   });

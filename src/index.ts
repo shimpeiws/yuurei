@@ -68,6 +68,10 @@ cli
   .option('--model <model>', 'Requested model')
   .option('--keep', 'Keep the isolated workspace for debugging')
   .option(
+    '--timeout <ms>',
+    'Kill the runtime process after this many milliseconds (default: no timeout)',
+  )
+  .option(
     '--bridge-codex-auth-file',
     'Experimental: bridge the real ~/.codex/auth.json into the isolated run (Codex only, off by default)',
   )
@@ -81,6 +85,7 @@ cli
           task?: string;
           model?: string;
           keep?: boolean;
+          timeout?: string;
           bridgeCodexAuthFile?: boolean;
           json?: boolean;
         },
@@ -93,6 +98,7 @@ cli
             task: flags.task,
             model: flags.model,
             keep: flags.keep,
+            timeoutMs: flags.timeout !== undefined ? Number(flags.timeout) : undefined,
             bridgeCodexAuthFile: flags.bridgeCodexAuthFile,
           },
           loggerForFlags(flags),

@@ -34,6 +34,7 @@ export const TraceSchema = z.object({
   execution: z.object({
     exit_code: z.number().nullable(),
     duration_ms: z.number().nullable(),
+    timed_out: z.boolean(),
   }),
   // An observed value not present in `usage` (rather than present as null)
   // means it was never even attempted; null means attempted but unobserved.
