@@ -65,12 +65,23 @@ cli
   .option('--task <task>', 'Task file path (used with --profile instead of a run name)')
   .option('--model <model>', 'Requested model')
   .option('--keep', 'Keep the isolated workspace for debugging')
+  .option(
+    '--bridge-codex-auth-file',
+    'Experimental: bridge the real ~/.codex/auth.json into the isolated run (Codex only, off by default)',
+  )
   .option('--json', 'Output as JSON')
   .action(
     withErrorHandling(
       async (
         runName: string | undefined,
-        flags: { profile?: string; task?: string; model?: string; keep?: boolean; json?: boolean },
+        flags: {
+          profile?: string;
+          task?: string;
+          model?: string;
+          keep?: boolean;
+          bridgeCodexAuthFile?: boolean;
+          json?: boolean;
+        },
       ) => {
         await runRun(
           process.cwd(),
@@ -80,6 +91,7 @@ cli
             task: flags.task,
             model: flags.model,
             keep: flags.keep,
+            bridgeCodexAuthFile: flags.bridgeCodexAuthFile,
           },
           loggerForFlags(flags),
         );

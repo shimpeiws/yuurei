@@ -1,11 +1,11 @@
-import { copyFile, writeFile } from 'node:fs/promises';
+import { copyFile, rm, writeFile } from 'node:fs/promises';
 import { NoopCostModel } from '../cost/noop.js';
 import { resolveCell, type CellResolutionInput } from '../cell/resolver.js';
 import type { ResolvedCell } from '../cell/types.js';
 import { collectArtifacts, writeArtifactManifest } from '../artifact/collector.js';
 import { createIsolation, createVerifiedIsolation } from '../isolation/index.js';
 import { getRuntime } from '../runtime/registry.js';
-import type { Runtime } from '../runtime/types.js';
+import type { PreparedRun, Runtime } from '../runtime/types.js';
 import { writeTrace } from '../trace/writer.js';
 import type { Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
@@ -42,9 +42,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   const context = await createVerifiedIsolation(isolation, cell);
   context.keep = input.keep;
 
+  let prepared: PreparedRun | undefined;
   try {
     const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
-    const prepared = await runtime.prepare(cell, context);
+    prepared = await runtime.prepare(cell, context);
     const result = await runtime.execute(prepared);
     const fragment = await runtime.normalize(result);
 
@@ -96,6 +97,16 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
 
     return { runId, runDir: layout.runDir, cell, trace };
   } finally {
+    // Credential material never survives a run, even under `--keep` — `--keep`
+    // preserves config/logs for debugging, never bridged auth material. Scrub
+    // before dispose() so this runs regardless of which branch above threw.
+    if (prepared) {
+      await Promise.all(
+        prepared.credentialFilePaths.map((path) =>
+          rm(path, { force: true }).catch(() => undefined),
+        ),
+      );
+    }
     await isolation.dispose(context);
   }
 }

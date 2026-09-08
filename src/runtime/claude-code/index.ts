@@ -49,8 +49,6 @@ export class ClaudeCodeRuntime implements Runtime {
     const env = { ...isolation.env };
     const configDir = claudeConfigDir(configRootOf(isolation));
     await mkdir(configDir, { recursive: true, mode: 0o700 });
-    // Profile content written before credentials so a bridged auth.json is
-    // never overwritten by a stale one a profile might inadvertently contain.
     await writeFileTree(configDir, cell.resolvedProfile.content.configFiles);
     bridgeClaudeCredentials(env);
     env['CLAUDE_CONFIG_DIR'] = configDir;
@@ -63,6 +61,9 @@ export class ClaudeCodeRuntime implements Runtime {
       cwd: isolation.rootDir,
       isolation,
       cell,
+      // Credentials here are env vars only (bridgeClaudeCredentials above) —
+      // nothing is ever written to disk, so there's nothing to scrub.
+      credentialFilePaths: [],
     };
   }
 

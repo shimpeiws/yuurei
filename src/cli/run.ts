@@ -13,6 +13,14 @@ export interface RunOptions {
   task: string | undefined;
   keep: boolean | undefined;
   model: string | undefined;
+  /**
+   * Opt-in, experimental: bridge the real ~/.codex/auth.json into the
+   * isolated CODEX_HOME (ignored for other runtimes). Off by default because
+   * that file can carry a rotating OAuth token pair — see the Codex
+   * adapter's bridgeCodexAuthFile doc comment. The supported v0.3 auth path
+   * is an explicitly-set OPENAI_API_KEY, forwarded unconditionally.
+   */
+  bridgeCodexAuthFile: boolean | undefined;
 }
 
 const YUUREI_VERSION = '0.0.1';
@@ -70,6 +78,7 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     yuureiDir,
     isolationStrategy: 'level1',
     keep: options.keep ?? false,
+    executionOptions: { bridgeCodexAuthFile: options.bridgeCodexAuthFile ?? false },
   });
 
   logger.info(`run ${result.runId} finished`, {

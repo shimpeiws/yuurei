@@ -462,6 +462,8 @@ Credentials are handled separately from harness configuration.
 - When reusing existing authentication, the runtime adapter references it only through an approved method
 - Strip tokens, cookies, API keys, and auth headers from logs
 - Once credential bridging is enabled, profile and task content becomes a trust boundary: bridged credentials are reachable from anything a profile's hooks, settings, or commands can run inside the isolated environment (e.g. a forwarded `ANTHROPIC_API_KEY`, or the isolated `CODEX_HOME`'s `auth.json`), so profiles and tasks must be trusted the same way executable code is
+- The supported v0.3 credential mechanism is an explicitly-set, non-rotating API key forwarded into the isolated environment (`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` for Claude Code, `OPENAI_API_KEY` for Codex) — always on, since forwarding an env var writes nothing to disk and carries no rotation risk
+- Reusing an interactive ChatGPT login by copying `~/.codex/auth.json` is experimental and opt-in only (off by default): that file can carry a rotating OAuth access/refresh token pair, and yuurei's copy-run-discard lifecycle cannot safely reconcile a mid-run token refresh — the isolated copy may receive the rotated, valid state while the real file stays stale, and the rotated copy is then discarded on cleanup. Writing the rotated state back to the real file would fix this but is explicitly rejected: it would violate the "never modify the user's existing global configuration" guarantee (§2.3, §9.1). Any credential material this mechanism does write to disk is scrubbed unconditionally on cleanup, including when `--keep` is set — `--keep` preserves config and logs for debugging, never credentials
 
 ### 9.3 Isolation levels
 

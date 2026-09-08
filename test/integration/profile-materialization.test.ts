@@ -12,7 +12,10 @@ import { writeFileTree } from '../../src/util/fs.js';
 import type { ResolvedCell } from '../../src/cell/types.js';
 import type { ProfileContent } from '../../src/profile/types.js';
 
-function makeCell(configFiles: Record<string, string>): ResolvedCell {
+function makeCell(
+  configFiles: Record<string, string>,
+  executionOptions: Record<string, unknown> = {},
+): ResolvedCell {
   const content: ProfileContent = { profileYaml: { runtime: 'claude-code' }, configFiles };
   return {
     runtimeId: 'claude-code',
@@ -20,7 +23,7 @@ function makeCell(configFiles: Record<string, string>): ResolvedCell {
     resolvedProfile: { name: 'test', content, digest: 'sha256:test' },
     resolvedTask: { source: 'task.md', content: '# Task\n', digest: 'sha256:task' },
     yuureiVersion: '0.0.1',
-    executionOptions: {},
+    executionOptions,
     cellDigest: 'sha256:cell',
   };
 }
@@ -100,7 +103,10 @@ describe('profile materialization', () => {
     });
   });
 
-  it('bridges a real ~/.codex/auth.json into the isolated CODEX_HOME at mode 0600', async () => {
+  it('does NOT bridge ~/.codex/auth.json by default, even when one exists', async () => {
+    // The opt-in experimental flag is the only way to reach the file-copy
+    // path — this is the regression test for the reviewer-narrowed decision
+    // that Codex auth-file bridging must be off by default.
     const realCodexDir = join(workDir, '.codex');
     await mkdir(realCodexDir, { recursive: true });
     await writeFile(join(realCodexDir, 'auth.json'), '{"token":"fake"}\n', 'utf8');
@@ -109,32 +115,80 @@ describe('profile materialization', () => {
     const isolation = new Level1Isolation();
     const context = await createVerifiedIsolation(isolation, cell);
     try {
-      await new CodexRuntime().prepare(cell, context);
-
-      const homeDir = context.homeDir;
-      if (!homeDir) throw new Error('level1 isolation must provide homeDir');
-      const bridgedPath = join(homeDir, '.codex', 'auth.json');
-      expect(await readFile(bridgedPath, 'utf8')).toBe('{"token":"fake"}\n');
-      expect((await stat(bridgedPath)).mode & 0o777).toBe(0o600);
-    } finally {
-      await isolation.dispose(context);
-    }
-  });
-
-  it('proceeds without a credential file when ~/.codex/auth.json does not exist', async () => {
-    // workDir has no .codex/ at all — bridging must be a silent no-op, not a failure.
-    const cell: ResolvedCell = { ...makeCell({}), runtimeId: 'codex' };
-    const isolation = new Level1Isolation();
-    const context = await createVerifiedIsolation(isolation, cell);
-    try {
       const prepared = await new CodexRuntime().prepare(cell, context);
-      expect(prepared.command).toBe('codex');
+      expect(prepared.credentialFilePaths).toEqual([]);
 
       const homeDir = context.homeDir;
       if (!homeDir) throw new Error('level1 isolation must provide homeDir');
       await expect(readFile(join(homeDir, '.codex', 'auth.json'), 'utf8')).rejects.toThrow();
     } finally {
       await isolation.dispose(context);
+    }
+  });
+
+  it('bridges a real ~/.codex/auth.json into the isolated CODEX_HOME at mode 0600 when opted in', async () => {
+    const realCodexDir = join(workDir, '.codex');
+    await mkdir(realCodexDir, { recursive: true });
+    await writeFile(join(realCodexDir, 'auth.json'), '{"token":"fake"}\n', 'utf8');
+
+    const cell: ResolvedCell = {
+      ...makeCell({}, { bridgeCodexAuthFile: true }),
+      runtimeId: 'codex',
+    };
+    const isolation = new Level1Isolation();
+    const context = await createVerifiedIsolation(isolation, cell);
+    try {
+      const prepared = await new CodexRuntime().prepare(cell, context);
+
+      const homeDir = context.homeDir;
+      if (!homeDir) throw new Error('level1 isolation must provide homeDir');
+      const bridgedPath = join(homeDir, '.codex', 'auth.json');
+      expect(await readFile(bridgedPath, 'utf8')).toBe('{"token":"fake"}\n');
+      expect((await stat(bridgedPath)).mode & 0o777).toBe(0o600);
+      expect(prepared.credentialFilePaths).toEqual([bridgedPath]);
+    } finally {
+      await isolation.dispose(context);
+    }
+  });
+
+  it('proceeds without a credential file when opted in but ~/.codex/auth.json does not exist', async () => {
+    // workDir has no .codex/ at all — bridging must be a silent no-op, not a failure.
+    const cell: ResolvedCell = {
+      ...makeCell({}, { bridgeCodexAuthFile: true }),
+      runtimeId: 'codex',
+    };
+    const isolation = new Level1Isolation();
+    const context = await createVerifiedIsolation(isolation, cell);
+    try {
+      const prepared = await new CodexRuntime().prepare(cell, context);
+      expect(prepared.command).toBe('codex');
+      expect(prepared.credentialFilePaths).toEqual([]);
+
+      const homeDir = context.homeDir;
+      if (!homeDir) throw new Error('level1 isolation must provide homeDir');
+      await expect(readFile(join(homeDir, '.codex', 'auth.json'), 'utf8')).rejects.toThrow();
+    } finally {
+      await isolation.dispose(context);
+    }
+  });
+
+  it('forwards OPENAI_API_KEY into the isolated env by default (no file written)', async () => {
+    const realApiKey = process.env['OPENAI_API_KEY'];
+    process.env['OPENAI_API_KEY'] = 'sk-test-forwarded';
+    try {
+      const cell: ResolvedCell = { ...makeCell({}), runtimeId: 'codex' };
+      const isolation = new Level1Isolation();
+      const context = await createVerifiedIsolation(isolation, cell);
+      try {
+        const prepared = await new CodexRuntime().prepare(cell, context);
+        expect(prepared.env['OPENAI_API_KEY']).toBe('sk-test-forwarded');
+        expect(prepared.credentialFilePaths).toEqual([]);
+      } finally {
+        await isolation.dispose(context);
+      }
+    } finally {
+      if (realApiKey === undefined) delete process.env['OPENAI_API_KEY'];
+      else process.env['OPENAI_API_KEY'] = realApiKey;
     }
   });
 

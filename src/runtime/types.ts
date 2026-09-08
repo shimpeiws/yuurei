@@ -18,6 +18,13 @@ export interface PreparedRun {
   cwd: string;
   isolation: IsolationContext;
   cell: ResolvedCell;
+  /**
+   * Absolute paths to any credential material this adapter wrote to disk
+   * during prepare() (empty for adapters that only forward env vars). The
+   * pipeline scrubs these unconditionally before dispose(), even under
+   * `--keep` — `--keep` preserves config/logs for debugging, never credentials.
+   */
+  credentialFilePaths: string[];
 }
 
 export interface RuntimeResult {
