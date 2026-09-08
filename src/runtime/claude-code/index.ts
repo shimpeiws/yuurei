@@ -112,30 +112,43 @@ export class ClaudeCodeRuntime implements Runtime {
         parsed = JSON.parse(stdout.trim());
       } catch {
         warnings.push('claude-code: stdout was not valid JSON — usage unobserved');
-        parsed = null;
+        parsed = undefined;
       }
-      if (typeof parsed === 'object' && parsed !== null) {
-        const obj = parsed as Record<string, unknown>;
-        const usageRaw = obj['usage'];
-        if (typeof usageRaw === 'object' && usageRaw !== null) {
-          const u = usageRaw as Record<string, unknown>;
-          const pick = (key: string): number | null => {
-            const v = u[key];
-            return typeof v === 'number' ? v : null;
-          };
-          usage = {
-            input_tokens: pick('input_tokens'),
-            output_tokens: pick('output_tokens'),
-            cache_creation_input_tokens: pick('cache_creation_input_tokens'),
-            cache_read_input_tokens: pick('cache_read_input_tokens'),
-          };
-        } else if (parsed !== null) {
-          warnings.push('claude-code: stdout JSON had no usage field — usage unobserved');
+      if (parsed !== undefined) {
+        if (typeof parsed === 'object' && parsed !== null) {
+          const obj = parsed as Record<string, unknown>;
+          const usageRaw = obj['usage'];
+          if (typeof usageRaw === 'object' && usageRaw !== null) {
+            const u = usageRaw as Record<string, unknown>;
+            const pick = (key: string): number | null => {
+              const v = u[key];
+              return typeof v === 'number' ? v : null;
+            };
+            usage = {
+              input_tokens: pick('input_tokens'),
+              output_tokens: pick('output_tokens'),
+              cache_creation_input_tokens: pick('cache_creation_input_tokens'),
+              cache_read_input_tokens: pick('cache_read_input_tokens'),
+            };
+          } else {
+            warnings.push('claude-code: stdout JSON had no usage field — usage unobserved');
+          }
+        } else {
+          warnings.push('claude-code: stdout JSON was not an object — usage unobserved');
         }
       }
-    } catch {
-      // stdout absent — leave usage empty (unobserved); no warning since
-      // a missing log is a normal outcome for killed/timed-out runs
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        // Missing stdout is expected for killed/timed-out runs; warn only on normal exit
+        if (result.exitCode === 0 && result.signal === null && !result.timedOut) {
+          warnings.push('claude-code: stdout absent after normal exit — usage unobserved');
+        }
+      } else {
+        warnings.push(
+          `claude-code: stdout unreadable (${err instanceof Error ? err.message : String(err)}) — usage unobserved`,
+        );
+      }
     }
 
     return {

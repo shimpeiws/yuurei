@@ -236,6 +236,7 @@ export class CodexRuntime implements Runtime {
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
       let found = false;
+      let malformedLineCount = 0;
       for (const line of stdout.split('\n')) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -266,15 +267,27 @@ export class CodexRuntime implements Runtime {
             }
           }
         } catch {
-          // skip unparseable line
+          malformedLineCount++;
         }
+      }
+      if (malformedLineCount > 0) {
+        warnings.push(`codex: ${malformedLineCount} unparseable JSONL line(s) skipped`);
       }
       if (!found) {
         warnings.push('codex: no turn.completed event found in stdout — usage unobserved');
       }
-    } catch {
-      // stdout absent — leave usage empty (unobserved); no warning since
-      // a missing log is a normal outcome for killed/timed-out runs
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        // Missing stdout is expected for killed/timed-out runs; warn only on normal exit
+        if (result.exitCode === 0 && result.signal === null && !result.timedOut) {
+          warnings.push('codex: stdout absent after normal exit — usage unobserved');
+        }
+      } else {
+        warnings.push(
+          `codex: stdout unreadable (${err instanceof Error ? err.message : String(err)}) — usage unobserved`,
+        );
+      }
     }
 
     return {

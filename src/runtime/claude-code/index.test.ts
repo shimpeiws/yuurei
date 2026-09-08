@@ -66,15 +66,32 @@ describe('ClaudeCodeRuntime.normalize()', () => {
     expect(fragment.runtime).toEqual({ id: 'claude-code', version: '2.1.265 (Claude Code)' });
   });
 
-  it('returns empty usage with no warning when stdout is absent', async () => {
+  it('returns empty usage with no warning when stdout is absent after killed run', async () => {
     const { result } = makeResult();
-    // stdoutPath not written — readFile will throw
+    // Override to simulate a killed run (signal set, exitCode null)
+    result.exitCode = null;
+    result.signal = 'SIGTERM';
+    // stdoutPath not written — readFile throws ENOENT
 
     const runtime = new ClaudeCodeRuntime();
     const fragment = await runtime.normalize(result, makeContext(null));
 
     expect(fragment.usage).toEqual({});
     expect(fragment.warnings).toBeUndefined();
+  });
+
+  it('warns when stdout is absent after normal exit', async () => {
+    const { result } = makeResult();
+    // result already has exitCode:0, signal:null, timedOut:false from makeResult()
+    // stdoutPath not written — readFile throws ENOENT
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.usage).toEqual({});
+    expect(fragment.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('absent after normal exit')]),
+    );
   });
 
   it('returns empty usage and a warning when stdout is not valid JSON', async () => {
@@ -100,6 +117,19 @@ describe('ClaudeCodeRuntime.normalize()', () => {
     expect(fragment.usage).toEqual({});
     expect(fragment.warnings).toEqual(
       expect.arrayContaining([expect.stringContaining('no usage field')]),
+    );
+  });
+
+  it('warns when stdout JSON is a non-object (null, string, number)', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, 'null', 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.usage).toEqual({});
+    expect(fragment.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('not an object')]),
     );
   });
 });

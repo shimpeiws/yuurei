@@ -70,15 +70,31 @@ describe('CodexRuntime.normalize()', () => {
     expect(fragment.runtime).toEqual({ id: 'codex', version: '0.100.0' });
   });
 
-  it('returns empty usage with no warning when stdout is absent', async () => {
+  it('returns empty usage with no warning when stdout is absent after killed run', async () => {
     const result = makeResult();
-    // stdoutPath not written — readFile will throw
+    result.exitCode = null;
+    result.signal = 'SIGTERM';
+    // stdoutPath not written — readFile throws ENOENT
 
     const runtime = new CodexRuntime();
     const fragment = await runtime.normalize(result, makeContext(null));
 
     expect(fragment.usage).toEqual({});
     expect(fragment.warnings).toBeUndefined();
+  });
+
+  it('warns when stdout is absent after normal exit', async () => {
+    const result = makeResult();
+    // exitCode:0, signal:null, timedOut:false from makeResult()
+    // stdoutPath not written — readFile throws ENOENT
+
+    const runtime = new CodexRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.usage).toEqual({});
+    expect(fragment.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('absent after normal exit')]),
+    );
   });
 
   it('returns empty usage and a warning when no turn.completed event is present', async () => {
@@ -99,7 +115,7 @@ describe('CodexRuntime.normalize()', () => {
     );
   });
 
-  it('skips unparseable lines and still finds turn.completed', async () => {
+  it('skips unparseable lines, warns about them, and still finds turn.completed', async () => {
     const result = makeResult();
     const withGarbage = [
       '{"type":"thread.started","thread_id":"abc"}',
@@ -113,5 +129,8 @@ describe('CodexRuntime.normalize()', () => {
     const fragment = await runtime.normalize(result, makeContext(null));
 
     expect(fragment.usage).toMatchObject({ input_tokens: 100, output_tokens: 5 });
+    expect(fragment.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('1 unparseable JSONL line(s)')]),
+    );
   });
 });
