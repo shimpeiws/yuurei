@@ -21,6 +21,7 @@ import type { ResolvedCell } from '../../cell/types.js';
 export function buildCodexArgs(cell: ResolvedCell): string[] {
   const args = [
     'exec',
+    '--json',
     '-c',
     'cli_auth_credentials_store="file"',
     '-c',

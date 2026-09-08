@@ -8,6 +8,7 @@ import { EXIT_CODES, YuureiError } from '../../cli/exit-codes.js';
 import { detectViaVersionFlag, isVersionAtLeast } from '../detect.js';
 import { execCapture } from '../exec.js';
 import type {
+  NormalizationContext,
   NormalizedTraceFragment,
   PreparedRun,
   Runtime,
@@ -197,6 +198,8 @@ export class CodexRuntime implements Runtime {
 
     env['CODEX_HOME'] = configDir;
 
+    const detection = await this.detect();
+
     return {
       runtimeId: RUNTIME_ID,
       command: COMMAND,
@@ -205,6 +208,7 @@ export class CodexRuntime implements Runtime {
       cwd: isolation.rootDir,
       isolation,
       cell,
+      runtimeVersion: detection.version,
       credentialFilePaths,
       credentialValuesToRedact,
     };
@@ -221,14 +225,84 @@ export class CodexRuntime implements Runtime {
     });
   }
 
-  async normalize(result: RuntimeResult): Promise<NormalizedTraceFragment> {
+  async normalize(
+    result: RuntimeResult,
+    context: NormalizationContext,
+  ): Promise<NormalizedTraceFragment> {
     const durationMs = new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime();
 
+    let usage: Record<string, number | null> = {};
+    const warnings: string[] = [];
+    try {
+      const stdout = await readFile(result.stdoutPath, 'utf8');
+      // Scan all lines to count every malformed line (including those after
+      // turn.completed) and to treat valid-JSON non-objects as malformed too.
+      let firstCompleted: Record<string, unknown> | null = null;
+      let malformedLineCount = 0;
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let event: unknown;
+        try {
+          event = JSON.parse(trimmed);
+        } catch {
+          malformedLineCount++;
+          continue;
+        }
+        if (typeof event !== 'object' || event === null) {
+          // Valid JSON but not an object (null, string, number) — not a valid event
+          malformedLineCount++;
+          continue;
+        }
+        const obj = event as Record<string, unknown>;
+        if (obj['type'] === 'turn.completed' && firstCompleted === null) {
+          firstCompleted = obj;
+        }
+      }
+      if (malformedLineCount > 0) {
+        warnings.push(`codex: ${malformedLineCount} unparseable JSONL line(s) skipped`);
+      }
+      if (firstCompleted !== null) {
+        const usageRaw = firstCompleted['usage'];
+        if (typeof usageRaw === 'object' && usageRaw !== null) {
+          const u = usageRaw as Record<string, unknown>;
+          const pick = (key: string): number | null => {
+            const v = u[key];
+            return typeof v === 'number' ? v : null;
+          };
+          usage = {
+            input_tokens: pick('input_tokens'),
+            output_tokens: pick('output_tokens'),
+            cached_input_tokens: pick('cached_input_tokens'),
+            cache_write_input_tokens: pick('cache_write_input_tokens'),
+            reasoning_output_tokens: pick('reasoning_output_tokens'),
+          };
+        } else {
+          warnings.push('codex: turn.completed event had no usage field — usage unobserved');
+        }
+      } else {
+        warnings.push('codex: no turn.completed event found in stdout — usage unobserved');
+      }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        // Missing stdout is expected for killed/timed-out runs; warn only on normal exit
+        if (result.exitCode === 0 && result.signal === null && !result.timedOut) {
+          warnings.push('codex: stdout absent after normal exit — usage unobserved');
+        }
+      } else {
+        warnings.push(
+          `codex: stdout unreadable (${err instanceof Error ? err.message : String(err)}) — usage unobserved`,
+        );
+      }
+    }
+
     return {
-      runtime: { id: RUNTIME_ID, version: null },
+      runtime: { id: RUNTIME_ID, version: context.runtimeVersion },
       model: { requested: '', resolved: null },
       execution: { exitCode: result.exitCode, durationMs },
-      usage: {},
+      usage,
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 }

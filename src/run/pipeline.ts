@@ -58,7 +58,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
     prepared = await runtime.prepare(cell, context);
     const result = await runtime.execute(prepared);
-    const fragment = await runtime.normalize(result);
+    const fragment = await runtime.normalize(result, { runtimeVersion: prepared.runtimeVersion });
+    for (const w of fragment.warnings ?? []) warn(w);
 
     const costModel = new NoopCostModel();
     const costEstimate = await costModel.estimate({
@@ -112,9 +113,21 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // byte-for-byte copy of what the runtime produced.
     const knownCredentialValues = prepared.credentialValuesToRedact;
     const redact = (text: string) => redactSecrets(redactKnownValues(text, knownCredentialValues));
+    const readLog = async (path: string) => {
+      try {
+        return await readFile(path, 'utf8');
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          warn(
+            `failed to read log file (${err instanceof Error ? err.message : String(err)}): ${path}`,
+          );
+        }
+        return '';
+      }
+    };
     const [stdoutRaw, stderrRaw] = await Promise.all([
-      readFile(result.stdoutPath, 'utf8'),
-      readFile(result.stderrPath, 'utf8'),
+      readLog(result.stdoutPath),
+      readLog(result.stderrPath),
     ]);
     await Promise.all([
       writeFile(layout.stdoutPath, redact(stdoutRaw), 'utf8'),

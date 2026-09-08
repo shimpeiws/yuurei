@@ -20,6 +20,8 @@ export interface PreparedRun {
   cwd: string;
   isolation: IsolationContext;
   cell: ResolvedCell;
+  /** null = version could not be determined at prepare() time; never a hardcoded fallback. */
+  runtimeVersion: string | null;
   /**
    * Absolute paths to any credential material this adapter wrote to disk
    * during prepare() (empty for adapters that only forward env vars). The
@@ -49,12 +51,29 @@ export interface RuntimeResult {
   timedOut: boolean;
 }
 
+/**
+ * Minimal context passed from prepare() to normalize() — only the fields
+ * normalize() actually needs. Keeps normalize() from depending on the full
+ * PreparedRun (which includes credentials, env vars, cwd) and makes the
+ * boundary explicit.
+ */
+export interface NormalizationContext {
+  /** null = version could not be determined at prepare() time. */
+  runtimeVersion: string | null;
+}
+
 export interface NormalizedTraceFragment {
   runtime: { id: string; version: string | null };
   model: { requested: string; resolved: string | null };
   execution: { exitCode: number | null; durationMs: number | null };
   /** null = usage metric was not observed; never default to 0. */
   usage: Record<string, number | null>;
+  /**
+   * Non-fatal issues encountered during normalization (e.g. usage parse
+   * failure). Empty array and absent are equivalent — the pipeline reports
+   * each entry via onWarning and does not write them to trace.json.
+   */
+  warnings?: string[];
 }
 
 /**
@@ -68,5 +87,5 @@ export interface Runtime {
   detect(): Promise<RuntimeDetection>;
   prepare(cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun>;
   execute(run: PreparedRun): Promise<RuntimeResult>;
-  normalize(result: RuntimeResult): Promise<NormalizedTraceFragment>;
+  normalize(result: RuntimeResult, context: NormalizationContext): Promise<NormalizedTraceFragment>;
 }

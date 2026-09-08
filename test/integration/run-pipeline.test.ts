@@ -7,7 +7,7 @@ import { runPipeline } from '../../src/run/pipeline.js';
 import { pathExists } from '../../src/util/fs.js';
 import type { ResolvedProfile } from '../../src/profile/types.js';
 import type { IsolationContext } from '../../src/isolation/types.js';
-import type { PreparedRun, Runtime } from '../../src/runtime/types.js';
+import type { NormalizationContext, PreparedRun, Runtime } from '../../src/runtime/types.js';
 import type { ResolvedCell } from '../../src/cell/types.js';
 
 describe('run pipeline', () => {
@@ -83,6 +83,7 @@ describe('run pipeline', () => {
           cwd: isolation.rootDir,
           isolation,
           cell,
+          runtimeVersion: null,
           credentialFilePaths: [credentialPath],
           credentialValuesToRedact: [],
         };
@@ -102,8 +103,8 @@ describe('run pipeline', () => {
           timedOut: false,
         };
       },
-      normalize: async () => ({
-        runtime: { id: 'fake-cred-runtime', version: null },
+      normalize: async (_result, context: NormalizationContext) => ({
+        runtime: { id: 'fake-cred-runtime', version: context.runtimeVersion },
         model: { requested: '', resolved: null },
         execution: { exitCode: 0, durationMs: 0 },
         usage: {},
@@ -163,6 +164,7 @@ describe('run pipeline', () => {
           cwd: isolation.rootDir,
           isolation,
           cell,
+          runtimeVersion: null,
           credentialFilePaths: [unscrubbablePath],
           credentialValuesToRedact: [],
         };
@@ -242,6 +244,7 @@ describe('run pipeline', () => {
           cwd: isolation.rootDir,
           isolation,
           cell,
+          runtimeVersion: null,
           credentialFilePaths: [unscrubbablePath],
           credentialValuesToRedact: [],
         };
@@ -304,6 +307,7 @@ describe('run pipeline', () => {
         cwd: isolation.rootDir,
         isolation,
         cell,
+        runtimeVersion: null,
         credentialFilePaths: [],
         credentialValuesToRedact: [secretValue],
       }),
