@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { IsolationContext } from '../../isolation/types.js';
 import { configRootOf } from '../../isolation/config-root.js';
 import type { ResolvedCell } from '../../cell/types.js';
-import { detectViaVersionFlag } from '../detect.js';
+import { detectViaVersionFlag, isVersionAtLeast } from '../detect.js';
 import { execCapture } from '../exec.js';
 import type {
   NormalizedTraceFragment,
@@ -18,6 +18,7 @@ import { claudeConfigDir } from './paths.js';
 
 const RUNTIME_ID = 'claude-code';
 const COMMAND = 'claude';
+const MIN_SUPPORTED_VERSION: [number, number, number] = [2, 0, 0];
 
 const CLAUDE_CREDENTIAL_ENV_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
 
@@ -49,7 +50,13 @@ export class ClaudeCodeRuntime implements Runtime {
   }
 
   async detect(): Promise<RuntimeDetection> {
-    return detectViaVersionFlag(COMMAND);
+    const detection = await detectViaVersionFlag(COMMAND);
+    return {
+      ...detection,
+      versionSupported: isVersionAtLeast(detection.version, MIN_SUPPORTED_VERSION),
+      authUsable:
+        detection.installed && CLAUDE_CREDENTIAL_ENV_KEYS.some((key) => Boolean(process.env[key])),
+    };
   }
 
   async prepare(cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> {

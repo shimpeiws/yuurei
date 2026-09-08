@@ -5,6 +5,8 @@ export interface RuntimeDetection {
   installed: boolean;
   /** null = version could not be determined; never guess a fallback value. */
   version: string | null;
+  /** null = version could not be determined; otherwise whether this version is supported. */
+  versionSupported: boolean | null;
   executablePath: string | null;
   /** null = auth usability was not checked. */
   authUsable: boolean | null;
