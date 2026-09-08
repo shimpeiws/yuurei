@@ -3,6 +3,7 @@ import { findYuureiDir } from '../config/discovery.js';
 import { loadYuureiConfig } from '../config/yuurei-config.js';
 import { loadProfile } from '../profile/loader.js';
 import { runPipeline } from '../run/pipeline.js';
+import { isPathWithin } from '../util/fs.js';
 import { YuureiError, EXIT_CODES } from './exit-codes.js';
 import type { Logger } from '../util/logger.js';
 
@@ -34,6 +35,12 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     }
     profileName = runEntry.profile;
     taskPath = join(yuureiDir, runEntry.task);
+    if (!(await isPathWithin(yuureiDir, taskPath))) {
+      throw new YuureiError(
+        `task path escapes the .yuurei directory: ${runEntry.task}`,
+        EXIT_CODES.CONFIG_ERROR,
+      );
+    }
   }
 
   if (!profileName || !taskPath) {

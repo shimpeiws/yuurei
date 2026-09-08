@@ -5,6 +5,7 @@ import type { ResolvedCell } from '../cell/types.js';
 import { collectArtifacts, writeArtifactManifest } from '../artifact/collector.js';
 import { createIsolation, createVerifiedIsolation } from '../isolation/index.js';
 import { getRuntime } from '../runtime/registry.js';
+import type { Runtime } from '../runtime/types.js';
 import { writeTrace } from '../trace/writer.js';
 import type { Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
@@ -15,6 +16,8 @@ export interface RunPipelineInput extends CellResolutionInput {
   yuureiDir: string;
   isolationStrategy: 'level0' | 'level1';
   keep: boolean;
+  /** Test seam only. Defaults to the real registry; production callers omit it. */
+  resolveRuntime?: (id: string) => Runtime;
 }
 
 export interface RunPipelineResult {
@@ -40,7 +43,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   context.keep = input.keep;
 
   try {
-    const runtime = getRuntime(cell.runtimeId);
+    const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
     const prepared = await runtime.prepare(cell, context);
     const result = await runtime.execute(prepared);
     const fragment = await runtime.normalize(result);

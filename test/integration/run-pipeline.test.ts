@@ -24,7 +24,7 @@ describe('run pipeline', () => {
     const profile: ResolvedProfile = {
       name: 'unsupported',
       runtime: 'not-a-real-runtime',
-      content: {},
+      content: { profileYaml: { runtime: 'not-a-real-runtime' }, configFiles: {} },
       digest: 'sha256:0000',
     };
 
