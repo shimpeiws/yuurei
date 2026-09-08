@@ -19,7 +19,14 @@ import { claudeConfigDir } from './paths.js';
 const RUNTIME_ID = 'claude-code';
 const COMMAND = 'claude';
 
-const CREDENTIAL_ENV_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
+// Note: also listed in trace/redact.ts's CREDENTIAL_ENV_KEYS, which the
+// pipeline uses to redact known bridged values from persisted logs. Kept as
+// a separate, adapter-local list here (rather than importing that one)
+// because this list controls *which env vars this adapter forwards* —
+// adapter-specific behavior — while the other is a cross-adapter constant
+// for generic post-hoc redaction; conflating them would let a future
+// third adapter's forwarding accidentally change here.
+const CLAUDE_CREDENTIAL_ENV_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
 
 /**
  * Approved method (design doc §9.2) for Claude Code: forward an explicitly-set
@@ -30,7 +37,7 @@ const CREDENTIAL_ENV_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as con
  * Never reads the keychain, never copies any part of the real ~/.claude.
  */
 function bridgeClaudeCredentials(env: Record<string, string>): void {
-  for (const key of CREDENTIAL_ENV_KEYS) {
+  for (const key of CLAUDE_CREDENTIAL_ENV_KEYS) {
     const value = process.env[key];
     if (value) env[key] = value;
   }
