@@ -10,19 +10,21 @@ import { runTraceShow } from './cli/trace-show.js';
 
 const cli = cac('yuurei');
 
-function withErrorHandling<Args extends unknown[]>(
+function withErrorHandling<Args extends [...unknown[], { json?: boolean }]>(
   action: (...args: Args) => Promise<void>,
 ): (...args: Args) => Promise<void> {
   return async (...args: Args) => {
     try {
       await action(...args);
     } catch (error) {
+      const flags = args[args.length - 1] as { json?: boolean };
+      const logger = loggerForFlags(flags);
       if (error instanceof YuureiError) {
-        console.error(error.message);
+        logger.error(error.message);
         process.exitCode = error.exitCode;
         return;
       }
-      console.error(error instanceof Error ? error.message : String(error));
+      logger.error(error instanceof Error ? error.message : String(error));
       process.exitCode = EXIT_CODES.RUNTIME_EXECUTION_FAILED;
     }
   };
