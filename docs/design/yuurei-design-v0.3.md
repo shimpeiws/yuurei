@@ -461,6 +461,7 @@ Credentials are handled separately from harness configuration.
 - Never record secrets into the trace
 - When reusing existing authentication, the runtime adapter references it only through an approved method
 - Strip tokens, cookies, API keys, and auth headers from logs
+- Once credential bridging is enabled, profile and task content becomes a trust boundary: bridged credentials are reachable from anything a profile's hooks, settings, or commands can run inside the isolated environment (e.g. a forwarded `ANTHROPIC_API_KEY`, or the isolated `CODEX_HOME`'s `auth.json`), so profiles and tasks must be trusted the same way executable code is
 
 ### 9.3 Isolation levels
 
@@ -565,6 +566,7 @@ What v0.3 does not protect against:
 - Vulnerabilities in the runtime itself
 - Network-based attacks
 - Complete process/filesystem isolation
+- Concurrent adversarial mutation of profile/task files during materialization: symlink checks (e.g. `isPathWithin`) are check-then-read, not atomic, so a filesystem actor racing the check is out of scope
 
 ### 12.2 Handling of failure
 

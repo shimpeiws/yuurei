@@ -170,6 +170,25 @@ describe('profile materialization', () => {
     ]);
   });
 
+  it('rejects a profile-supplied auth.json instead of letting it survive a failed bridge', async () => {
+    // No ~/.codex/auth.json on the real side (workDir has no .codex/), so if the
+    // reservation guard weren't there, a profile-supplied auth.json would land
+    // untouched by a bridge that legitimately no-ops on a missing source.
+    const cell: ResolvedCell = {
+      ...makeCell({ 'auth.json': '{"token":"attacker-controlled"}\n' }),
+      runtimeId: 'codex',
+    };
+    const isolation = new Level1Isolation();
+    const context = await createVerifiedIsolation(isolation, cell);
+    try {
+      await expect(new CodexRuntime().prepare(cell, context)).rejects.toMatchObject({
+        exitCode: EXIT_CODES.CONFIG_ERROR,
+      });
+    } finally {
+      await isolation.dispose(context);
+    }
+  });
+
   it('rejects a symlink that forms a real cycle', async () => {
     const profileDir = join(workDir, 'profile4');
     const configDir = join(profileDir, 'config');
