@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+/.yuurei/runs/
+examples/*/.yuurei/runs/
+
+*.local
+.DS_Store
+.verification/

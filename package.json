@@ -1,0 +1,48 @@
+{
+  "name": "yuurei",
+  "version": "0.0.1",
+  "bin": {
+    "yuurei": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "node --import tsx src/index.ts",
+    "build": "tsc --build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "oxlint --deny-warnings",
+    "check:fix": "oxlint --deny-warnings --fix",
+    "format": "oxfmt --check .",
+    "format:fix": "oxfmt --write .",
+    "knip": "knip",
+    "prepare": "lefthook install"
+  },
+  "dependencies": {
+    "cac": "^6.7.14",
+    "yaml": "^2.6.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@tsconfig/strictest": "^2.0.5",
+    "@types/node": "^22.0.0",
+    "knip": "^6.0.0",
+    "lefthook": "^2.0.0",
+    "oxfmt": "^0.55.0",
+    "oxlint": "^1.49.0",
+    "tsx": "^4.19.0",
+    "typescript": "^6.0.0",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=21.0.0"
+  },
+  "packageManager": "pnpm@11.6.0"
+}

@@ -1,0 +1,2 @@
+runtime: claude-code
+description: Claude Code with a minimal, project-specific instruction set.

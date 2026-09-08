@@ -1,0 +1,18 @@
+pre-commit:
+  parallel: true
+  commands:
+    check:
+      glob: '*.{ts,js}'
+      run: pnpm run check:fix && git add -u
+    format:
+      glob: '*.{ts,js,json,yml,yaml,md}'
+      run: pnpm run format:fix && git add -u
+    knip:
+      run: pnpm run knip
+    test:
+      run: pnpm test
+
+pre-push:
+  commands:
+    build:
+      run: pnpm run build

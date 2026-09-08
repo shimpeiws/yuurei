@@ -1,0 +1,41 @@
+/**
+ * A resolved profile bundled with its content digest. `content` is the
+ * fully-loaded profile data (not just a name reference), because cell
+ * identity must be computed over resolved content — see cell_digest below.
+ */
+export interface ResolvedProfileRef {
+  name: string;
+  content: unknown;
+  digest: string;
+}
+
+export interface ResolvedTaskRef {
+  source: string;
+  content: string;
+  digest: string;
+}
+
+/**
+ * The fully-resolved combination of runtime, model, harness profile, and
+ * task that identifies one execution cell (design doc §7: runtime × model
+ * × native harness × task).
+ */
+export interface ResolvedCell {
+  runtimeId: string;
+  requestedModel: string;
+  resolvedProfile: ResolvedProfileRef;
+  resolvedTask: ResolvedTaskRef;
+  yuureiVersion: string;
+  executionOptions: Record<string, unknown>;
+  /** sha256 digest over the canonicalized combination of the fields above. */
+  cellDigest: string;
+}
+
+export interface CellIdentityInput {
+  runtimeId: string;
+  requestedModel: string;
+  resolvedProfile: ResolvedProfileRef;
+  resolvedTask: ResolvedTaskRef;
+  yuureiVersion: string;
+  executionOptions: Record<string, unknown>;
+}

@@ -1,0 +1,9 @@
+{
+  "indentStyle": "space",
+  "indentWidth": 2,
+  "printWidth": 100,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "semi": true,
+  "ignorePatterns": ["dist", "build", "node_modules", "pnpm-lock.yaml"]
+}

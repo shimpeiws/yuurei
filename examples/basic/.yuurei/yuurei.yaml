@@ -1,0 +1,27 @@
+version: 1
+
+profiles:
+  claude-pstack:
+    runtime: claude-code
+    source: ./profiles/claude-pstack
+
+  claude-custom:
+    runtime: claude-code
+    source: ./profiles/claude-custom
+
+  codex-pstack:
+    runtime: codex
+    source: ./profiles/codex-pstack
+
+runs:
+  refactor-claude-pstack:
+    profile: claude-pstack
+    task: ./tasks/refactor.md
+
+  refactor-claude-custom:
+    profile: claude-custom
+    task: ./tasks/refactor.md
+
+  refactor-codex-pstack:
+    profile: codex-pstack
+    task: ./tasks/refactor.md

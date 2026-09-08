@@ -1,0 +1,18 @@
+{
+  "plugins": ["typescript", "import"],
+  "categories": {
+    "correctness": "error",
+    "perf": "error"
+  },
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "error",
+    "typescript/consistent-type-imports": [
+      "error",
+      { "prefer": "type-imports", "fixStyle": "inline-type-imports" }
+    ],
+    "import/no-duplicates": "error",
+    "no-await-in-loop": "off"
+  },
+  "ignorePatterns": ["dist", "build", "node_modules", "*.config.ts", "*.config.js"]
+}

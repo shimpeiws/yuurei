@@ -1,0 +1,72 @@
+import { join } from 'node:path';
+import { findYuureiDir } from '../config/discovery.js';
+import { loadYuureiConfig } from '../config/yuurei-config.js';
+import { loadProfile } from '../profile/loader.js';
+import { runPipeline } from '../run/pipeline.js';
+import { YuureiError, EXIT_CODES } from './exit-codes.js';
+import type { Logger } from '../util/logger.js';
+
+export interface RunOptions {
+  runName: string | undefined;
+  profile: string | undefined;
+  task: string | undefined;
+  keep: boolean | undefined;
+  model: string | undefined;
+}
+
+const YUUREI_VERSION = '0.0.1';
+
+export async function runRun(cwd: string, options: RunOptions, logger: Logger): Promise<void> {
+  const yuureiDir = await findYuureiDir(cwd);
+  if (!yuureiDir) {
+    throw new YuureiError('no .yuurei/ directory found', EXIT_CODES.CONFIG_ERROR);
+  }
+
+  const config = await loadYuureiConfig(yuureiDir);
+
+  let profileName = options.profile;
+  let taskPath = options.task;
+
+  if (options.runName) {
+    const runEntry = config.runs[options.runName];
+    if (!runEntry) {
+      throw new YuureiError(`unknown run: ${options.runName}`, EXIT_CODES.CONFIG_ERROR);
+    }
+    profileName = runEntry.profile;
+    taskPath = join(yuureiDir, runEntry.task);
+  }
+
+  if (!profileName || !taskPath) {
+    throw new YuureiError(
+      'either a run name or both --profile and --task are required',
+      EXIT_CODES.CONFIG_ERROR,
+    );
+  }
+
+  const profileEntry = config.profiles[profileName];
+  if (!profileEntry) {
+    throw new YuureiError(`unknown profile: ${profileName}`, EXIT_CODES.CONFIG_ERROR);
+  }
+
+  const profile = await loadProfile({
+    name: profileName,
+    runtime: profileEntry.runtime,
+    sourceDir: join(yuureiDir, profileEntry.source),
+  });
+
+  const result = await runPipeline({
+    runtimeId: profile.runtime,
+    requestedModel: options.model ?? '',
+    profile,
+    taskPath,
+    yuureiVersion: YUUREI_VERSION,
+    yuureiDir,
+    isolationStrategy: 'level1',
+    keep: options.keep ?? false,
+  });
+
+  logger.info(`run ${result.runId} finished`, {
+    exitCode: result.trace.execution.exit_code,
+    runDir: result.runDir,
+  });
+}
