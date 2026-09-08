@@ -79,11 +79,8 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     isolationStrategy: 'level1',
     keep: options.keep ?? false,
     executionOptions: { bridgeCodexAuthFile: options.bridgeCodexAuthFile ?? false },
+    onWarning: (message) => logger.warn(message),
   });
-
-  for (const warning of result.warnings) {
-    logger.warn(warning);
-  }
 
   logger.info(`run ${result.runId} finished`, {
     exitCode: result.trace.execution.exit_code,

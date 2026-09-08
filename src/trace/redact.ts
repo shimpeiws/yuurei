@@ -21,30 +21,27 @@ export function redactSecrets(text: string): string {
 }
 
 /**
- * Env var names a runtime adapter may forward a real credential into
- * (ClaudeCodeRuntime.bridgeClaudeCredentials, CodexRuntime.bridgeCodexApiKey).
- * A single shared list rather than each adapter reporting its own, so
- * there's exactly one place to update when a new credential env var is
- * added, and the pipeline can redact known bridged values generically off
- * `PreparedRun.env` without adapter-specific knowledge leaking into it.
+ * Below this length, a "known value" is refused rather than redacted: a
+ * malformed or truncated credential file could otherwise hand this function
+ * a one- or two-character string, which would then blank out every
+ * occurrence of that character across the whole log. Real API keys and
+ * OAuth tokens are always far longer than this.
  */
-export const CREDENTIAL_ENV_KEYS = [
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AUTH_TOKEN',
-  'OPENAI_API_KEY',
-] as const;
+const MIN_REDACTABLE_LENGTH = 8;
 
 /**
- * Exact-match redaction of specific known secret values (as opposed to
- * redactSecrets' shape-based patterns, which won't catch a credential that
- * doesn't happen to look like `sk-...` or `Bearer ...`). Literal
- * split/join rather than a constructed RegExp, since a credential value
- * may itself contain regex metacharacters.
+ * Exact-match redaction of specific known secret values reported by the
+ * runtime adapter that produced them (as opposed to redactSecrets' generic
+ * shape-based patterns, which won't catch a credential that doesn't happen
+ * to look like `sk-...` or `Bearer ...` — an OAuth access/refresh token
+ * embedded in a bridged Codex auth.json, for instance). Literal split/join
+ * rather than a constructed RegExp, since a credential value may itself
+ * contain regex metacharacters.
  */
 export function redactKnownValues(text: string, values: readonly string[]): string {
   let result = text;
   for (const value of values) {
-    if (!value) continue;
+    if (value.length < MIN_REDACTABLE_LENGTH) continue;
     result = result.split(value).join(REDACTED);
   }
   return result;

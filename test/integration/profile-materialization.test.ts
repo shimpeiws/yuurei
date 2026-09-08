@@ -129,7 +129,18 @@ describe('profile materialization', () => {
   it('bridges a real ~/.codex/auth.json into the isolated CODEX_HOME at mode 0600 when opted in', async () => {
     const realCodexDir = join(workDir, '.codex');
     await mkdir(realCodexDir, { recursive: true });
-    await writeFile(join(realCodexDir, 'auth.json'), '{"token":"fake"}\n', 'utf8');
+    const authJson = JSON.stringify({
+      OPENAI_API_KEY: null,
+      auth_mode: 'chatgpt',
+      last_refresh: '2026-09-08T00:00:00Z',
+      tokens: {
+        access_token: 'fake-access-token-value-long-enough',
+        account_id: 'acct_123',
+        id_token: 'fake-id-token-value-long-enough',
+        refresh_token: 'fake-refresh-token-value-long-enough',
+      },
+    });
+    await writeFile(join(realCodexDir, 'auth.json'), authJson, 'utf8');
 
     const cell: ResolvedCell = {
       ...makeCell({}, { bridgeCodexAuthFile: true }),
@@ -143,10 +154,55 @@ describe('profile materialization', () => {
       const homeDir = context.homeDir;
       if (!homeDir) throw new Error('level1 isolation must provide homeDir');
       const bridgedPath = join(homeDir, '.codex', 'auth.json');
-      expect(await readFile(bridgedPath, 'utf8')).toBe('{"token":"fake"}\n');
+      expect(await readFile(bridgedPath, 'utf8')).toBe(authJson);
       expect((await stat(bridgedPath)).mode & 0o777).toBe(0o600);
       expect(prepared.credentialFilePaths).toEqual([bridgedPath]);
+      // The OAuth token triple, not just OPENAI_API_KEY, must be reported for
+      // log redaction -- these values can never be reached by a redaction
+      // pass that only looks at PreparedRun.env's known key names, since
+      // they live only inside the bridged file's content.
+      expect(prepared.credentialValuesToRedact).toEqual(
+        expect.arrayContaining([
+          'fake-access-token-value-long-enough',
+          'fake-id-token-value-long-enough',
+          'fake-refresh-token-value-long-enough',
+        ]),
+      );
     } finally {
+      await isolation.dispose(context);
+    }
+  });
+
+  it('aborts prepare() when a failed bridge cannot be cleaned up (double fault)', async () => {
+    const realCodexDir = join(workDir, '.codex');
+    await mkdir(realCodexDir, { recursive: true });
+    await writeFile(join(realCodexDir, 'auth.json'), '{"token":"fake"}\n', 'utf8');
+
+    const cell: ResolvedCell = {
+      ...makeCell({}, { bridgeCodexAuthFile: true }),
+      runtimeId: 'codex',
+    };
+    const isolation = new Level1Isolation();
+    const context = await createVerifiedIsolation(isolation, cell);
+    const homeDir = context.homeDir;
+    if (!homeDir) throw new Error('level1 isolation must provide homeDir');
+
+    // Pre-create the reserved destination path as a NON-EMPTY directory:
+    // copyFile() then fails (EISDIR), and the catch block's own cleanup
+    // rm(dest, { force: true }) (no `recursive: true`) fails too, on the
+    // same non-empty directory -- reproducing the double fault where a
+    // failed bridge cannot even clean up after itself.
+    const unscrubbableDest = join(homeDir, '.codex', 'auth.json');
+    await mkdir(unscrubbableDest, { recursive: true });
+    await writeFile(join(unscrubbableDest, 'inner.txt'), 'x', 'utf8');
+
+    try {
+      await expect(new CodexRuntime().prepare(cell, context)).rejects.toMatchObject({
+        exitCode: EXIT_CODES.ISOLATION_VERIFICATION_FAILED,
+        message: expect.stringContaining(unscrubbableDest),
+      });
+    } finally {
+      await rm(unscrubbableDest, { recursive: true, force: true });
       await isolation.dispose(context);
     }
   });

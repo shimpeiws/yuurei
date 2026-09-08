@@ -7,7 +7,7 @@ import { createIsolation, createVerifiedIsolation } from '../isolation/index.js'
 import { getRuntime } from '../runtime/registry.js';
 import type { PreparedRun, Runtime } from '../runtime/types.js';
 import { writeTrace } from '../trace/writer.js';
-import { CREDENTIAL_ENV_KEYS, redactKnownValues, redactSecrets } from '../trace/redact.js';
+import { redactKnownValues, redactSecrets } from '../trace/redact.js';
 import type { Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
 import { createRunLayout } from './layout.js';
@@ -19,6 +19,15 @@ export interface RunPipelineInput extends CellResolutionInput {
   keep: boolean;
   /** Test seam only. Defaults to the real registry; production callers omit it. */
   resolveRuntime?: (id: string) => Runtime;
+  /**
+   * Called synchronously for each non-fatal warning as it occurs (e.g. a
+   * credential file that could not be scrubbed on cleanup). This is the
+   * *only* way such a warning reaches the caller when a later step
+   * (execute/normalize/trace write/artifact collection) throws, since no
+   * RunPipelineResult is ever returned on that path — the throw propagates
+   * and the caller never sees a return value to read warnings off.
+   */
+  onWarning?: (message: string) => void;
 }
 
 export interface RunPipelineResult {
@@ -26,13 +35,6 @@ export interface RunPipelineResult {
   runDir: string;
   cell: ResolvedCell;
   trace: Trace;
-  /**
-   * Non-fatal problems the caller should surface (e.g. a credential file
-   * that could not be scrubbed on cleanup). Best-effort, not a guarantee —
-   * an empty array does not prove nothing went wrong outside what this
-   * process could observe (a killing signal, for instance).
-   */
-  warnings: string[];
 }
 
 /**
@@ -51,7 +53,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   context.keep = input.keep;
 
   let prepared: PreparedRun | undefined;
-  const warnings: string[] = [];
+  const warn = (message: string) => input.onWarning?.(message);
   try {
     const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
     prepared = await runtime.prepare(cell, context);
@@ -101,14 +103,14 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // runs/<run-id>/*.log). A full-file read+rewrite rather than copyFile:
     // design doc §9.2 requires stripping tokens/keys from logs, and a
     // trusted task can still accidentally print its own environment. Known
-    // bridged credential values (exact match, off prepared.env) are
-    // stripped first, then the generic shape-based patterns as a fallback
-    // for anything not explicitly tracked. This means persisted logs are no
-    // longer a byte-for-byte copy of what the runtime produced.
-    const preparedEnv = prepared.env;
-    const knownCredentialValues = CREDENTIAL_ENV_KEYS.map((key) => preparedEnv[key]).filter(
-      (value): value is string => Boolean(value),
-    );
+    // bridged credential values (exact match, reported directly by the
+    // adapter via credentialValuesToRedact — not inferred from env var
+    // names, which can't reach a secret embedded in file content like a
+    // bridged auth.json's OAuth tokens) are stripped first, then the
+    // generic shape-based patterns as a fallback for anything not
+    // explicitly tracked. This means persisted logs are no longer a
+    // byte-for-byte copy of what the runtime produced.
+    const knownCredentialValues = prepared.credentialValuesToRedact;
     const redact = (text: string) => redactSecrets(redactKnownValues(text, knownCredentialValues));
     const [stdoutRaw, stderrRaw] = await Promise.all([
       readFile(result.stdoutPath, 'utf8'),
@@ -122,29 +124,26 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     const manifest = await collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log']);
     await writeArtifactManifest(layout.runDir, manifest);
 
-    const pipelineResult: RunPipelineResult = {
-      runId,
-      runDir: layout.runDir,
-      cell,
-      trace,
-      warnings,
-    };
-    return pipelineResult;
+    return { runId, runDir: layout.runDir, cell, trace };
   } finally {
     // Credential material should never survive a run, even under `--keep` —
     // `--keep` preserves config/logs for debugging, never bridged auth
-    // material. Best-effort, not a guarantee: a failed deletion is recorded
-    // as a warning (with the residual path) rather than silently swallowed,
-    // and a killing signal can still bypass this async finally entirely
-    // (tracked separately in #16). Scrub before dispose() so this runs
-    // regardless of which branch above threw.
+    // material. Best-effort, not a guarantee: a failed deletion is reported
+    // via onWarning (naming the residual path) rather than silently
+    // swallowed — and reported here, in finally, specifically because this
+    // is the only place a warning can still reach the caller when an
+    // earlier step (execute/normalize/trace write/artifact collection)
+    // threw and no RunPipelineResult will ever be returned. A killing
+    // signal can still bypass this async finally entirely (tracked
+    // separately in #16). Scrub before dispose() so this runs regardless of
+    // which branch above threw.
     if (prepared) {
       await Promise.all(
         prepared.credentialFilePaths.map(async (path) => {
           try {
             await rm(path, { force: true });
           } catch (error) {
-            warnings.push(
+            warn(
               `failed to scrub credential file, it may still be present on disk: ${path} (${
                 error instanceof Error ? error.message : String(error)
               })`,

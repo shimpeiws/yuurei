@@ -84,6 +84,7 @@ describe('run pipeline', () => {
           isolation,
           cell,
           credentialFilePaths: [credentialPath],
+          credentialValuesToRedact: [],
         };
       },
       execute: async (run: PreparedRun) => {
@@ -163,6 +164,7 @@ describe('run pipeline', () => {
           isolation,
           cell,
           credentialFilePaths: [unscrubbablePath],
+          credentialValuesToRedact: [],
         };
       },
       execute: async (run: PreparedRun) => {
@@ -188,7 +190,8 @@ describe('run pipeline', () => {
       }),
     };
 
-    const result = await runPipeline({
+    const warnings: string[] = [];
+    await runPipeline({
       runtimeId: profile.runtime,
       requestedModel: '',
       profile,
@@ -198,11 +201,81 @@ describe('run pipeline', () => {
       isolationStrategy: 'level1',
       keep: false,
       resolveRuntime: () => fake,
+      onWarning: (message) => warnings.push(message),
     });
 
     if (!unscrubbablePath) throw new Error('fake runtime prepare() was never called');
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain(unscrubbablePath);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(unscrubbablePath);
+  });
+
+  it('reports a scrub-failure warning via onWarning even when a later step throws', async () => {
+    // The whole point of the callback: when execute() throws, no
+    // RunPipelineResult is ever returned, so onWarning is the only channel
+    // through which a lost-credential warning can still reach the caller.
+    const profile: ResolvedProfile = {
+      name: 'fake-cred-throws',
+      runtime: 'fake-cred-runtime-4',
+      content: { profileYaml: { runtime: 'fake-cred-runtime-4' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+
+    let unscrubbablePath: string | undefined;
+
+    const fake: Runtime = {
+      id: () => 'fake-cred-runtime-4',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => {
+        unscrubbablePath = join(isolation.rootDir, 'not-actually-a-file');
+        await mkdir(unscrubbablePath, { recursive: true });
+        await writeFile(join(unscrubbablePath, 'inner.txt'), 'x', 'utf8');
+        return {
+          runtimeId: 'fake-cred-runtime-4',
+          command: 'true',
+          args: [],
+          env: {},
+          cwd: isolation.rootDir,
+          isolation,
+          cell,
+          credentialFilePaths: [unscrubbablePath],
+          credentialValuesToRedact: [],
+        };
+      },
+      execute: async () => {
+        throw new Error('simulated execution failure');
+      },
+      normalize: async () => ({
+        runtime: { id: 'fake-cred-runtime-4', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: 0, durationMs: 0 },
+        usage: {},
+      }),
+    };
+
+    const warnings: string[] = [];
+    await expect(
+      runPipeline({
+        runtimeId: profile.runtime,
+        requestedModel: '',
+        profile,
+        taskPath,
+        yuureiVersion: '0.0.1',
+        yuureiDir: workDir,
+        isolationStrategy: 'level1',
+        keep: false,
+        resolveRuntime: () => fake,
+        onWarning: (message) => warnings.push(message),
+      }),
+    ).rejects.toThrow('simulated execution failure');
+
+    if (!unscrubbablePath) throw new Error('fake runtime prepare() was never called');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain(unscrubbablePath);
   });
 
   it('redacts a known bridged credential value from persisted stdout/stderr', async () => {
@@ -232,6 +305,7 @@ describe('run pipeline', () => {
         isolation,
         cell,
         credentialFilePaths: [],
+        credentialValuesToRedact: [secretValue],
       }),
       execute: async (run: PreparedRun) => {
         const stdoutPath = join(run.isolation.rootDir, 'stdout.log');

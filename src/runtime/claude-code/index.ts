@@ -19,13 +19,6 @@ import { claudeConfigDir } from './paths.js';
 const RUNTIME_ID = 'claude-code';
 const COMMAND = 'claude';
 
-// Note: also listed in trace/redact.ts's CREDENTIAL_ENV_KEYS, which the
-// pipeline uses to redact known bridged values from persisted logs. Kept as
-// a separate, adapter-local list here (rather than importing that one)
-// because this list controls *which env vars this adapter forwards* —
-// adapter-specific behavior — while the other is a cross-adapter constant
-// for generic post-hoc redaction; conflating them would let a future
-// third adapter's forwarding accidentally change here.
 const CLAUDE_CREDENTIAL_ENV_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
 
 /**
@@ -35,12 +28,19 @@ const CLAUDE_CREDENTIAL_ENV_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']
  * OS keychain, which §10.2 forbids reading. Operators who authenticated via
  * subscription login run `claude setup-token` once and export the result.
  * Never reads the keychain, never copies any part of the real ~/.claude.
+ * Returns the values actually forwarded, so the pipeline can redact them
+ * from persisted logs without needing to know their env var names.
  */
-function bridgeClaudeCredentials(env: Record<string, string>): void {
+function bridgeClaudeCredentials(env: Record<string, string>): string[] {
+  const forwardedValues: string[] = [];
   for (const key of CLAUDE_CREDENTIAL_ENV_KEYS) {
     const value = process.env[key];
-    if (value) env[key] = value;
+    if (value) {
+      env[key] = value;
+      forwardedValues.push(value);
+    }
   }
+  return forwardedValues;
 }
 
 export class ClaudeCodeRuntime implements Runtime {
@@ -57,7 +57,7 @@ export class ClaudeCodeRuntime implements Runtime {
     const configDir = claudeConfigDir(configRootOf(isolation));
     await mkdir(configDir, { recursive: true, mode: 0o700 });
     await writeFileTree(configDir, cell.resolvedProfile.content.configFiles);
-    bridgeClaudeCredentials(env);
+    const credentialValuesToRedact = bridgeClaudeCredentials(env);
     env['CLAUDE_CONFIG_DIR'] = configDir;
 
     return {
@@ -71,6 +71,7 @@ export class ClaudeCodeRuntime implements Runtime {
       // Credentials here are env vars only (bridgeClaudeCredentials above) —
       // nothing is ever written to disk, so there's nothing to scrub.
       credentialFilePaths: [],
+      credentialValuesToRedact,
     };
   }
 
