@@ -9,6 +9,10 @@ describe('yuurei doctor', () => {
     expect(runtimeIds).toEqual(expect.arrayContaining(['claude-code', 'codex']));
     for (const runtime of report.runtimes) {
       expect(typeof runtime.installed).toBe('boolean');
+      expect(
+        runtime.versionSupported === null || typeof runtime.versionSupported === 'boolean',
+      ).toBe(true);
+      expect(runtime.authUsable === null || typeof runtime.authUsable === 'boolean').toBe(true);
     }
   });
 

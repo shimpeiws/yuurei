@@ -8,8 +8,8 @@ interface DoctorRuntimeCheck {
   runtimeId: string;
   installed: boolean;
   version: string | null;
-  /** Not implemented in the v0.3 scaffold; filled in during Phase 1+. */
-  authUsable: null;
+  versionSupported: boolean | null;
+  authUsable: boolean | null;
 }
 
 export interface DoctorReport {
@@ -31,7 +31,8 @@ export async function runDoctor(): Promise<DoctorReport> {
       runtimeId,
       installed: detection.installed,
       version: detection.version,
-      authUsable: null,
+      versionSupported: detection.versionSupported,
+      authUsable: detection.authUsable,
     });
   }
 
@@ -45,6 +46,8 @@ export function printDoctorReport(report: DoctorReport, logger: Logger): void {
   for (const runtime of report.runtimes) {
     logger.info(`${runtime.runtimeId}: ${runtime.installed ? 'installed' : 'not found'}`, {
       version: runtime.version,
+      versionSupported: runtime.versionSupported,
+      authUsable: runtime.authUsable,
     });
   }
   logger.info(`output directory writable: ${report.canWriteOutputDir}`);

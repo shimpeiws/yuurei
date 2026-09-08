@@ -14,6 +14,7 @@ export async function detectViaVersionFlag(
     return {
       installed: true,
       version: stdout.trim() || null,
+      versionSupported: null,
       executablePath: command,
       authUsable: null,
     };
@@ -21,8 +22,28 @@ export async function detectViaVersionFlag(
     return {
       installed: false,
       version: null,
+      versionSupported: null,
       executablePath: null,
       authUsable: null,
     };
   }
+}
+
+export function isVersionAtLeast(
+  version: string | null,
+  minimum: [number, number, number],
+): boolean | null {
+  if (!version) return null;
+  const match = version.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (!match) return null;
+  const actual: [number, number, number] = [
+    Number(match[1]),
+    Number(match[2]),
+    Number(match[3] ?? 0),
+  ];
+  return (
+    actual[0] > minimum[0] ||
+    (actual[0] === minimum[0] &&
+      (actual[1] > minimum[1] || (actual[1] === minimum[1] && actual[2] >= minimum[2])))
+  );
 }

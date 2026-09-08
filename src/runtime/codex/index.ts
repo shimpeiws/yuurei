@@ -5,7 +5,7 @@ import type { IsolationContext } from '../../isolation/types.js';
 import { configRootOf } from '../../isolation/config-root.js';
 import type { ResolvedCell } from '../../cell/types.js';
 import { EXIT_CODES, YuureiError } from '../../cli/exit-codes.js';
-import { detectViaVersionFlag } from '../detect.js';
+import { detectViaVersionFlag, isVersionAtLeast } from '../detect.js';
 import { execCapture } from '../exec.js';
 import type {
   NormalizedTraceFragment,
@@ -20,6 +20,7 @@ import { codexConfigDir } from './paths.js';
 
 const RUNTIME_ID = 'codex';
 const COMMAND = 'codex';
+const MIN_SUPPORTED_VERSION: [number, number, number] = [0, 100, 0];
 
 /**
  * Root-level `auth.json` is reserved for the opt-in bridged credential (see
@@ -167,7 +168,15 @@ export class CodexRuntime implements Runtime {
   }
 
   async detect(): Promise<RuntimeDetection> {
-    return detectViaVersionFlag(COMMAND);
+    const detection = await detectViaVersionFlag(COMMAND);
+    const authFile = join(codexConfigDir(homedir()), 'auth.json');
+    return {
+      ...detection,
+      versionSupported: isVersionAtLeast(detection.version, MIN_SUPPORTED_VERSION),
+      authUsable:
+        Boolean(process.env['OPENAI_API_KEY']) ||
+        (detection.installed && (await pathExists(authFile))),
+    };
   }
 
   async prepare(cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> {
