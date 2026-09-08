@@ -12,4 +12,8 @@ describe('isVersionAtLeast', () => {
     expect(isVersionAtLeast(null, [1, 0, 0])).toBeNull();
     expect(isVersionAtLeast('development build', [1, 0, 0])).toBeNull();
   });
+
+  it('uses the final version token in a CLI banner', () => {
+    expect(isVersionAtLeast('build 2026.09.08 codex-cli 0.153.4', [0, 100, 0])).toBe(true);
+  });
 });

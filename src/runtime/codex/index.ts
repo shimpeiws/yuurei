@@ -169,13 +169,10 @@ export class CodexRuntime implements Runtime {
 
   async detect(): Promise<RuntimeDetection> {
     const detection = await detectViaVersionFlag(COMMAND);
-    const authFile = join(codexConfigDir(homedir()), 'auth.json');
     return {
       ...detection,
       versionSupported: isVersionAtLeast(detection.version, MIN_SUPPORTED_VERSION),
-      authUsable:
-        Boolean(process.env['OPENAI_API_KEY']) ||
-        (detection.installed && (await pathExists(authFile))),
+      authUsable: detection.installed && Boolean(process.env['OPENAI_API_KEY']),
     };
   }
 

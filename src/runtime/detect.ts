@@ -34,7 +34,8 @@ export function isVersionAtLeast(
   minimum: [number, number, number],
 ): boolean | null {
   if (!version) return null;
-  const match = version.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+  const matches = [...version.matchAll(/(\d+)\.(\d+)(?:\.(\d+))?/g)];
+  const match = matches.at(-1);
   if (!match) return null;
   const actual: [number, number, number] = [
     Number(match[1]),

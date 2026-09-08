@@ -54,7 +54,8 @@ export class ClaudeCodeRuntime implements Runtime {
     return {
       ...detection,
       versionSupported: isVersionAtLeast(detection.version, MIN_SUPPORTED_VERSION),
-      authUsable: Boolean(process.env['ANTHROPIC_API_KEY'] || process.env['ANTHROPIC_AUTH_TOKEN']),
+      authUsable:
+        detection.installed && CLAUDE_CREDENTIAL_ENV_KEYS.some((key) => Boolean(process.env[key])),
     };
   }
 

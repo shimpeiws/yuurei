@@ -19,9 +19,8 @@ export interface DoctorReport {
 
 /**
  * `yuurei doctor` — inspection only, never mutates the environment
- * (design doc §8.1). Only the checks that are genuinely cheap and
- * meaningful in the scaffold are implemented for real; the rest are left
- * as explicit `null` rather than guessed.
+ * (design doc §8.1). Authentication is reported only when an installed
+ * runtime has credentials available through its supported default path.
  */
 export async function runDoctor(): Promise<DoctorReport> {
   const runtimes: DoctorRuntimeCheck[] = [];
