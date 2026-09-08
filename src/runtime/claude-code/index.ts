@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { IsolationContext } from '../../isolation/types.js';
 import { configRootOf } from '../../isolation/config-root.js';
@@ -67,6 +67,8 @@ export class ClaudeCodeRuntime implements Runtime {
     const credentialValuesToRedact = bridgeClaudeCredentials(env);
     env['CLAUDE_CONFIG_DIR'] = configDir;
 
+    const detection = await this.detect();
+
     return {
       runtimeId: RUNTIME_ID,
       command: COMMAND,
@@ -75,6 +77,7 @@ export class ClaudeCodeRuntime implements Runtime {
       cwd: isolation.rootDir,
       isolation,
       cell,
+      runtimeVersion: detection.version,
       // Credentials here are env vars only (bridgeClaudeCredentials above) —
       // nothing is ever written to disk, so there's nothing to scrub.
       credentialFilePaths: [],
@@ -93,14 +96,39 @@ export class ClaudeCodeRuntime implements Runtime {
     });
   }
 
-  async normalize(result: RuntimeResult): Promise<NormalizedTraceFragment> {
+  async normalize(result: RuntimeResult, run: PreparedRun): Promise<NormalizedTraceFragment> {
     const durationMs = new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime();
 
+    let usage: Record<string, number | null> = {};
+    try {
+      const stdout = await readFile(result.stdoutPath, 'utf8');
+      const parsed: unknown = JSON.parse(stdout.trim());
+      if (typeof parsed === 'object' && parsed !== null) {
+        const obj = parsed as Record<string, unknown>;
+        const usageRaw = obj['usage'];
+        if (typeof usageRaw === 'object' && usageRaw !== null) {
+          const u = usageRaw as Record<string, unknown>;
+          const pick = (key: string): number | null => {
+            const v = u[key];
+            return typeof v === 'number' ? v : null;
+          };
+          usage = {
+            input_tokens: pick('input_tokens'),
+            output_tokens: pick('output_tokens'),
+            cache_creation_input_tokens: pick('cache_creation_input_tokens'),
+            cache_read_input_tokens: pick('cache_read_input_tokens'),
+          };
+        }
+      }
+    } catch {
+      // stdout absent or not valid JSON — leave usage empty (unobserved)
+    }
+
     return {
-      runtime: { id: RUNTIME_ID, version: null },
+      runtime: { id: RUNTIME_ID, version: run.runtimeVersion },
       model: { requested: '', resolved: null },
       execution: { exitCode: result.exitCode, durationMs },
-      usage: {},
+      usage,
     };
   }
 }

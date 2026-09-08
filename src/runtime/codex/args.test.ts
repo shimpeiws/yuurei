@@ -42,4 +42,9 @@ describe('buildCodexArgs', () => {
     expect(args).toContain('--model');
     expect(args[args.length - 1]).toBe('o3');
   });
+
+  it('includes --json for JSONL event output', () => {
+    const args = buildCodexArgs(makeCell(''));
+    expect(args).toContain('--json');
+  });
 });

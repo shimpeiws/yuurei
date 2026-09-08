@@ -20,6 +20,8 @@ export interface PreparedRun {
   cwd: string;
   isolation: IsolationContext;
   cell: ResolvedCell;
+  /** null = version could not be determined at prepare() time; never a hardcoded fallback. */
+  runtimeVersion: string | null;
   /**
    * Absolute paths to any credential material this adapter wrote to disk
    * during prepare() (empty for adapters that only forward env vars). The
@@ -68,5 +70,5 @@ export interface Runtime {
   detect(): Promise<RuntimeDetection>;
   prepare(cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun>;
   execute(run: PreparedRun): Promise<RuntimeResult>;
-  normalize(result: RuntimeResult): Promise<NormalizedTraceFragment>;
+  normalize(result: RuntimeResult, run: PreparedRun): Promise<NormalizedTraceFragment>;
 }

@@ -6,7 +6,7 @@ import type { ResolvedCell } from '../../cell/types.js';
  * this file (design doc §6.1: adapter-internal conventions must not leak).
  */
 export function buildClaudeCodeArgs(cell: ResolvedCell): string[] {
-  const args = ['--print', cell.resolvedTask.content];
+  const args = ['--print', '--output-format', 'json', cell.resolvedTask.content];
   if (cell.requestedModel) {
     args.push('--model', cell.requestedModel);
   }

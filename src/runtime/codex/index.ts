@@ -197,6 +197,8 @@ export class CodexRuntime implements Runtime {
 
     env['CODEX_HOME'] = configDir;
 
+    const detection = await this.detect();
+
     return {
       runtimeId: RUNTIME_ID,
       command: COMMAND,
@@ -205,6 +207,7 @@ export class CodexRuntime implements Runtime {
       cwd: isolation.rootDir,
       isolation,
       cell,
+      runtimeVersion: detection.version,
       credentialFilePaths,
       credentialValuesToRedact,
     };
@@ -221,14 +224,51 @@ export class CodexRuntime implements Runtime {
     });
   }
 
-  async normalize(result: RuntimeResult): Promise<NormalizedTraceFragment> {
+  async normalize(result: RuntimeResult, run: PreparedRun): Promise<NormalizedTraceFragment> {
     const durationMs = new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime();
 
+    let usage: Record<string, number | null> = {};
+    try {
+      const stdout = await readFile(result.stdoutPath, 'utf8');
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const event: unknown = JSON.parse(trimmed);
+          if (typeof event === 'object' && event !== null) {
+            const obj = event as Record<string, unknown>;
+            if (obj['type'] === 'turn.completed') {
+              const usageRaw = obj['usage'];
+              if (typeof usageRaw === 'object' && usageRaw !== null) {
+                const u = usageRaw as Record<string, unknown>;
+                const pick = (key: string): number | null => {
+                  const v = u[key];
+                  return typeof v === 'number' ? v : null;
+                };
+                usage = {
+                  input_tokens: pick('input_tokens'),
+                  output_tokens: pick('output_tokens'),
+                  cached_input_tokens: pick('cached_input_tokens'),
+                  cache_write_input_tokens: pick('cache_write_input_tokens'),
+                  reasoning_output_tokens: pick('reasoning_output_tokens'),
+                };
+              }
+              break;
+            }
+          }
+        } catch {
+          // skip unparseable line
+        }
+      }
+    } catch {
+      // stdout absent — leave usage empty (unobserved)
+    }
+
     return {
-      runtime: { id: RUNTIME_ID, version: null },
+      runtime: { id: RUNTIME_ID, version: run.runtimeVersion },
       model: { requested: '', resolved: null },
       execution: { exitCode: result.exitCode, durationMs },
-      usage: {},
+      usage,
     };
   }
 }

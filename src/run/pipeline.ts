@@ -58,7 +58,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
     prepared = await runtime.prepare(cell, context);
     const result = await runtime.execute(prepared);
-    const fragment = await runtime.normalize(result);
+    const fragment = await runtime.normalize(result, prepared);
 
     const costModel = new NoopCostModel();
     const costEstimate = await costModel.estimate({
