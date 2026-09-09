@@ -1,4 +1,5 @@
 import type { ProfileContent } from '../profile/types.js';
+import type { IsolationStrategy } from '../isolation/types.js';
 
 /**
  * A resolved profile bundled with its content digest. `content` is the
@@ -29,6 +30,12 @@ export interface ResolvedCell {
   resolvedTask: ResolvedTaskRef;
   yuureiVersion: string;
   executionOptions: Record<string, unknown>;
+  /**
+   * Isolation strategy the cell runs under (design doc §7.3, §9.3). Part of
+   * cell identity: level0 and level1 runs have materially different
+   * HOME/config semantics and must never share a cellDigest.
+   */
+  isolationStrategy: IsolationStrategy;
   /** sha256 digest over the canonicalized combination of the fields above. */
   cellDigest: string;
 }
@@ -40,4 +47,5 @@ export interface CellIdentityInput {
   resolvedTask: ResolvedTaskRef;
   yuureiVersion: string;
   executionOptions: Record<string, unknown>;
+  isolationStrategy: IsolationStrategy;
 }

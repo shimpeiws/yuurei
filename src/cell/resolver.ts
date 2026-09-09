@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { sha256Digest } from '../util/hash.js';
 import type { ResolvedProfile } from '../profile/types.js';
+import type { IsolationStrategy } from '../isolation/types.js';
 import { computeCellDigest } from './digest.js';
 import type { ResolvedCell, ResolvedTaskRef } from './types.js';
 
@@ -11,6 +12,7 @@ export interface CellResolutionInput {
   taskPath: string;
   yuureiVersion: string;
   executionOptions?: Record<string, unknown>;
+  isolationStrategy: IsolationStrategy;
 }
 
 /** Resolves a task file into its content plus a content digest. */
@@ -39,6 +41,7 @@ export async function resolveCell(input: CellResolutionInput): Promise<ResolvedC
     resolvedTask,
     yuureiVersion: input.yuureiVersion,
     executionOptions,
+    isolationStrategy: input.isolationStrategy,
   });
 
   return {
@@ -48,6 +51,7 @@ export async function resolveCell(input: CellResolutionInput): Promise<ResolvedC
     resolvedTask,
     yuureiVersion: input.yuureiVersion,
     executionOptions,
+    isolationStrategy: input.isolationStrategy,
     cellDigest,
   };
 }

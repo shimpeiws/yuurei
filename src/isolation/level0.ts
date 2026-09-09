@@ -7,15 +7,24 @@ import { pathExists } from '../util/fs.js';
 /**
  * Level 0 isolation: swaps CLI arguments / config-root paths only, no
  * temporary HOME. The narrowest isolation strategy (design doc §9.3).
+ *
+ * Unlike level1, the operator's real HOME is left untouched in the
+ * spawned process's environment — level0 only redirects config-root
+ * resolution (e.g. CLAUDE_CONFIG_DIR/CODEX_HOME, set later by the runtime
+ * adapter via configRootOf()) rather than sandboxing HOME itself. A
+ * runtime, hook, or command that reads $HOME for anything other than its
+ * own config root still sees the operator's real home directory under
+ * level0 — that is the intended, narrower tradeoff this level makes.
  */
 export class Level0Isolation implements Isolation {
   async create(_cell: ResolvedCell): Promise<IsolationContext> {
     const rootDir = await createTempDir();
+    const realHome = process.env['HOME'];
     return {
       strategy: 'level0',
       rootDir,
       homeDir: null,
-      env: buildRestrictedEnv(process.env, {}),
+      env: buildRestrictedEnv(process.env, realHome !== undefined ? { HOME: realHome } : {}),
       keep: false,
     };
   }
@@ -29,6 +38,10 @@ export class Level0Isolation implements Isolation {
     }
     if (context.homeDir !== null) {
       findings.push('level0 isolation must not set homeDir');
+    }
+    const realHome = process.env['HOME'];
+    if (realHome !== undefined && context.env['HOME'] !== realHome) {
+      findings.push('level0 isolation must leave the real HOME untouched');
     }
 
     return findings.length === 0

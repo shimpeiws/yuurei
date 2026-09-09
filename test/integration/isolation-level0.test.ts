@@ -1,9 +1,11 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import process from 'node:process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeCodeRuntime } from '../../src/runtime/claude-code/index.js';
 import { CodexRuntime } from '../../src/runtime/codex/index.js';
+import { execCapture } from '../../src/runtime/exec.js';
 import type { Runtime, PreparedRun, NormalizedTraceFragment } from '../../src/runtime/types.js';
 import type { ResolvedCell } from '../../src/cell/types.js';
 import type { IsolationContext } from '../../src/isolation/types.js';
@@ -43,6 +45,53 @@ describe('level0 isolation', () => {
     try {
       expect(context.homeDir).toBeNull();
       expect(configRootOf(context)).toBe(context.rootDir);
+    } finally {
+      await isolation.dispose(context);
+    }
+  });
+
+  it('preserves the real HOME in-process, unlike level1 (design doc §9.3: config-root swap only)', async () => {
+    const realHome = process.env['HOME'];
+    if (realHome === undefined) {
+      throw new Error('test requires process.env.HOME to be set');
+    }
+
+    const isolation = new Level0Isolation();
+    const context = await isolation.create({} as ResolvedCell);
+    try {
+      expect(context.env['HOME']).toBe(realHome);
+      const report = await isolation.verify(context);
+      expect(report.verified).toBe(true);
+    } finally {
+      await isolation.dispose(context);
+    }
+  });
+
+  it('actually hands the real HOME to a spawned child process, not just the in-memory env object', async () => {
+    // The unit-level assertion above only proves context.env carries HOME —
+    // it does not prove a real OS child process launched with that env
+    // object actually receives it. Spawn one for real via execCapture, the
+    // same primitive runtime adapters use to launch claude/codex, to close
+    // that gap.
+    const realHome = process.env['HOME'];
+    if (realHome === undefined) {
+      throw new Error('test requires process.env.HOME to be set');
+    }
+
+    const isolation = new Level0Isolation();
+    const context = await isolation.create({} as ResolvedCell);
+    const stdoutPath = join(context.rootDir, 'stdout.log');
+    const stderrPath = join(context.rootDir, 'stderr.log');
+    try {
+      await execCapture({
+        command: process.execPath,
+        args: ['-e', 'process.stdout.write(process.env.HOME || "")'],
+        env: context.env,
+        cwd: context.rootDir,
+        stdoutPath,
+        stderrPath,
+      });
+      expect(await readFile(stdoutPath, 'utf8')).toBe(realHome);
     } finally {
       await isolation.dispose(context);
     }
@@ -134,11 +183,16 @@ describe('level0 isolation', () => {
 
       // level0 has no homeDir: CLAUDE_CONFIG_DIR must be swapped to a path
       // under rootDir instead (design doc §9.3), never left pointing at the
-      // real ~/.claude that HOME still resolves to.
+      // real ~/.claude that HOME still resolves to. HOME itself is
+      // deliberately left as the real value under level0 (unlike level1) —
+      // see Level0Isolation's doc comment — so it is the one env value
+      // expected to still point at globalHome here.
       expect(observed.isolation.homeDir).toBeNull();
+      expect(observed.env['HOME']).toBe(globalHome);
       expect(observed.env['CLAUDE_CONFIG_DIR']).toBe(join(observed.isolation.rootDir, '.claude'));
       expect(observed.env['CLAUDE_CONFIG_DIR']).not.toBe(join(globalHome, '.claude'));
-      for (const value of Object.values(observed.env)) {
+      for (const [key, value] of Object.entries(observed.env)) {
+        if (key === 'HOME') continue;
         expect(value.startsWith(globalHome)).toBe(false);
       }
 
