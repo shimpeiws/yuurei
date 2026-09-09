@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EXIT_CODES, YuureiError } from '../../src/cli/exit-codes.js';
+import { NoopCostModel } from '../../src/cost/noop.js';
 import { runPipeline } from '../../src/run/pipeline.js';
 import { pathExists } from '../../src/util/fs.js';
 import type { ResolvedProfile } from '../../src/profile/types.js';
@@ -492,5 +493,77 @@ describe('run pipeline', () => {
 
     expect(receivedTimeoutMs).toBeNull();
     expect(result.trace.execution.timed_out).toBe(false);
+  });
+
+  it('passes runtime, requested model, and observed usage to CostModel.estimate()', async () => {
+    const profile: ResolvedProfile = {
+      name: 'fake-cost',
+      runtime: 'fake-cost-runtime',
+      content: { profileYaml: { runtime: 'fake-cost-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+
+    const estimate = vi.spyOn(NoopCostModel.prototype, 'estimate');
+    const fake: Runtime = {
+      id: () => 'fake-cost-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+        runtimeId: 'fake-cost-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialFilePaths: [],
+        credentialValuesToRedact: [],
+      }),
+      execute: async (run: PreparedRun) => {
+        const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+        const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+        await writeFile(stdoutPath, '', 'utf8');
+        await writeFile(stderrPath, '', 'utf8');
+        return {
+          exitCode: 0,
+          signal: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          stdoutPath,
+          stderrPath,
+          timedOut: false,
+        };
+      },
+      normalize: async () => ({
+        runtime: { id: 'fake-cost-runtime', version: null },
+        model: { requested: '', resolved: 'resolved-model' },
+        execution: { exitCode: 0, durationMs: 0 },
+        usage: { input_tokens: 123, output_tokens: null },
+      }),
+    };
+
+    await runPipeline({
+      runtimeId: profile.runtime,
+      requestedModel: 'requested-model',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      resolveRuntime: () => fake,
+    });
+
+    expect(estimate).toHaveBeenCalledWith({
+      runtimeId: 'fake-cost-runtime',
+      model: 'requested-model',
+      tokensIn: 123,
+      tokensOut: null,
+    });
   });
 });
