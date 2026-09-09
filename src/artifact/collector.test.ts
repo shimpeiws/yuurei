@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -27,6 +27,26 @@ describe('collectArtifacts', () => {
       ],
     });
     await expect(readFile(join(runDir, 'output.log'), 'utf8')).resolves.toBe('0123');
+  });
+
+  it('preserves the mode of a rewritten executable artifact', async () => {
+    runDir = await mkdtemp(join(tmpdir(), 'yuurei-artifacts-'));
+    await writeFile(join(runDir, 'tool.sh'), '0123456789', { mode: 0o755 });
+    await chmod(join(runDir, 'tool.sh'), 0o755);
+
+    await expect(collectArtifacts(runDir, ['tool.sh'], { maxBytes: 4 })).resolves.toEqual({
+      artifacts: [
+        {
+          path: 'tool.sh',
+          kind: 'file',
+          digest: sha256Digest('0123'),
+          truncated: true,
+        },
+      ],
+    });
+    await expect(stat(join(runDir, 'tool.sh'))).resolves.toMatchObject({
+      mode: 0o100755,
+    });
   });
 
   it('preserves the existing manifest shape for normal-sized files', async () => {

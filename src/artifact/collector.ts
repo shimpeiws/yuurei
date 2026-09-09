@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { rename, rm, writeFile } from 'node:fs/promises';
+import { rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Artifact, ArtifactManifest } from './types.js';
 
@@ -79,7 +79,8 @@ async function collectArtifact(
     }
 
     if (needsRewrite) {
-      await writeFile(tempPath, Buffer.concat(chunks));
+      const sourceStats = await stat(sourcePath);
+      await writeFile(tempPath, Buffer.concat(chunks), { mode: sourceStats.mode & 0o7777 });
       await rename(tempPath, sourcePath);
     }
   } catch (error) {
