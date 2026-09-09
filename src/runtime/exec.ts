@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
+import { finished } from 'node:stream/promises';
 import type { RuntimeResult } from './types.js';
 
 export interface ExecOptions {
@@ -88,6 +89,11 @@ export function execCapture(options: ExecOptions): Promise<RuntimeResult> {
 
     child.on('error', (error) => {
       clearTimers();
+      // No data can have reached these files if spawn itself failed —
+      // destroy rather than leave them open waiting for a 'close'/'finish'
+      // that a never-started child will never produce.
+      stdoutStream.destroy();
+      stderrStream.destroy();
       reject(error);
     });
 
@@ -103,15 +109,25 @@ export function execCapture(options: ExecOptions): Promise<RuntimeResult> {
 
     child.on('close', (exitCode, signal) => {
       clearTimers();
-      resolvePromise({
-        exitCode,
-        signal,
-        startedAt,
-        finishedAt: new Date().toISOString(),
-        stdoutPath: options.stdoutPath,
-        stderrPath: options.stderrPath,
-        timedOut,
-      });
+      // 'close' only confirms the child's own stdio streams have ended —
+      // not that our destination write streams have flushed their buffered
+      // data to disk. pipe() calls .end() on them in response, but that
+      // completes asynchronously; resolving before it does can hand the
+      // caller a stdoutPath/stderrPath that's still being written to,
+      // producing a truncated read for a run that actually finished fine.
+      Promise.all([finished(stdoutStream), finished(stderrStream)])
+        .then(() => {
+          resolvePromise({
+            exitCode,
+            signal,
+            startedAt,
+            finishedAt: new Date().toISOString(),
+            stdoutPath: options.stdoutPath,
+            stderrPath: options.stderrPath,
+            timedOut,
+          });
+        })
+        .catch(reject);
     });
   });
 }
