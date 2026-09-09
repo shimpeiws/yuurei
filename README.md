@@ -20,6 +20,10 @@ toward `yuurei`.
 
 ## Quickstart
 
+Start with the [Getting started guide](docs/getting-started.md) to create
+your first project configuration, profile, and task, then inspect the
+resulting trace and logs.
+
 ```sh
 yuurei doctor
 yuurei profile list
