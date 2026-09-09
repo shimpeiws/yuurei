@@ -13,6 +13,7 @@ const base: CellIdentityInput = {
   resolvedTask: { source: 'task.md', content: '# Task\n', digest: 'sha256:task' },
   yuureiVersion: '0.0.1',
   executionOptions: {},
+  isolationStrategy: 'level1',
 };
 
 describe('computeCellDigest', () => {
@@ -23,6 +24,16 @@ describe('computeCellDigest', () => {
   it('changes when a cell identity field changes', () => {
     expect(computeCellDigest({ ...base, requestedModel: 'opus' })).not.toBe(
       computeCellDigest(base),
+    );
+  });
+
+  it('changes between level0 and level1 for otherwise-identical input', () => {
+    // level0 and level1 have materially different HOME/config semantics
+    // (design doc §9.3) — an otherwise-identical run must not collapse to
+    // the same cell identity just because isolationStrategy is a pipeline
+    // concern rather than profile/task content.
+    expect(computeCellDigest({ ...base, isolationStrategy: 'level0' })).not.toBe(
+      computeCellDigest({ ...base, isolationStrategy: 'level1' }),
     );
   });
 });

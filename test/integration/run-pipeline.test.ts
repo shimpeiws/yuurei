@@ -564,6 +564,87 @@ describe('run pipeline', () => {
     expect(new Set(runs.map((r) => r.runDir)).size).toBe(runs.length);
   });
 
+  it('gives otherwise-identical level0 and level1 runs different cell digests', async () => {
+    // Regression guard for the isolation strategy being a cell-identity
+    // input (design doc §7.3): level0 and level1 runs have materially
+    // different HOME/config semantics and must never be treated as the
+    // same execution cell by the comparison/ROI layer.
+    const profile: ResolvedProfile = {
+      name: 'fake-isolation-identity',
+      runtime: 'fake-isolation-identity-runtime',
+      content: {
+        profileYaml: { runtime: 'fake-isolation-identity-runtime' },
+        configFiles: {},
+      },
+      digest: 'sha256:0000',
+    };
+
+    const fake: Runtime = {
+      id: () => 'fake-isolation-identity-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+        runtimeId: 'fake-isolation-identity-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialFilePaths: [],
+        credentialValuesToRedact: [],
+      }),
+      execute: async (run: PreparedRun) => {
+        const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+        const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+        await writeFile(stdoutPath, '', 'utf8');
+        await writeFile(stderrPath, '', 'utf8');
+        return {
+          exitCode: 0,
+          signal: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          stdoutPath,
+          stderrPath,
+          timedOut: false,
+        };
+      },
+      normalize: async () => ({
+        runtime: { id: 'fake-isolation-identity-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: 0, durationMs: 0 },
+        usage: {},
+      }),
+    };
+
+    const runWithStrategy = (isolationStrategy: 'level0' | 'level1') =>
+      runPipeline({
+        runtimeId: profile.runtime,
+        requestedModel: '',
+        profile,
+        taskPath,
+        yuureiVersion: '0.0.1',
+        yuureiDir: workDir,
+        isolationStrategy,
+        keep: false,
+        resolveRuntime: () => fake,
+      });
+
+    const [level0Result, level1Result] = await Promise.all([
+      runWithStrategy('level0'),
+      runWithStrategy('level1'),
+    ]);
+
+    expect(level0Result.cell.isolationStrategy).toBe('level0');
+    expect(level1Result.cell.isolationStrategy).toBe('level1');
+    expect(level0Result.cell.cellDigest).not.toBe(level1Result.cell.cellDigest);
+  });
+
   it('passes runtime, requested model, and observed usage to CostModel.estimate()', async () => {
     const profile: ResolvedProfile = {
       name: 'fake-cost',

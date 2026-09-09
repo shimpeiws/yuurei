@@ -7,6 +7,14 @@ import { MAX_TIMEOUT_MS } from '../runtime/exec.js';
 import { isPathWithin } from '../util/fs.js';
 import { YuureiError, EXIT_CODES } from './exit-codes.js';
 import type { Logger } from '../util/logger.js';
+import type { IsolationStrategy } from '../isolation/types.js';
+
+const ISOLATION_STRATEGIES: readonly IsolationStrategy[] = ['level0', 'level1'];
+const DEFAULT_ISOLATION_STRATEGY: IsolationStrategy = 'level1';
+
+function isIsolationStrategy(value: string): value is IsolationStrategy {
+  return (ISOLATION_STRATEGIES as readonly string[]).includes(value);
+}
 
 export interface RunOptions {
   runName: string | undefined;
@@ -16,6 +24,8 @@ export interface RunOptions {
   model: string | undefined;
   /** Milliseconds before the runtime process is sent SIGTERM. undefined = no timeout. */
   timeoutMs: number | undefined;
+  /** Isolation strategy (design doc §9.3): 'level0' or 'level1'. Defaults to 'level1'. */
+  isolation: string | undefined;
   /**
    * Opt-in, experimental: bridge the real ~/.codex/auth.json into the
    * isolated CODEX_HOME (ignored for other runtimes). Off by default because
@@ -75,6 +85,14 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     );
   }
 
+  if (options.isolation !== undefined && !isIsolationStrategy(options.isolation)) {
+    throw new YuureiError(
+      `--isolation must be one of: ${ISOLATION_STRATEGIES.join(', ')}`,
+      EXIT_CODES.CONFIG_ERROR,
+    );
+  }
+  const isolationStrategy = options.isolation ?? DEFAULT_ISOLATION_STRATEGY;
+
   const profileEntry = config.profiles[profileName];
   if (!profileEntry) {
     throw new YuureiError(`unknown profile: ${profileName}`, EXIT_CODES.CONFIG_ERROR);
@@ -93,7 +111,7 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     taskPath,
     yuureiVersion: YUUREI_VERSION,
     yuureiDir,
-    isolationStrategy: 'level1',
+    isolationStrategy,
     keep: options.keep ?? false,
     timeoutMs: options.timeoutMs ?? null,
     executionOptions: { bridgeCodexAuthFile: options.bridgeCodexAuthFile ?? false },
