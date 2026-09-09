@@ -3,6 +3,7 @@ import { findYuureiDir } from '../config/discovery.js';
 import { loadYuureiConfig } from '../config/yuurei-config.js';
 import { loadProfile } from '../profile/loader.js';
 import { runPipeline } from '../run/pipeline.js';
+import { MAX_TIMEOUT_MS } from '../runtime/exec.js';
 import { isPathWithin } from '../util/fs.js';
 import { YuureiError, EXIT_CODES } from './exit-codes.js';
 import type { Logger } from '../util/logger.js';
@@ -60,9 +61,16 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     );
   }
 
-  if (options.timeoutMs !== undefined && !(options.timeoutMs > 0)) {
+  if (
+    options.timeoutMs !== undefined &&
+    !(
+      Number.isFinite(options.timeoutMs) &&
+      options.timeoutMs > 0 &&
+      options.timeoutMs <= MAX_TIMEOUT_MS
+    )
+  ) {
     throw new YuureiError(
-      '--timeout must be a positive number of milliseconds',
+      `--timeout must be a finite number of milliseconds between 1 and ${MAX_TIMEOUT_MS}`,
       EXIT_CODES.CONFIG_ERROR,
     );
   }

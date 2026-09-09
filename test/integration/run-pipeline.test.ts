@@ -352,4 +352,145 @@ describe('run pipeline', () => {
     expect(persistedStdout).not.toContain(secretValue);
     expect(persistedStdout).toContain('[REDACTED]');
   });
+
+  it('threads timeoutMs into Runtime.execute() and records timed_out in the trace', async () => {
+    const profile: ResolvedProfile = {
+      name: 'fake-timeout',
+      runtime: 'fake-timeout-runtime',
+      content: { profileYaml: { runtime: 'fake-timeout-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+
+    let receivedTimeoutMs: number | null | undefined;
+
+    const fake: Runtime = {
+      id: () => 'fake-timeout-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+        runtimeId: 'fake-timeout-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialFilePaths: [],
+        credentialValuesToRedact: [],
+      }),
+      execute: async (run: PreparedRun, timeoutMs: number | null) => {
+        receivedTimeoutMs = timeoutMs;
+        const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+        const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+        await writeFile(stdoutPath, '', 'utf8');
+        await writeFile(stderrPath, '', 'utf8');
+        return {
+          exitCode: null,
+          signal: 'SIGTERM' as const,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          stdoutPath,
+          stderrPath,
+          timedOut: true,
+        };
+      },
+      normalize: async () => ({
+        runtime: { id: 'fake-timeout-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: null, durationMs: 0 },
+        usage: {},
+      }),
+    };
+
+    const result = await runPipeline({
+      runtimeId: profile.runtime,
+      requestedModel: '',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      timeoutMs: 5000,
+      resolveRuntime: () => fake,
+    });
+
+    expect(receivedTimeoutMs).toBe(5000);
+    expect(result.trace.execution.timed_out).toBe(true);
+  });
+
+  it('passes null to Runtime.execute() when no timeoutMs is configured', async () => {
+    const profile: ResolvedProfile = {
+      name: 'fake-no-timeout',
+      runtime: 'fake-no-timeout-runtime',
+      content: { profileYaml: { runtime: 'fake-no-timeout-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+
+    let receivedTimeoutMs: number | null | undefined;
+
+    const fake: Runtime = {
+      id: () => 'fake-no-timeout-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+        runtimeId: 'fake-no-timeout-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialFilePaths: [],
+        credentialValuesToRedact: [],
+      }),
+      execute: async (run: PreparedRun, timeoutMs: number | null) => {
+        receivedTimeoutMs = timeoutMs;
+        const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+        const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+        await writeFile(stdoutPath, '', 'utf8');
+        await writeFile(stderrPath, '', 'utf8');
+        return {
+          exitCode: 0,
+          signal: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          stdoutPath,
+          stderrPath,
+          timedOut: false,
+        };
+      },
+      normalize: async () => ({
+        runtime: { id: 'fake-no-timeout-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: 0, durationMs: 0 },
+        usage: {},
+      }),
+    };
+
+    const result = await runPipeline({
+      runtimeId: profile.runtime,
+      requestedModel: '',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      resolveRuntime: () => fake,
+    });
+
+    expect(receivedTimeoutMs).toBeNull();
+    expect(result.trace.execution.timed_out).toBe(false);
+  });
 });

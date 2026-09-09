@@ -25,8 +25,33 @@ export interface ExecOptions {
  */
 const SIGKILL_GRACE_PERIOD_MS = 10_000;
 
+/**
+ * Node's setTimeout silently clamps any delay outside [1, 2^31-1] to 1ms
+ * (see the Node docs on timers) rather than erroring, so an out-of-range
+ * timeoutMs would fire almost immediately instead of behaving like "a very
+ * long timeout" — the opposite of what a caller passing e.g. `Infinity` or
+ * a 13-digit typo would expect. Rejected explicitly here rather than left
+ * to that silent clamp.
+ */
+export const MAX_TIMEOUT_MS = 2_147_483_647;
+
 /** Spawns a process, captures stdout/stderr to files, and normalizes the result. */
 export function execCapture(options: ExecOptions): Promise<RuntimeResult> {
+  if (
+    options.timeoutMs !== undefined &&
+    !(
+      Number.isFinite(options.timeoutMs) &&
+      options.timeoutMs > 0 &&
+      options.timeoutMs <= MAX_TIMEOUT_MS
+    )
+  ) {
+    return Promise.reject(
+      new RangeError(
+        `timeoutMs must be a finite number between 1 and ${MAX_TIMEOUT_MS}, got ${options.timeoutMs}`,
+      ),
+    );
+  }
+
   return new Promise((resolvePromise, reject) => {
     const startedAt = new Date().toISOString();
     const stdoutStream = createWriteStream(options.stdoutPath);
@@ -64,6 +89,16 @@ export function execCapture(options: ExecOptions): Promise<RuntimeResult> {
     child.on('error', (error) => {
       clearTimers();
       reject(error);
+    });
+
+    // 'close' waits for the child's stdio streams to finish closing, which
+    // can lag behind the process actually exiting. Stopping the timers here
+    // on 'exit' — as soon as the OS reports the process is gone — instead
+    // of only on 'close' avoids sending a stale SIGTERM/SIGKILL to an
+    // already-dead process and marking a run that finished within budget
+    // as timed out just because 'close' arrived a beat late.
+    child.on('exit', () => {
+      clearTimers();
     });
 
     child.on('close', (exitCode, signal) => {

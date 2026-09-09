@@ -23,6 +23,6 @@ describe('TraceSchema', () => {
   });
 
   it('rejects a trace with the wrong schema version', () => {
-    expect(() => TraceSchema.parse({ ...validTrace, schema_version: '0.2' })).toThrow();
+    expect(() => TraceSchema.parse({ ...validTrace, schema_version: '0.1' })).toThrow();
   });
 });

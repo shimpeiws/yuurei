@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execCapture } from './exec.js';
+import { execCapture, MAX_TIMEOUT_MS } from './exec.js';
 
 describe('execCapture', () => {
   let tmpDir: string;
@@ -53,6 +53,10 @@ describe('execCapture', () => {
   });
 
   it('escalates to SIGKILL when the process ignores SIGTERM', async () => {
+    // Generous margins: the child needs real wall-clock time to boot Node
+    // and register its SIGTERM handler before timeoutMs fires, or it would
+    // die to the default SIGTERM action instead of exercising escalation
+    // (flaky on a slow/loaded CI runner with tight margins).
     const result = await execCapture({
       command: process.execPath,
       args: ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'],
@@ -60,12 +64,32 @@ describe('execCapture', () => {
       cwd: tmpDir,
       stdoutPath,
       stderrPath,
-      timeoutMs: 200,
-      killGracePeriodMsForTests: 200,
+      timeoutMs: 1000,
+      killGracePeriodMsForTests: 1000,
     });
 
     expect(result.timedOut).toBe(true);
     expect(result.signal).toBe('SIGKILL');
     expect(result.exitCode).toBeNull();
-  }, 10_000);
+  }, 20_000);
+
+  it.each([
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['NaN', Number.NaN],
+    ['zero', 0],
+    ['negative', -1],
+    ['beyond MAX_TIMEOUT_MS', MAX_TIMEOUT_MS + 1],
+  ])('rejects an out-of-range timeoutMs (%s)', async (_label, timeoutMs) => {
+    await expect(
+      execCapture({
+        command: process.execPath,
+        args: ['-e', 'process.exit(0)'],
+        env: process.env as Record<string, string>,
+        cwd: tmpDir,
+        stdoutPath,
+        stderrPath,
+        timeoutMs,
+      }),
+    ).rejects.toThrow(RangeError);
+  });
 });
