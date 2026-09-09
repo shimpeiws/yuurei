@@ -53,11 +53,11 @@ describe('execCapture stdout/stderr flush ordering (regression for #25)', () => 
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('does not resolve until the write streams finish, even when flushing is slow', async () => {
+  it('does not resolve until both write streams finish, even when flushing is slow', async () => {
     const startedAt = Date.now();
     const result = await execCapture({
       command: process.execPath,
-      args: ['-e', 'process.stdout.write("hi")'],
+      args: ['-e', 'process.stdout.write("out"); process.stderr.write("err");'],
       env: process.env as Record<string, string>,
       cwd: tmpDir,
       stdoutPath,
@@ -70,6 +70,27 @@ describe('execCapture stdout/stderr flush ordering (regression for #25)', () => 
     // on the child's 'close' alone (the pre-#25-fix behavior), this would
     // return almost immediately instead of waiting out the delay.
     expect(elapsedMs).toBeGreaterThanOrEqual(ARTIFICIAL_FLUSH_DELAY_MS - 50);
-    await expect(readFile(stdoutPath, 'utf8')).resolves.toBe('hi');
+    await expect(readFile(stdoutPath, 'utf8')).resolves.toBe('out');
+    await expect(readFile(stderrPath, 'utf8')).resolves.toBe('err');
   });
+
+  it('rejects and kills a still-running child when a write stream errors', async () => {
+    // stdoutPath points at a directory, not a file: createWriteStream's
+    // open() fails asynchronously with EISDIR. Before this fix, nothing
+    // would have listened for that error until the (never-arriving) 'close'
+    // handler ran finished() — an unhandled 'error' event on a stream is
+    // fatal in Node, and the child (which loops forever unless killed)
+    // would have been left running. If failOnce() doesn't actually kill it,
+    // this test hangs until Vitest's timeout instead of resolving quickly.
+    await expect(
+      execCapture({
+        command: process.execPath,
+        args: ['-e', 'setInterval(() => {}, 1000);'],
+        env: process.env as Record<string, string>,
+        cwd: tmpDir,
+        stdoutPath: tmpDir,
+        stderrPath,
+      }),
+    ).rejects.toThrow();
+  }, 10_000);
 });

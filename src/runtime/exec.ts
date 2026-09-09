@@ -57,6 +57,15 @@ export function execCapture(options: ExecOptions): Promise<RuntimeResult> {
     const startedAt = new Date().toISOString();
     const stdoutStream = createWriteStream(options.stdoutPath);
     const stderrStream = createWriteStream(options.stderrPath);
+    // Created — but not yet awaited — up front, before spawning: a bad
+    // path, EACCES, or a full disk can make either stream emit 'error'
+    // immediately, before the child even starts. finished() attaches its
+    // own listener as soon as it's called, so calling it here (rather than
+    // only later inside the 'close' handler) is what turns that into a
+    // handled rejection instead of an unhandled 'error' event, which Node
+    // treats as fatal and would crash the whole process.
+    const stdoutFinished = finished(stdoutStream);
+    const stderrFinished = finished(stderrStream);
 
     const child = spawn(options.command, options.args, {
       env: options.env,
@@ -66,18 +75,39 @@ export function execCapture(options: ExecOptions): Promise<RuntimeResult> {
     let timedOut = false;
     let timeoutTimer: NodeJS.Timeout | null = null;
     let killTimer: NodeJS.Timeout | null = null;
+    let settled = false;
 
     const clearTimers = () => {
       if (timeoutTimer) clearTimeout(timeoutTimer);
       if (killTimer) clearTimeout(killTimer);
     };
 
+    // Single place for anything that makes this run unrecoverable (spawn
+    // failure, either write stream erroring out): stop the timers, force
+    // the child to exit rather than leaving it running with nowhere for
+    // its output to go, tear down whichever stream didn't already error on
+    // its own, and reject exactly once — guarded so a second failure
+    // (e.g. both streams erroring, or 'error' racing a stream failure)
+    // can't double-kill or double-settle.
+    const failOnce = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      child.kill('SIGKILL');
+      stdoutStream.destroy();
+      stderrStream.destroy();
+      reject(error);
+    };
+
+    stdoutFinished.catch(failOnce);
+    stderrFinished.catch(failOnce);
+
     if (options.timeoutMs) {
       timeoutTimer = setTimeout(() => {
         timedOut = true;
         child.kill('SIGTERM');
         // If the process ignores SIGTERM, force it after a grace period.
-        // Cleared in the close/error handlers below if it exits sooner.
+        // Cleared in the exit/close handlers below if it exits sooner.
         killTimer = setTimeout(() => {
           child.kill('SIGKILL');
         }, options.killGracePeriodMsForTests ?? SIGKILL_GRACE_PERIOD_MS);
@@ -87,15 +117,7 @@ export function execCapture(options: ExecOptions): Promise<RuntimeResult> {
     child.stdout.pipe(stdoutStream);
     child.stderr.pipe(stderrStream);
 
-    child.on('error', (error) => {
-      clearTimers();
-      // No data can have reached these files if spawn itself failed —
-      // destroy rather than leave them open waiting for a 'close'/'finish'
-      // that a never-started child will never produce.
-      stdoutStream.destroy();
-      stderrStream.destroy();
-      reject(error);
-    });
+    child.on('error', failOnce);
 
     // 'close' waits for the child's stdio streams to finish closing, which
     // can lag behind the process actually exiting. Stopping the timers here
@@ -108,6 +130,7 @@ export function execCapture(options: ExecOptions): Promise<RuntimeResult> {
     });
 
     child.on('close', (exitCode, signal) => {
+      if (settled) return;
       clearTimers();
       // 'close' only confirms the child's own stdio streams have ended —
       // not that our destination write streams have flushed their buffered
@@ -115,8 +138,10 @@ export function execCapture(options: ExecOptions): Promise<RuntimeResult> {
       // completes asynchronously; resolving before it does can hand the
       // caller a stdoutPath/stderrPath that's still being written to,
       // producing a truncated read for a run that actually finished fine.
-      Promise.all([finished(stdoutStream), finished(stderrStream)])
+      Promise.all([stdoutFinished, stderrFinished])
         .then(() => {
+          if (settled) return;
+          settled = true;
           resolvePromise({
             exitCode,
             signal,
@@ -127,7 +152,9 @@ export function execCapture(options: ExecOptions): Promise<RuntimeResult> {
             timedOut,
           });
         })
-        .catch(reject);
+        .catch(() => {
+          // Already handled by failOnce via the per-stream .catch above.
+        });
     });
   });
 }
