@@ -67,8 +67,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     const costEstimate = await costModel.estimate({
       runtimeId: cell.runtimeId,
       model: cell.requestedModel,
-      tokensIn: null,
-      tokensOut: null,
+      tokensIn: fragment.usage['input_tokens'] ?? null,
+      tokensOut: fragment.usage['output_tokens'] ?? null,
     });
 
     const trace: Trace = {
