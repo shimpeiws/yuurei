@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeCodeRuntime } from '../../src/runtime/claude-code/index.js';
+import { CodexRuntime } from '../../src/runtime/codex/index.js';
 import type { Runtime, PreparedRun, NormalizedTraceFragment } from '../../src/runtime/types.js';
 import type { ResolvedCell } from '../../src/cell/types.js';
 import type { IsolationContext } from '../../src/isolation/types.js';
@@ -141,6 +142,88 @@ describe('global config untouched', () => {
     }
 
     // dispose() ran: no orphaned temp area (design doc §15, last bullet).
+    if (!observed) throw new Error('fake runtime prepare() was never called');
+    expect(await pathExists(observed.isolation.rootDir)).toBe(false);
+    expect(result.trace.isolation.verified).toBe(true);
+  });
+
+  it('bridges Codex auth while leaving its source byte-, mtime-, and inode-identical', async () => {
+    const sourcePath = join(globalHome, '.codex', 'auth.json');
+    await mkdir(dirname(sourcePath), { recursive: true });
+    await writeFile(sourcePath, '{"tokens":{"refresh_token":"fake-original-token"}}\n', 'utf8');
+    const historicalTime = new Date('2000-01-01T00:00:00Z');
+    await utimes(sourcePath, historicalTime, historicalTime);
+    const beforeContent = await readFile(sourcePath);
+    const before = await stat(sourcePath, { bigint: true });
+
+    const codex = new CodexRuntime();
+    vi.spyOn(codex, 'detect').mockResolvedValue({
+      installed: true,
+      version: null,
+      executablePath: null,
+      authUsable: null,
+    });
+    let observed: PreparedRun | undefined;
+    const fake: Runtime = {
+      id: () => 'fake',
+      detect: () => codex.detect(),
+      prepare: async (cell: ResolvedCell, isolation: IsolationContext) => {
+        observed = await codex.prepare(cell, isolation);
+        return observed;
+      },
+      execute: async (run: PreparedRun) => {
+        const homeDir = run.isolation.homeDir;
+        if (!homeDir) throw new Error('level1 isolation must provide homeDir');
+        expect(run.env['CODEX_HOME']).toBe(join(homeDir, '.codex'));
+        expect(run.env['CODEX_HOME']).not.toBe(dirname(sourcePath));
+        const bridgedPath = join(homeDir, '.codex', 'auth.json');
+        expect(await readFile(bridgedPath, 'utf8')).toBe(
+          '{"tokens":{"refresh_token":"fake-original-token"}}\n',
+        );
+        await writeFile(bridgedPath, '{"tokens":{"refresh_token":"fake-rotated-token"}}\n', 'utf8');
+        expect(await readFile(bridgedPath, 'utf8')).toBe(
+          '{"tokens":{"refresh_token":"fake-rotated-token"}}\n',
+        );
+
+        const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+        const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+        await writeFile(stdoutPath, '', 'utf8');
+        await writeFile(stderrPath, '', 'utf8');
+        return {
+          exitCode: 0,
+          signal: null,
+          startedAt: NOW,
+          finishedAt: NOW,
+          stdoutPath,
+          stderrPath,
+          timedOut: false,
+        };
+      },
+      normalize: async () => FRAGMENT,
+    };
+
+    const result = await runPipeline({
+      runtimeId: 'fake',
+      requestedModel: '',
+      profile: profileWithConfigFiles({}),
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      executionOptions: { bridgeCodexAuthFile: true },
+      resolveRuntime: () => fake,
+    });
+
+    const afterContent = await readFile(sourcePath);
+    const after = await stat(sourcePath, { bigint: true });
+    expect(afterContent.toString('utf8')).toBe(
+      '{"tokens":{"refresh_token":"fake-original-token"}}\n',
+    );
+    expect(afterContent).toEqual(beforeContent);
+    expect(after.mtimeNs).toBe(before.mtimeNs);
+    expect(after.ino).toBe(before.ino);
+
     if (!observed) throw new Error('fake runtime prepare() was never called');
     expect(await pathExists(observed.isolation.rootDir)).toBe(false);
     expect(result.trace.isolation.verified).toBe(true);
