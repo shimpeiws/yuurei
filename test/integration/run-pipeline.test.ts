@@ -495,6 +495,75 @@ describe('run pipeline', () => {
     expect(result.trace.execution.timed_out).toBe(false);
   });
 
+  it('gives concurrent runs distinct run directories', async () => {
+    const profile: ResolvedProfile = {
+      name: 'fake-concurrent',
+      runtime: 'fake-concurrent-runtime',
+      content: { profileYaml: { runtime: 'fake-concurrent-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+
+    const fake: Runtime = {
+      id: () => 'fake-concurrent-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+        runtimeId: 'fake-concurrent-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialFilePaths: [],
+        credentialValuesToRedact: [],
+      }),
+      execute: async (run: PreparedRun) => {
+        const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+        const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+        await Promise.all([writeFile(stdoutPath, '', 'utf8'), writeFile(stderrPath, '', 'utf8')]);
+        return {
+          exitCode: 0,
+          signal: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          stdoutPath,
+          stderrPath,
+          timedOut: false,
+        };
+      },
+      normalize: async () => ({
+        runtime: { id: 'fake-concurrent-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: 0, durationMs: 0 },
+        usage: {},
+      }),
+    };
+
+    const runs = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        runPipeline({
+          runtimeId: profile.runtime,
+          requestedModel: '',
+          profile,
+          taskPath,
+          yuureiVersion: '0.0.1',
+          yuureiDir: workDir,
+          isolationStrategy: 'level1',
+          keep: false,
+          resolveRuntime: () => fake,
+        }),
+      ),
+    );
+
+    expect(new Set(runs.map((r) => r.runDir)).size).toBe(runs.length);
+  });
+
   it('passes runtime, requested model, and observed usage to CostModel.estimate()', async () => {
     const profile: ResolvedProfile = {
       name: 'fake-cost',

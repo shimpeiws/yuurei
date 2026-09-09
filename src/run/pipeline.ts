@@ -10,8 +10,7 @@ import { writeTrace } from '../trace/writer.js';
 import { redactKnownValues, redactSecrets } from '../trace/redact.js';
 import type { Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
-import { createRunLayout } from './layout.js';
-import { generateRunId } from './id.js';
+import { createUniqueRunLayout } from './layout.js';
 
 export interface RunPipelineInput extends CellResolutionInput {
   yuureiDir: string;
@@ -47,8 +46,7 @@ export interface RunPipelineResult {
  */
 export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineResult> {
   const cell = await resolveCell(input);
-  const runId = generateRunId();
-  const layout = await createRunLayout(input.yuureiDir, runId);
+  const { runId, layout } = await createUniqueRunLayout(input.yuureiDir);
 
   const isolation = createIsolation(input.isolationStrategy);
   const context = await createVerifiedIsolation(isolation, cell);
