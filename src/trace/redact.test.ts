@@ -43,4 +43,27 @@ describe('redactFile', () => {
     expect(output).not.toContain(secret);
     expect(output).toContain('[REDACTED] after');
   });
+
+  it('does not retain an unbounded generic candidate while reading multiple chunks', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'yuurei-redact-'));
+    const inputPath = join(tempDir, 'input.log');
+    const outputPath = join(tempDir, 'output.log');
+    await writeFile(inputPath, `token:${'x'.repeat(20_000)}\nfinished\n`, 'utf8');
+
+    await redactFile(inputPath, outputPath, [], 100_000);
+
+    const output = await readFile(outputPath, 'utf8');
+    expect(output).toBe('[REDACTED]\nfinished\n');
+  });
+
+  it('keeps a multibyte character within the byte cap', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'yuurei-redact-'));
+    const inputPath = join(tempDir, 'input.log');
+    const outputPath = join(tempDir, 'output.log');
+    await writeFile(inputPath, 'éclair', 'utf8');
+
+    await redactFile(inputPath, outputPath, [], 1);
+
+    expect(await readFile(outputPath, 'utf8')).toBe('');
+  });
 });

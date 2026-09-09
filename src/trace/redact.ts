@@ -16,6 +16,7 @@ const SECRET_PATTERNS: RegExp[] = [
 const REDACTED = '[REDACTED]';
 
 const DEFAULT_LOG_MAX_BYTES = 1024 * 1024;
+const MAX_STREAMING_CARRY_LENGTH = 4096;
 
 export function redactSecrets(text: string): string {
   let result = text;
@@ -76,8 +77,10 @@ export async function redactFile(
     carry += chunk;
     const boundary = streamingBoundary(carry, carryLength, values);
     if (boundary === 0) continue;
-    output += redactSecrets(redactKnownValues(carry.slice(0, boundary), values));
+    const hasIncompleteCandidate = incompleteCandidateExists(carry, boundary);
+    output += redactStreamingPrefix(carry, boundary, values);
     carry = carry.slice(boundary);
+    if (hasIncompleteCandidate) carry = carry.replace(/^[a-zA-Z0-9._-]+/, '');
     if (Buffer.byteLength(output, 'utf8') >= maxBytes) {
       reachedCap = true;
       truncated = Buffer.byteLength(output, 'utf8') > maxBytes;
@@ -85,7 +88,7 @@ export async function redactFile(
   }
 
   if (!reachedCap) {
-    output += redactSecrets(redactKnownValues(carry, values));
+    output += redactStreamingPrefix(carry, carry.length, values);
     truncated = Buffer.byteLength(output, 'utf8') > maxBytes;
   } else if (carry.length > 0) {
     truncated = true;
@@ -95,15 +98,19 @@ export async function redactFile(
 }
 
 function streamingBoundary(text: string, carryLength: number, values: readonly string[]): number {
-  let boundary = Math.max(0, text.length - carryLength);
+  const protectedStart = Math.max(
+    0,
+    text.length - Math.min(carryLength, MAX_STREAMING_CARRY_LENGTH),
+  );
+  let boundary = protectedStart;
   for (const value of values) {
     if (value.length < MIN_REDACTABLE_LENGTH) continue;
     const completeStart = text.lastIndexOf(value);
     if (completeStart >= 0 && completeStart < boundary && completeStart + value.length > boundary) {
       boundary = completeStart;
     }
-    const partialStart = Math.max(0, boundary - value.length + 1);
-    for (let start = partialStart; start < boundary; start += 1) {
+    const partialStart = Math.max(0, protectedStart - value.length + 1);
+    for (let start = partialStart; start < protectedStart; start += 1) {
       const suffix = text.slice(start);
       if (suffix.length < value.length && value.startsWith(suffix)) {
         boundary = start;
@@ -114,14 +121,51 @@ function streamingBoundary(text: string, carryLength: number, values: readonly s
   const candidatePattern =
     /\b(?:sk-|Bearer\s+|(?:api[_-]?key|token|secret|password)\s*[:=]\s*['"]?)/gi;
   let match: RegExpExecArray | null;
-  let lastCandidate = -1;
   while ((match = candidatePattern.exec(text)) !== null) {
-    lastCandidate = match.index;
+    if (match.index >= protectedStart) boundary = Math.min(boundary, match.index);
   }
-  if (lastCandidate >= 0) return Math.min(boundary, lastCandidate);
   return boundary;
 }
 
 function utf8Prefix(text: string, maxBytes: number): string {
-  return Buffer.from(text, 'utf8').subarray(0, maxBytes).toString('utf8');
+  let bytes = 0;
+  let prefix = '';
+  for (const character of text) {
+    const characterBytes = Buffer.byteLength(character, 'utf8');
+    if (bytes + characterBytes > maxBytes) break;
+    prefix += character;
+    bytes += characterBytes;
+  }
+  return prefix;
+}
+
+function redactStreamingPrefix(text: string, boundary: number, values: readonly string[]): string {
+  let prefix = text.slice(0, boundary);
+  const candidatePattern =
+    /\b(?:sk-|Bearer\s+|(?:api[_-]?key|token|secret|password)\s*[:=]\s*['"]?)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = candidatePattern.exec(text)) !== null) {
+    if (match.index >= boundary) continue;
+    const tail = text.slice(match.index + match[0].length, boundary);
+    if (text.length > boundary && /^[a-zA-Z0-9._-]*$/.test(tail)) {
+      prefix = `${prefix.slice(0, match.index)}${REDACTED}`;
+    }
+  }
+  return redactSecrets(redactKnownValues(prefix, values));
+}
+
+function incompleteCandidateExists(text: string, boundary: number): boolean {
+  const candidatePattern =
+    /\b(?:sk-|Bearer\s+|(?:api[_-]?key|token|secret|password)\s*[:=]\s*['"]?)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = candidatePattern.exec(text)) !== null) {
+    if (
+      match.index < boundary &&
+      text.length > boundary &&
+      /^[a-zA-Z0-9._-]*$/.test(text.slice(match.index + match[0].length, boundary))
+    ) {
+      return true;
+    }
+  }
+  return false;
 }

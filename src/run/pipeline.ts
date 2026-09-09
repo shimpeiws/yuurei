@@ -129,12 +129,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
           await writeFile(outputPath, '', 'utf8');
           return false;
-        } else {
-          warn(
-            `failed to read log file (${err instanceof Error ? err.message : String(err)}): ${inputPath}`,
-          );
         }
-        return false;
+        throw err;
       }
     };
     const [stdoutTruncated, stderrTruncated] = await Promise.all([
