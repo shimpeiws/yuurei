@@ -353,6 +353,87 @@ describe('run pipeline', () => {
     expect(persistedStdout).toContain('[REDACTED]');
   });
 
+  it('caps redacted stdout and stderr without leaking a secret across chunks', async () => {
+    const profile: ResolvedProfile = {
+      name: 'fake-capped-logging',
+      runtime: 'fake-capped-runtime',
+      content: { profileYaml: { runtime: 'fake-capped-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+    const secretValue = 'secret-value-that-crosses-the-stream-chunk-boundary';
+
+    const fake: Runtime = {
+      id: () => 'fake-capped-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+        runtimeId: 'fake-capped-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialFilePaths: [],
+        credentialValuesToRedact: [secretValue],
+      }),
+      execute: async (run: PreparedRun) => {
+        await writeFile(
+          join(run.isolation.rootDir, 'stdout.log'),
+          `prefix ${secretValue} suffix\n`,
+          'utf8',
+        );
+        await writeFile(
+          join(run.isolation.rootDir, 'stderr.log'),
+          'error output that is longer than the cap\n',
+          'utf8',
+        );
+        return {
+          exitCode: 0,
+          signal: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          stdoutPath: join(run.isolation.rootDir, 'stdout.log'),
+          stderrPath: join(run.isolation.rootDir, 'stderr.log'),
+          timedOut: false,
+        };
+      },
+      normalize: async () => ({
+        runtime: { id: 'fake-capped-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: 0, durationMs: 0 },
+        usage: {},
+      }),
+    };
+
+    const result = await runPipeline({
+      runtimeId: profile.runtime,
+      requestedModel: '',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      maxArtifactBytes: 12,
+      resolveRuntime: () => fake,
+    });
+
+    await expect(readFile(join(result.runDir, 'stdout.log'), 'utf8')).resolves.toBe('prefix [REDA');
+    await expect(readFile(join(result.runDir, 'stderr.log'), 'utf8')).resolves.toBe('error output');
+    await expect(readFile(join(result.runDir, 'artifacts.json'), 'utf8')).resolves.toContain(
+      '"truncated": true',
+    );
+    await expect(readFile(join(result.runDir, 'artifacts.json'), 'utf8')).resolves.not.toContain(
+      secretValue,
+    );
+  });
+
   it('threads timeoutMs into Runtime.execute() and records timed_out in the trace', async () => {
     const profile: ResolvedProfile = {
       name: 'fake-timeout',

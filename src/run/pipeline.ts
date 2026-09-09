@@ -1,13 +1,17 @@
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { NoopCostModel } from '../cost/noop.js';
 import { resolveCell, type CellResolutionInput } from '../cell/resolver.js';
 import type { ResolvedCell } from '../cell/types.js';
-import { collectArtifacts, writeArtifactManifest } from '../artifact/collector.js';
+import {
+  collectArtifacts,
+  DEFAULT_ARTIFACT_MAX_BYTES,
+  writeArtifactManifest,
+} from '../artifact/collector.js';
 import { createIsolation, createVerifiedIsolation } from '../isolation/index.js';
 import { getRuntime } from '../runtime/registry.js';
 import type { PreparedRun, Runtime } from '../runtime/types.js';
 import { writeTrace } from '../trace/writer.js';
-import { redactKnownValues, redactSecrets } from '../trace/redact.js';
+import { redactFile } from '../trace/redact.js';
 import type { Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
 import { createRunLayout } from './layout.js';
@@ -19,6 +23,8 @@ export interface RunPipelineInput extends CellResolutionInput {
   keep: boolean;
   /** null/undefined = no timeout is enforced (current default behaviour). */
   timeoutMs?: number | null;
+  /** Maximum bytes retained for each saved log and artifact. */
+  maxArtifactBytes?: number;
   /** Test seam only. Defaults to the real registry; production callers omit it. */
   resolveRuntime?: (id: string) => Runtime;
   /**
@@ -115,29 +121,34 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // explicitly tracked. This means persisted logs are no longer a
     // byte-for-byte copy of what the runtime produced.
     const knownCredentialValues = prepared.credentialValuesToRedact;
-    const redact = (text: string) => redactSecrets(redactKnownValues(text, knownCredentialValues));
-    const readLog = async (path: string) => {
+    const maxArtifactBytes = input.maxArtifactBytes ?? DEFAULT_ARTIFACT_MAX_BYTES;
+    const redactLog = async (inputPath: string, outputPath: string): Promise<boolean> => {
       try {
-        return await readFile(path, 'utf8');
+        return await redactFile(inputPath, outputPath, knownCredentialValues, maxArtifactBytes);
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          await writeFile(outputPath, '', 'utf8');
+          return false;
+        } else {
           warn(
-            `failed to read log file (${err instanceof Error ? err.message : String(err)}): ${path}`,
+            `failed to read log file (${err instanceof Error ? err.message : String(err)}): ${inputPath}`,
           );
         }
-        return '';
+        return false;
       }
     };
-    const [stdoutRaw, stderrRaw] = await Promise.all([
-      readLog(result.stdoutPath),
-      readLog(result.stderrPath),
-    ]);
-    await Promise.all([
-      writeFile(layout.stdoutPath, redact(stdoutRaw), 'utf8'),
-      writeFile(layout.stderrPath, redact(stderrRaw), 'utf8'),
+    const [stdoutTruncated, stderrTruncated] = await Promise.all([
+      redactLog(result.stdoutPath, layout.stdoutPath),
+      redactLog(result.stderrPath, layout.stderrPath),
     ]);
 
-    const manifest = await collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log']);
+    const manifest = await collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log'], {
+      maxBytes: maxArtifactBytes,
+      truncatedPaths: [
+        ...(stdoutTruncated ? ['stdout.log'] : []),
+        ...(stderrTruncated ? ['stderr.log'] : []),
+      ],
+    });
     await writeArtifactManifest(layout.runDir, manifest);
 
     return { runId, runDir: layout.runDir, cell, trace };
