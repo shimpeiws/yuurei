@@ -71,6 +71,7 @@ cli
     '--timeout <ms>',
     'Kill the runtime process after this many milliseconds (default: no timeout)',
   )
+  .option('--isolation <level>', 'Isolation strategy: level0 or level1 (default: level1)')
   .option(
     '--bridge-codex-auth-file',
     'Experimental: bridge the real ~/.codex/auth.json into the isolated run (Codex only, off by default)',
@@ -86,6 +87,7 @@ cli
           model?: string;
           keep?: boolean;
           timeout?: string;
+          isolation?: string;
           bridgeCodexAuthFile?: boolean;
           json?: boolean;
         },
@@ -99,6 +101,7 @@ cli
             model: flags.model,
             keep: flags.keep,
             timeoutMs: flags.timeout !== undefined ? Number(flags.timeout) : undefined,
+            isolation: flags.isolation,
             bridgeCodexAuthFile: flags.bridgeCodexAuthFile,
           },
           loggerForFlags(flags),

@@ -155,7 +155,11 @@ yuurei run --profile claude-basic --task .yuurei/tasks/hello.md
 The direct `--task` path is relative to your current working directory.
 Each invocation creates a separate run. To request a model, add
 `--model <model-name>`. To limit execution time, add `--timeout 60000`
-for a 60-second timeout. There is no timeout by default.
+for a 60-second timeout. There is no timeout by default. To select the
+isolation strategy, add `--isolation level0` or `--isolation level1`
+(default: `level1`, a temporary `HOME`; `level0` only swaps the
+runtime's config-root arguments/env vars — see the design document's
+§9.3 for the difference).
 
 After execution, yuurei prints `run <run-id> finished` with `exitCode`
 and `runDir`. The agent's response is in the saved logs.
