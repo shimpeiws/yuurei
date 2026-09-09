@@ -256,7 +256,7 @@ At minimum, it holds the following.
 
 ```json
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "run_id": "...",
   "started_at": "...",
   "finished_at": "...",
@@ -282,7 +282,8 @@ At minimum, it holds the following.
   },
   "execution": {
     "exit_code": 0,
-    "duration_ms": 0
+    "duration_ms": 0,
+    "timed_out": false
   },
   "usage": {},
   "cost": null,

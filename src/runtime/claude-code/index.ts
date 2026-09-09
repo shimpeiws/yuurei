@@ -86,7 +86,7 @@ export class ClaudeCodeRuntime implements Runtime {
     };
   }
 
-  async execute(run: PreparedRun): Promise<RuntimeResult> {
+  async execute(run: PreparedRun, timeoutMs: number | null): Promise<RuntimeResult> {
     return execCapture({
       command: run.command,
       args: run.args,
@@ -94,6 +94,7 @@ export class ClaudeCodeRuntime implements Runtime {
       cwd: run.cwd,
       stdoutPath: join(run.isolation.rootDir, 'stdout.log'),
       stderrPath: join(run.isolation.rootDir, 'stderr.log'),
+      ...(timeoutMs !== null ? { timeoutMs } : {}),
     });
   }
 

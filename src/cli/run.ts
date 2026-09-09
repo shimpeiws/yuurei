@@ -3,6 +3,7 @@ import { findYuureiDir } from '../config/discovery.js';
 import { loadYuureiConfig } from '../config/yuurei-config.js';
 import { loadProfile } from '../profile/loader.js';
 import { runPipeline } from '../run/pipeline.js';
+import { MAX_TIMEOUT_MS } from '../runtime/exec.js';
 import { isPathWithin } from '../util/fs.js';
 import { YuureiError, EXIT_CODES } from './exit-codes.js';
 import type { Logger } from '../util/logger.js';
@@ -13,6 +14,8 @@ export interface RunOptions {
   task: string | undefined;
   keep: boolean | undefined;
   model: string | undefined;
+  /** Milliseconds before the runtime process is sent SIGTERM. undefined = no timeout. */
+  timeoutMs: number | undefined;
   /**
    * Opt-in, experimental: bridge the real ~/.codex/auth.json into the
    * isolated CODEX_HOME (ignored for other runtimes). Off by default because
@@ -58,6 +61,20 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     );
   }
 
+  if (
+    options.timeoutMs !== undefined &&
+    !(
+      Number.isFinite(options.timeoutMs) &&
+      options.timeoutMs > 0 &&
+      options.timeoutMs <= MAX_TIMEOUT_MS
+    )
+  ) {
+    throw new YuureiError(
+      `--timeout must be a finite number of milliseconds between 1 and ${MAX_TIMEOUT_MS}`,
+      EXIT_CODES.CONFIG_ERROR,
+    );
+  }
+
   const profileEntry = config.profiles[profileName];
   if (!profileEntry) {
     throw new YuureiError(`unknown profile: ${profileName}`, EXIT_CODES.CONFIG_ERROR);
@@ -78,6 +95,7 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     yuureiDir,
     isolationStrategy: 'level1',
     keep: options.keep ?? false,
+    timeoutMs: options.timeoutMs ?? null,
     executionOptions: { bridgeCodexAuthFile: options.bridgeCodexAuthFile ?? false },
     onWarning: (message) => logger.warn(message),
   });

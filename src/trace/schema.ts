@@ -4,7 +4,7 @@ import { z } from 'zod';
  * Independent of the yuurei package version — this only changes when the
  * on-disk trace.json shape changes (design doc §6.3).
  */
-export const TRACE_SCHEMA_VERSION = '0.1';
+export const TRACE_SCHEMA_VERSION = '0.2';
 
 export const TraceSchema = z.object({
   schema_version: z.literal(TRACE_SCHEMA_VERSION),
@@ -34,6 +34,7 @@ export const TraceSchema = z.object({
   execution: z.object({
     exit_code: z.number().nullable(),
     duration_ms: z.number().nullable(),
+    timed_out: z.boolean(),
   }),
   // An observed value not present in `usage` (rather than present as null)
   // means it was never even attempted; null means attempted but unobserved.

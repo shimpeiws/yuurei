@@ -17,6 +17,8 @@ export interface RunPipelineInput extends CellResolutionInput {
   yuureiDir: string;
   isolationStrategy: 'level0' | 'level1';
   keep: boolean;
+  /** null/undefined = no timeout is enforced (current default behaviour). */
+  timeoutMs?: number | null;
   /** Test seam only. Defaults to the real registry; production callers omit it. */
   resolveRuntime?: (id: string) => Runtime;
   /**
@@ -57,7 +59,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   try {
     const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
     prepared = await runtime.prepare(cell, context);
-    const result = await runtime.execute(prepared);
+    const result = await runtime.execute(prepared, input.timeoutMs ?? null);
     const fragment = await runtime.normalize(result, { runtimeVersion: prepared.runtimeVersion });
     for (const w of fragment.warnings ?? []) warn(w);
 
@@ -82,6 +84,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       execution: {
         exit_code: fragment.execution.exitCode,
         duration_ms: fragment.execution.durationMs,
+        timed_out: result.timedOut,
       },
       usage: fragment.usage,
       cost:
