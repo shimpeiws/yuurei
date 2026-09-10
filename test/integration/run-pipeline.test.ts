@@ -6,10 +6,52 @@ import { EXIT_CODES, YuureiError } from '../../src/cli/exit-codes.js';
 import { NoopCostModel } from '../../src/cost/noop.js';
 import { runPipeline } from '../../src/run/pipeline.js';
 import { pathExists } from '../../src/util/fs.js';
+import { sha256Digest } from '../../src/util/hash.js';
 import type { ResolvedProfile } from '../../src/profile/types.js';
 import type { IsolationContext } from '../../src/isolation/types.js';
 import type { NormalizationContext, PreparedRun, Runtime } from '../../src/runtime/types.js';
 import type { ResolvedCell } from '../../src/cell/types.js';
+
+/** A runtime that does nothing but satisfy the pipeline's happy path. */
+function makeTrivialRuntime(id: string): Runtime {
+  return {
+    id: () => id,
+    detect: async () => ({ installed: true, version: null, executablePath: null, authUsable: null }),
+    prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+      runtimeId: id,
+      command: 'true',
+      args: [],
+      env: {},
+      cwd: isolation.rootDir,
+      isolation,
+      cell,
+      runtimeVersion: null,
+      credentialFilePaths: [],
+      credentialValuesToRedact: [],
+    }),
+    execute: async (run: PreparedRun) => {
+      const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+      const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+      await writeFile(stdoutPath, '', 'utf8');
+      await writeFile(stderrPath, '', 'utf8');
+      return {
+        exitCode: 0,
+        signal: null,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        stdoutPath,
+        stderrPath,
+        timedOut: false,
+      };
+    },
+    normalize: async () => ({
+      runtime: { id, version: null },
+      model: { requested: '', resolved: null },
+      execution: { exitCode: 0, durationMs: 0 },
+      usage: {},
+    }),
+  };
+}
 
 describe('run pipeline', () => {
   let workDir: string;
@@ -23,6 +65,55 @@ describe('run pipeline', () => {
 
   afterEach(async () => {
     await rm(workDir, { recursive: true, force: true });
+  });
+
+  it('records profile config files by digest, without their contents', async () => {
+    // §10.1 records a digest of the profile content, not the content; §10.2
+    // puts API keys and auth tokens outside what is recorded at all. A
+    // profile's config/ can legitimately carry a secret (an MCP server
+    // definition with an API key is the ordinary case), and .yuurei/runs/
+    // outlives the cell by design.
+    const secret = 'sk-ant-api03-THISISTHEPROFILESECRET';
+    const mcpJson = JSON.stringify({ mcpServers: { x: { env: { API_KEY: secret } } } });
+    const profile: ResolvedProfile = {
+      name: 'leaky',
+      runtime: 'fake-manifest-runtime',
+      content: {
+        profileYaml: { runtime: 'fake-manifest-runtime' },
+        configFiles: { '.mcp.json': { content: Buffer.from(mcpJson), mode: 0o644 } },
+      },
+      digest: 'sha256:0000',
+    };
+
+    const fake = makeTrivialRuntime('fake-manifest-runtime');
+    const { runDir } = await runPipeline({
+      runtimeId: profile.runtime,
+      requestedModel: '',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      resolveRuntime: () => fake,
+    });
+
+    const raw = await readFile(join(runDir, 'resolved-profile.json'), 'utf8');
+    // Compact first: the secret is unreachable by a plain grep of the
+    // pretty-printed file even when it IS present, because JSON.stringify
+    // renders a Buffer as a byte array with one element per line.
+    const compact = JSON.stringify(JSON.parse(raw));
+    expect(compact).not.toContain(secret);
+    expect(compact).not.toContain(JSON.stringify([...Buffer.from(secret)]).slice(1, -1));
+
+    // Identity is still recorded, which is what §10.1 asks for.
+    const manifest = JSON.parse(raw) as {
+      configFiles: Record<string, { digest: string; mode: number; bytes: number }>;
+    };
+    const entry = manifest.configFiles['.mcp.json'];
+    expect(entry).toBeDefined();
+    expect(entry?.digest).toBe(sha256Digest(Buffer.from(mcpJson)));
+    expect(entry?.bytes).toBe(Buffer.byteLength(mcpJson));
   });
 
   it('rejects a profile referencing an unregistered runtime before executing anything', async () => {
