@@ -110,6 +110,9 @@ describe('run pipeline', () => {
     const compact = JSON.stringify(JSON.parse(raw));
     expect(compact).not.toContain(secret);
     expect(compact).not.toContain(JSON.stringify([...Buffer.from(secret)]).slice(1, -1));
+    // The invariant the two checks above sample: no file content reaches the
+    // record at all, in any encoding.
+    expect(compact).not.toContain('"type":"Buffer"');
 
     // Identity is still recorded, which is what §10.1 asks for.
     const manifest = JSON.parse(raw) as {
