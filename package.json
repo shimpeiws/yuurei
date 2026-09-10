@@ -2,7 +2,7 @@
   "name": "yuurei",
   "version": "0.0.1",
   "bin": {
-    "yuurei": "./dist/index.js"
+    "yuurei": "dist/index.js"
   },
   "files": [
     "dist"
@@ -23,6 +23,8 @@
     "format": "oxfmt --check .",
     "format:fix": "oxfmt --write .",
     "knip": "knip",
+    "smoke:package": "pnpm run build && node scripts/smoke-package.mjs",
+    "prepublishOnly": "pnpm run smoke:package",
     "prepare": "lefthook install"
   },
   "dependencies": {
