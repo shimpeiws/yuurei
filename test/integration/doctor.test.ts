@@ -50,26 +50,30 @@ describe('yuurei doctor', () => {
   });
 
   it('suggests "yuurei clean" when orphans are found and stays silent otherwise', () => {
-    const messages: { level: string; message: string }[] = [];
-    const logger: Logger = {
+    const makeLogger = (messages: { level: string; message: string }[]): Logger => ({
       info: (message) => messages.push({ level: 'info', message }),
       warn: (message) => messages.push({ level: 'warn', message }),
       error: (message) => messages.push({ level: 'error', message }),
-    };
+    });
 
-    printDoctorReport({ runtimes: [], canWriteOutputDir: true, orphanTempDirs: [] }, logger);
-    expect(messages.some((m) => m.message.includes('yuurei clean'))).toBe(false);
+    const cleanMessages: { level: string; message: string }[] = [];
+    printDoctorReport(
+      { runtimes: [], canWriteOutputDir: true, orphanTempDirs: [] },
+      makeLogger(cleanMessages),
+    );
+    expect(cleanMessages.some((m) => m.message.includes('yuurei clean'))).toBe(false);
 
+    const orphanMessages: { level: string; message: string }[] = [];
     printDoctorReport(
       {
         runtimes: [],
         canWriteOutputDir: true,
         orphanTempDirs: [{ path: '/tmp/yuurei-old', ageMs: 1 }],
       },
-      logger,
+      makeLogger(orphanMessages),
     );
-    expect(messages.some((m) => m.level === 'warn' && m.message.includes('yuurei clean'))).toBe(
-      true,
-    );
+    expect(
+      orphanMessages.some((m) => m.level === 'warn' && m.message.includes('yuurei clean')),
+    ).toBe(true);
   });
 });
