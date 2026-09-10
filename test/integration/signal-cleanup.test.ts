@@ -9,13 +9,19 @@ const FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-hang.ts');
 
 describe('signal cleanup', () => {
   let markerDir: string;
+  /** Temp dirs to clean up even when a test assertion fails. */
+  let rootDirs: string[];
 
   beforeEach(async () => {
     markerDir = await mkdtemp(join(tmpdir(), 'yuurei-signal-test-'));
+    rootDirs = [];
   });
 
   afterEach(async () => {
     await rm(markerDir, { recursive: true, force: true });
+    for (const dir of rootDirs) {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   /**
@@ -71,10 +77,9 @@ describe('signal cleanup', () => {
     ['SIGTERM', SIGNAL_EXIT_CODES.SIGTERM],
   ])('scrubs credentials and disposes the isolation temp dir on %s', async (signal, exitCode) => {
     const { code, rootDir } = await runFixtureUntilSignal(signal);
+    rootDirs.push(rootDir);
 
     expect(code).toBe(exitCode);
     await expect(stat(rootDir)).rejects.toThrow();
-
-    await rm(rootDir, { recursive: true, force: true });
   });
 });

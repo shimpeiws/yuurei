@@ -31,20 +31,6 @@ export interface SignalCleanupHandle {
 }
 
 /**
- * Node's `process` module keeps each signal's handler(s) in `_events`.
- * Removing the entry returns the signal to its default disposition, which
- * lets a *second* SIGINT/SIGTERM during cleanup actually kill the process
- * instead of being swallowed. There is no public API for removing a single
- * handler in the `node:process` module, so this reaches into the private
- * events table the same way Node's own tests do.
- */
-function unsetSignalHandler(signal: string): void {
-  // The process module's event table is private; cast through the events
-  // accessor the way Node's own signal tests do.
-  (process as unknown as { _events: Record<string, unknown> })._events[signal] = undefined;
-}
-
-/**
  * Installs best-effort cleanup on SIGINT/SIGTERM for the duration of the
  * active run. The handler runs the same guarded cleanup the pipeline's
  * finally block runs, then exits with the shell-convention code for the
@@ -55,30 +41,38 @@ function unsetSignalHandler(signal: string): void {
  *
  * The pipeline's finally block awaits the same cleanup promise before it
  * returns, so the handler's `process.exit()` never preempts an in-flight
- * dispose — the exit fires only after the cleanup has run. The handler unsets
- * itself before cleaning up, so a second signal during cleanup genuinely
- * kills instead of being re-handled, and the finally block's `uninstall()`
- * removes both handlers after a normal completion so an unrelated signal
- * arriving after the run hits the default disposition.
+ * dispose — the exit fires only after the cleanup has run. The first signal
+ * to arrive removes both handlers before cleaning up, so a second signal
+ * during cleanup keeps the default disposition (genuinely kills the process)
+ * rather than racing a second `process.exit()`; the finally block's
+ * `uninstall()` removes both handlers after a normal completion so an
+ * unrelated signal arriving after the run hits the default disposition.
  *
  * Deliberately not a guarantee: SIGKILL (and power loss / hard crash) still
  * bypasses this, which is tracked separately.
  */
 export function installSignalCleanup(options: SignalCleanupOptions): SignalCleanupHandle {
+  const handlers = new Map<string, () => Promise<void>>();
+
+  const uninstall = () => {
+    for (const [signal, handler] of handlers) {
+      process.off(signal, handler);
+    }
+    handlers.clear();
+  };
+
   for (const [signal, exitCode] of Object.entries(SIGNAL_EXIT_CODES)) {
-    process.on(signal, async () => {
-      // First signal wins; a second signal during cleanup keeps the default
-      // action (kills the process) rather than being re-entered.
-      unsetSignalHandler(signal);
+    const handler = async () => {
+      // First signal wins: removing both handlers here means a second signal
+      // during cleanup keeps the default action (kills the process) instead
+      // of being re-entered or racing a second process.exit().
+      uninstall();
       await options.cleanup();
       process.exit(exitCode);
-    });
+    };
+    handlers.set(signal, handler);
+    process.on(signal, handler);
   }
 
-  return {
-    uninstall: () => {
-      unsetSignalHandler('SIGINT');
-      unsetSignalHandler('SIGTERM');
-    },
-  };
+  return { uninstall };
 }
