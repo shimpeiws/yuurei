@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,6 +9,7 @@ let work = '';
 
 try {
   work = await mkdtemp(join(tmpdir(), 'yuurei-smoke-'));
+  const manifest = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8'));
   const pack = execFileSync(
     npmCmd,
     ['pack', '--json', '--ignore-scripts', '--pack-destination', work],
@@ -38,7 +39,9 @@ try {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (!/yuurei/.test(help)) throw new Error(`--help did not print the CLI name: ${help}`);
-  if (!version.includes('0.0.1')) throw new Error(`--version did not print 0.0.1: ${version}`);
+  if (!version.includes(manifest.version)) {
+    throw new Error(`--version printed ${version.trim()}, expected to include ${manifest.version}`);
+  }
   console.error(`smoke ok: bin runs, --help and --version (${version.trim()})`);
 } catch (error) {
   console.error('package smoke test failed:', error instanceof Error ? error.message : error);

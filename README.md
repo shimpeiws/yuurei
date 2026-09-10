@@ -63,4 +63,5 @@ sandboxing, or team auth.
 
 See the
 [design document](https://github.com/shimpeiws/yuurei/blob/main/docs/design/yuurei-design-v0.3.md)
-for the full design.
+for the full design, and the
+[release process](https://github.com/shimpeiws/yuurei/blob/main/docs/releasing.md).
