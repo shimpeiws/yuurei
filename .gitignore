@@ -8,3 +8,4 @@ examples/*/.yuurei/runs/
 *.local
 .DS_Store
 .verification/
+.worktrees/

@@ -1,5 +1,5 @@
 {
-  "entry": ["test/integration/**/*.test.ts"],
+  "entry": ["test/integration/**/*.test.ts", "test/integration/fixtures/*.ts"],
   "project": ["src/**/*.ts", "test/**/*.ts"],
   "rules": {
     "types": "off"
