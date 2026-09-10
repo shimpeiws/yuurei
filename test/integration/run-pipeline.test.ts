@@ -16,7 +16,12 @@ import type { ResolvedCell } from '../../src/cell/types.js';
 function makeTrivialRuntime(id: string): Runtime {
   return {
     id: () => id,
-    detect: async () => ({ installed: true, version: null, executablePath: null, authUsable: null }),
+    detect: async () => ({
+      installed: true,
+      version: null,
+      executablePath: null,
+      authUsable: null,
+    }),
     prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
       runtimeId: id,
       command: 'true',
