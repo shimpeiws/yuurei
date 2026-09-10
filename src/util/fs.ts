@@ -1,4 +1,4 @@
-import { access, mkdir, realpath, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, realpath, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 
@@ -48,8 +48,11 @@ export async function pathExists(path: string): Promise<boolean> {
  * Deliberately sets no modes beyond the default: `destDir` and its
  * permissions are the caller's policy (the adapter creates it 0700).
  */
-export async function writeFileTree(destDir: string, files: Record<string, string>): Promise<void> {
-  for (const [relPath, content] of Object.entries(files)) {
+export async function writeFileTree(
+  destDir: string,
+  files: Record<string, { content: Buffer; mode: number }>,
+): Promise<void> {
+  for (const [relPath, file] of Object.entries(files)) {
     const target = join(destDir, relPath);
     if (!(await isPathWithin(destDir, target))) {
       throw new YuureiError(
@@ -58,6 +61,7 @@ export async function writeFileTree(destDir: string, files: Record<string, strin
       );
     }
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, content, 'utf8');
+    await writeFile(target, file.content);
+    await chmod(target, file.mode & 0o777);
   }
 }

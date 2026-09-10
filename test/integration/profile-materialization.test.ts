@@ -13,7 +13,7 @@ import type { ResolvedCell } from '../../src/cell/types.js';
 import type { ProfileContent } from '../../src/profile/types.js';
 
 function makeCell(
-  configFiles: Record<string, string>,
+  configFiles: Record<string, { content: string; mode: number }>,
   executionOptions: Record<string, unknown> = {},
 ): ResolvedCell {
   const content: ProfileContent = { profileYaml: { runtime: 'claude-code' }, configFiles };
@@ -48,8 +48,8 @@ describe('profile materialization', () => {
 
   it('materializes profile config files into the isolated .claude directory', async () => {
     const cell = makeCell({
-      'settings.json': '{"from":"profile"}\n',
-      'skills/x/SKILL.md': '# x\n',
+      'settings.json': { content: '{"from":"profile"}\n', mode: 0o644 },
+      'skills/x/SKILL.md': { content: '# x\n', mode: 0o644 },
     });
 
     const isolation = new Level1Isolation();
@@ -286,7 +286,7 @@ describe('profile materialization', () => {
     // reservation guard weren't there, a profile-supplied auth.json would land
     // untouched by a bridge that legitimately no-ops on a missing source.
     const cell: ResolvedCell = {
-      ...makeCell({ 'auth.json': '{"token":"attacker-controlled"}\n' }),
+      ...makeCell({ 'auth.json': { content: '{"token":"attacker-controlled"}\n', mode: 0o644 } }),
       runtimeId: 'codex',
     };
     const isolation = new Level1Isolation();

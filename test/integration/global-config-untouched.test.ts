@@ -20,7 +20,9 @@ const FRAGMENT: NormalizedTraceFragment = {
   usage: {},
 };
 
-function profileWithConfigFiles(configFiles: Record<string, string>): {
+function profileWithConfigFiles(
+  configFiles: Record<string, { content?: string; mode?: number }> = {},
+): {
   name: string;
   runtime: string;
   content: ProfileContent;
@@ -29,7 +31,15 @@ function profileWithConfigFiles(configFiles: Record<string, string>): {
   return {
     name: 'test-profile',
     runtime: 'fake',
-    content: { profileYaml: { runtime: 'fake' }, configFiles },
+    content: {
+      profileYaml: { runtime: 'fake' },
+      configFiles: Object.fromEntries(
+        Object.entries(configFiles).map(([path, { content, mode }]) => [
+          path,
+          { content: content || '', mode: mode || 0o644 },
+        ]),
+      ),
+    },
     digest: 'sha256:test',
   };
 }
@@ -115,7 +125,9 @@ describe('global config untouched', () => {
     const result = await runPipeline({
       runtimeId: 'fake',
       requestedModel: '',
-      profile: profileWithConfigFiles({ 'settings.json': '{"from":"profile"}\n' }),
+      profile: profileWithConfigFiles({
+        'settings.json': { content: Buffer.from('{"from":"profile"}\n'), mode: 0o644 },
+      }),
       taskPath,
       yuureiVersion: '0.0.1',
       yuureiDir: workDir,

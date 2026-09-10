@@ -29,7 +29,10 @@ describe('run pipeline', () => {
     const profile: ResolvedProfile = {
       name: 'unsupported',
       runtime: 'not-a-real-runtime',
-      content: { profileYaml: { runtime: 'not-a-real-runtime' }, configFiles: {} },
+      content: {
+        profileYaml: { runtime: 'not-a-real-runtime' },
+        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+      },
       digest: 'sha256:0000',
     };
 
@@ -57,7 +60,10 @@ describe('run pipeline', () => {
     const profile: ResolvedProfile = {
       name: 'fake-cred',
       runtime: 'fake-cred-runtime',
-      content: { profileYaml: { runtime: 'fake-cred-runtime' }, configFiles: {} },
+      content: {
+        profileYaml: { runtime: 'fake-cred-runtime' },
+        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+      },
       digest: 'sha256:0000',
     };
 
@@ -139,7 +145,10 @@ describe('run pipeline', () => {
     const profile: ResolvedProfile = {
       name: 'fake-cred-unscrubbable',
       runtime: 'fake-cred-runtime-2',
-      content: { profileYaml: { runtime: 'fake-cred-runtime-2' }, configFiles: {} },
+      content: {
+        profileYaml: { runtime: 'fake-cred-runtime-2' },
+        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+      },
       digest: 'sha256:0000',
     };
 
@@ -219,7 +228,10 @@ describe('run pipeline', () => {
     const profile: ResolvedProfile = {
       name: 'fake-cred-throws',
       runtime: 'fake-cred-runtime-4',
-      content: { profileYaml: { runtime: 'fake-cred-runtime-4' }, configFiles: {} },
+      content: {
+        profileYaml: { runtime: 'fake-cred-runtime-4' },
+        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+      },
       digest: 'sha256:0000',
     };
 
@@ -286,7 +298,10 @@ describe('run pipeline', () => {
     const profile: ResolvedProfile = {
       name: 'fake-cred-logging',
       runtime: 'fake-cred-runtime-3',
-      content: { profileYaml: { runtime: 'fake-cred-runtime-3' }, configFiles: {} },
+      content: {
+        profileYaml: { runtime: 'fake-cred-runtime-3' },
+        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+      },
       digest: 'sha256:0000',
     };
 
@@ -358,7 +373,10 @@ describe('run pipeline', () => {
     const profile: ResolvedProfile = {
       name: 'fake-timeout',
       runtime: 'fake-timeout-runtime',
-      content: { profileYaml: { runtime: 'fake-timeout-runtime' }, configFiles: {} },
+      content: {
+        profileYaml: { runtime: 'fake-timeout-runtime' },
+        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+      },
       digest: 'sha256:0000',
     };
 
@@ -429,7 +447,10 @@ describe('run pipeline', () => {
     const profile: ResolvedProfile = {
       name: 'fake-no-timeout',
       runtime: 'fake-no-timeout-runtime',
-      content: { profileYaml: { runtime: 'fake-no-timeout-runtime' }, configFiles: {} },
+      content: {
+        profileYaml: { runtime: 'fake-no-timeout-runtime' },
+        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+      },
       digest: 'sha256:0000',
     };
 
