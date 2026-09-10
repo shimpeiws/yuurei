@@ -45,6 +45,9 @@ export async function removeTempDir(path: string): Promise<void> {
  * cleanup (design doc §9.1, §15 safety regression). Only real directories
  * are considered: a planted `yuurei-*` symlink or plain file with the prefix
  * is ignored, so the sweep can never be tricked into deleting its target.
+ * Directories owned by another user are skipped too: `os.tmpdir()` is
+ * per-user on macOS, but a Linux host with a shared `/tmp` puts other
+ * people's `yuurei-*` runs in the same root, and this sweep deletes.
  * Unreadable roots and entries are skipped rather than propagated.
  */
 export async function findOrphanTempDirs(
@@ -54,6 +57,9 @@ export async function findOrphanTempDirs(
   const olderThanMs = options?.olderThanMs ?? ORPHAN_TEMP_DIR_MIN_AGE_MS;
   const now = Date.now();
   const orphans: OrphanTempDir[] = [];
+  // Undefined on platforms without POSIX uids, where there is no ownership
+  // to compare and the other guards above still apply.
+  const uid = process.getuid?.();
 
   let entries;
   try {
@@ -70,6 +76,7 @@ export async function findOrphanTempDirs(
     // lstat (not stat) so a symlink swapped in after readdir is not followed.
     const info = await lstat(path).catch(() => null);
     if (info === null || !info.isDirectory()) continue;
+    if (uid !== undefined && info.uid !== uid) continue;
     const ageMs = now - info.mtimeMs;
     if (ageMs >= olderThanMs) orphans.push({ path, ageMs });
   }
