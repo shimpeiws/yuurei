@@ -16,6 +16,7 @@ import type {
   RuntimeResult,
 } from '../types.js';
 import { isPathWithin, pathExists, writeFileTree } from '../../util/fs.js';
+import { assertNoReservedConfigPath } from '../reserved-paths.js';
 import { buildCodexArgs } from './args.js';
 import { codexConfigDir } from './paths.js';
 
@@ -25,26 +26,10 @@ const MIN_SUPPORTED_VERSION: [number, number, number] = [0, 100, 0];
 
 /**
  * Root-level `auth.json` is reserved for the opt-in bridged credential (see
- * bridgeCodexAuthFile below) and must never be satisfiable by profile
- * content, regardless of whether that bridge is even enabled for this run.
- * Without this, a profile shipping its own `config/auth.json` would survive
- * untouched whenever the bridge no-ops or fails (including simply being
- * disabled), so the run would silently authenticate with whatever the
- * profile supplied instead of the operator's real credential. Case-
- * insensitive because Codex resolves this file by name on a filesystem that
- * may not be case-sensitive.
+ * bridgeCodexAuthFile below). See `assertNoReservedConfigPath` for why this is
+ * enforced even when the bridge is disabled.
  */
-function assertNoReservedAuthFileKey(
-  configFiles: Record<string, { content: Buffer; mode: number }>,
-): void {
-  const collision = Object.keys(configFiles).find((key) => key.toLowerCase() === 'auth.json');
-  if (collision !== undefined) {
-    throw new YuureiError(
-      `profile config may not provide "${collision}": this path is reserved for the bridged Codex credential`,
-      EXIT_CODES.CONFIG_ERROR,
-    );
-  }
-}
+const CODEX_RESERVED_CONFIG_PATHS = ['auth.json'] as const;
 
 /**
  * Supported v0.3 method (design doc §9.2) for Codex: forward an explicitly-set
@@ -116,7 +101,7 @@ async function extractCodexAuthSecrets(path: string): Promise<string[]> {
  * token refresh write *through* to the real file).
  *
  * `destDir` is guaranteed to hold no `auth.json` before this runs
- * (assertNoReservedAuthFileKey rejects a profile-supplied one earlier in
+ * (assertNoReservedConfigPath rejects a profile-supplied one earlier in
  * prepare()), so on any failure below the dest is left absent, not stale —
  * the run then runs genuinely unauthenticated rather than under a wrong or
  * partial credential — UNLESS cleaning up a failed copy also fails (a
@@ -187,7 +172,11 @@ export class CodexRuntime implements Runtime {
     // it before anything is written, rather than relying on write order to
     // paper over the collision (a bridge that no-ops or fails would otherwise
     // let a profile-supplied credential silently survive).
-    assertNoReservedAuthFileKey(cell.resolvedProfile.content.configFiles);
+    assertNoReservedConfigPath(
+      configDir,
+      cell.resolvedProfile.content.configFiles,
+      CODEX_RESERVED_CONFIG_PATHS,
+    );
     await writeFileTree(configDir, cell.resolvedProfile.content.configFiles);
     const credentialValuesToRedact = bridgeCodexApiKey(env);
 

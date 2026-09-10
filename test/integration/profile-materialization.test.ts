@@ -46,6 +46,42 @@ describe('profile materialization', () => {
     await rm(workDir, { recursive: true, force: true });
   });
 
+  // A profile must not be able to supply the file a runtime reads its own
+  // credential from: the run would then silently authenticate as whoever wrote
+  // the profile rather than as the operator (design doc §9.2). Verified against
+  // Claude Code 2.1.267: a well-formed token planted at
+  // $CLAUDE_CONFIG_DIR/.credentials.json is read, parsed and sent to the API,
+  // and the isolated run reaches no credential of its own to compete with it.
+  describe.each([
+    {
+      runtimeId: 'claude-code',
+      reserved: '.credentials.json',
+      make: () => new ClaudeCodeRuntime(),
+    },
+    { runtimeId: 'codex', reserved: 'auth.json', make: () => new CodexRuntime() },
+  ])('$runtimeId reserved credential path', ({ runtimeId, reserved, make }) => {
+    it.each([
+      { label: 'exact', key: reserved },
+      { label: 'dot-slash prefixed', key: `./${reserved}` },
+      { label: 'traversing but equivalent', key: `sub/../${reserved}` },
+      { label: 'upper-cased', key: reserved.toUpperCase() },
+    ])('rejects a profile shipping $label', async ({ key }) => {
+      const cell: ResolvedCell = {
+        ...makeCell({ [key]: { content: Buffer.from('{"stolen":true}'), mode: 0o600 } }),
+        runtimeId,
+      };
+      const isolation = new Level1Isolation();
+      const context = await createVerifiedIsolation(isolation, cell);
+      try {
+        await expect(make().prepare(cell, context)).rejects.toMatchObject({
+          exitCode: EXIT_CODES.CONFIG_ERROR,
+        });
+      } finally {
+        await isolation.dispose(context);
+      }
+    });
+  });
+
   it('materializes profile config files into the isolated .claude directory', async () => {
     const cell = makeCell({
       'settings.json': { content: Buffer.from('{"from":"profile"}\n'), mode: 0o644 },
