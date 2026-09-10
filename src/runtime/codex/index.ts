@@ -34,7 +34,9 @@ const MIN_SUPPORTED_VERSION: [number, number, number] = [0, 100, 0];
  * insensitive because Codex resolves this file by name on a filesystem that
  * may not be case-sensitive.
  */
-function assertNoReservedAuthFileKey(configFiles: Record<string, string>): void {
+function assertNoReservedAuthFileKey(
+  configFiles: Record<string, { content: Buffer; mode: number }>,
+): void {
   const collision = Object.keys(configFiles).find((key) => key.toLowerCase() === 'auth.json');
   if (collision !== undefined) {
     throw new YuureiError(

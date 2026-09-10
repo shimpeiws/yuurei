@@ -11,7 +11,7 @@ import type { ProfileYaml } from '../config/schema.js';
  */
 export interface ProfileContent {
   profileYaml: ProfileYaml;
-  configFiles: Record<string, string>;
+  configFiles: Record<string, { content: Buffer; mode: number }>;
 }
 
 export interface Profile {

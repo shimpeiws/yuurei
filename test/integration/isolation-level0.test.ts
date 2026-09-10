@@ -24,7 +24,9 @@ const FRAGMENT: NormalizedTraceFragment = {
   usage: {},
 };
 
-function profileWithConfigFiles(configFiles: Record<string, string>): {
+function profileWithConfigFiles(
+  configFiles: Record<string, { content: Buffer; mode: number }> = {},
+): {
   name: string;
   runtime: string;
   content: ProfileContent;
@@ -164,7 +166,9 @@ describe('level0 isolation', () => {
       const result = await runPipeline({
         runtimeId: 'fake',
         requestedModel: '',
-        profile: profileWithConfigFiles({ 'settings.json': '{"from":"profile"}\n' }),
+        profile: profileWithConfigFiles({
+          'settings.json': { content: Buffer.from('{"from":"profile"}\n'), mode: 0o644 },
+        }),
         taskPath,
         yuureiVersion: '0.0.1',
         yuureiDir: workDir,

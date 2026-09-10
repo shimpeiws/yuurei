@@ -6,7 +6,7 @@ import { sha256Digest } from '../util/hash.js';
 import { isPathWithin, pathExists } from '../util/fs.js';
 import { ProfileYamlSchema } from '../config/schema.js';
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
-import type { Profile, ResolvedProfile } from './types.js';
+import type { Profile, ResolvedProfile, ProfileContent } from './types.js';
 
 /**
  * Loads `profile.yaml` and every file under `config/` into resolved
@@ -19,10 +19,22 @@ export async function loadProfile(profile: Profile): Promise<ResolvedProfile> {
   const profileYaml = ProfileYamlSchema.parse(parse(profileYamlRaw));
 
   const configDir = join(profile.sourceDir, 'config');
-  const configFiles = (await pathExists(configDir)) ? await readAllFiles(configDir) : {};
+  const rawConfigFiles = (await pathExists(configDir)) ? await readAllFiles(configDir) : {};
 
-  const content = { profileYaml, configFiles };
-  const digest = sha256Digest(canonicalJsonStringify(content));
+  const content: ProfileContent = { profileYaml, configFiles: rawConfigFiles };
+
+  // Digest over base64 (not raw Buffers) so JSON serialization of the
+  // canonical form is stable and deterministic for binary content.
+  const digestContent = {
+    profileYaml,
+    configFiles: Object.fromEntries(
+      Object.entries(rawConfigFiles).map(([path, { content, mode }]) => [
+        path,
+        { content: content.toString('base64'), mode },
+      ]),
+    ),
+  };
+  const digest = sha256Digest(canonicalJsonStringify(digestContent));
 
   return {
     name: profile.name,
@@ -32,8 +44,10 @@ export async function loadProfile(profile: Profile): Promise<ResolvedProfile> {
   };
 }
 
-async function readAllFiles(rootDir: string): Promise<Record<string, string>> {
-  const result: Record<string, string> = {};
+async function readAllFiles(
+  rootDir: string,
+): Promise<Record<string, { content: Buffer; mode: number }>> {
+  const result: Record<string, { content: Buffer; mode: number }> = {};
   const rootReal = await realpath(rootDir);
 
   // `ancestors` holds the realpath of every directory on the CURRENT walk
@@ -75,7 +89,10 @@ async function readAllFiles(rootDir: string): Promise<Record<string, string>> {
           }
           await walk(fullPath, new Set([...ancestors, target]));
         } else if (targetStat.isFile()) {
-          result[relative(rootDir, fullPath)] = await readFile(target, 'utf8');
+          result[relative(rootDir, fullPath)] = {
+            content: await readFile(target),
+            mode: targetStat.mode,
+          };
         }
       } else if (entry.isDirectory()) {
         const target = await realpath(fullPath);
@@ -87,7 +104,10 @@ async function readAllFiles(rootDir: string): Promise<Record<string, string>> {
         }
         await walk(fullPath, new Set([...ancestors, target]));
       } else if (entry.isFile()) {
-        result[relative(rootDir, fullPath)] = await readFile(fullPath, 'utf8');
+        result[relative(rootDir, fullPath)] = {
+          content: await readFile(fullPath),
+          mode: (await stat(fullPath)).mode,
+        };
       }
     }
   }
