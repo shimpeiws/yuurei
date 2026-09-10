@@ -21,7 +21,7 @@ const FRAGMENT: NormalizedTraceFragment = {
 };
 
 function profileWithConfigFiles(
-  configFiles: Record<string, { content?: string; mode?: number }> = {},
+  configFiles: Record<string, { content: Buffer; mode: number }> = {},
 ): {
   name: string;
   runtime: string;
@@ -31,15 +31,7 @@ function profileWithConfigFiles(
   return {
     name: 'test-profile',
     runtime: 'fake',
-    content: {
-      profileYaml: { runtime: 'fake' },
-      configFiles: Object.fromEntries(
-        Object.entries(configFiles).map(([path, { content, mode }]) => [
-          path,
-          { content: content || '', mode: mode || 0o644 },
-        ]),
-      ),
-    },
+    content: { profileYaml: { runtime: 'fake' }, configFiles },
     digest: 'sha256:test',
   };
 }

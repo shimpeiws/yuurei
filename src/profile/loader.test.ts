@@ -23,8 +23,8 @@ describe('loadProfile', () => {
     expect(resolved.content).toEqual({
       profileYaml: { runtime: 'claude-code', description: 'Test' },
       configFiles: {
-        'settings.json': { content: Buffer.from('{}\n'), mode: 0o644 | 32768 },
-        'nested/skill.md': { content: Buffer.from('# Skill\n'), mode: 0o644 | 32768 },
+        'settings.json': { content: Buffer.from('{}\n'), mode: 0o644 | 0o100000 },
+        'nested/skill.md': { content: Buffer.from('# Skill\n'), mode: 0o644 | 0o100000 },
       },
     });
     expect(resolved.digest).toMatch(/^sha256:[0-9a-f]{64}$/);

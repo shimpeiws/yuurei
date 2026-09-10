@@ -67,7 +67,7 @@ describe('issue #15: profile digest and materialization', () => {
     await mkdir(destDir, { recursive: true, mode: 0o755 });
     const filesToMaterialize: Record<string, { content: Buffer; mode: number }> = {};
     for (const [path, { content, mode }] of Object.entries(loadedProfile.content.configFiles)) {
-      filesToMaterialize[path] = { content: Buffer.from(content as string, 'base64'), mode };
+      filesToMaterialize[path] = { content, mode };
     }
     await writeFileTree(destDir, filesToMaterialize);
 
@@ -99,21 +99,15 @@ describe('issue #15: profile digest and materialization', () => {
     const configFiles = loadedProfile.content.configFiles;
 
     // Check content and mode for a regular UTF8 file
-    expect(
-      Buffer.from(configFiles['settings.json'].content as string, 'base64').toString('utf8'),
-    ).toBe('{"key":"value"}\n');
+    expect(configFiles['settings.json'].content.toString('utf8')).toBe('{"key":"value"}\n');
     expect(configFiles['settings.json'].mode & 0o777).toBe(0o644); // Default mode
 
     // Check content and mode for a symlinked file
-    expect(
-      Buffer.from(configFiles['symlinked-real/f.md'].content as string, 'base64').toString('utf8'),
-    ).toBe('# f\n');
+    expect(configFiles['symlinked-real/f.md'].content.toString('utf8')).toBe('# f\n');
     expect(configFiles['symlinked-real/f.md'].mode & 0o777).toBe(0o644); // Default mode
 
     // Check content and mode for a file in a real directory
-    expect(Buffer.from(configFiles['real/f.md'].content as string, 'base64').toString('utf8')).toBe(
-      '# f\n',
-    );
+    expect(configFiles['real/f.md'].content.toString('utf8')).toBe('# f\n');
     expect(configFiles['real/f.md'].mode & 0o777).toBe(0o644); // Default mode
   });
 });

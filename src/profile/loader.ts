@@ -23,6 +23,8 @@ export async function loadProfile(profile: Profile): Promise<ResolvedProfile> {
 
   const content: ProfileContent = { profileYaml, configFiles: rawConfigFiles };
 
+  // Digest over base64 (not raw Buffers) so JSON serialization of the
+  // canonical form is stable and deterministic for binary content.
   const digestContent = {
     profileYaml,
     configFiles: Object.fromEntries(
