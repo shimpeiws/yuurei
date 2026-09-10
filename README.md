@@ -20,9 +20,23 @@ toward `yuurei`.
 
 ## Quickstart
 
-Start with the [Getting started guide](docs/getting-started.md) to create
-your first project configuration, profile, and task, then inspect the
-resulting trace and logs. `yuurei doctor` also reports isolated temp
+Install yuurei from npm, or build it from a source checkout:
+
+```sh
+npm install -g yuurei
+```
+
+Check that the CLI is on your PATH and the environment is ready:
+
+```sh
+yuurei --help
+yuurei doctor
+```
+
+Start with the
+[Getting started guide](https://github.com/shimpeiws/yuurei/blob/main/docs/getting-started.md)
+to create your first project configuration, profile, and task, then inspect
+the resulting trace and logs. `yuurei doctor` also reports isolated temp
 directories orphaned by an abnormal termination (SIGKILL, power loss,
 hard crash); `yuurei clean` removes them.
 
@@ -47,5 +61,6 @@ sandboxing, or team auth.
 
 ## Learn more
 
-See [`docs/design/yuurei-design-v0.3.md`](docs/design/yuurei-design-v0.3.md)
-for the full design document.
+See the
+[design document](https://github.com/shimpeiws/yuurei/blob/main/docs/design/yuurei-design-v0.3.md)
+for the full design.

@@ -1,6 +1,16 @@
 {
   "name": "yuurei",
   "version": "0.0.1",
+  "description": "Isolated, reproducible runtime environments for coding agents (Claude Code, Codex).",
+  "homepage": "https://github.com/shimpeiws/yuurei#readme",
+  "bugs": {
+    "url": "https://github.com/shimpeiws/yuurei/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shimpeiws/yuurei.git"
+  },
   "bin": {
     "yuurei": "dist/index.js"
   },
