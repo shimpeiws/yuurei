@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SIGNAL_EXIT_CODES } from '../../src/run/signals.js';
 
@@ -95,8 +95,10 @@ describe('signal cleanup', () => {
   ])(
     'scrubs a credential written during prepare() on %s, even under --keep',
     async (signal, exitCode) => {
-      const { code, marker: credentialPath } = await runFixtureUntilSignal(signal, PREPARE_FIXTURE);
-      rootDirs.push(dirname(credentialPath));
+      const { code, marker } = await runFixtureUntilSignal(signal, PREPARE_FIXTURE);
+      const [rootDir, credentialPath] = marker.split('\n');
+      if (!rootDir || !credentialPath) throw new Error(`fixture reported "${marker}"`);
+      rootDirs.push(rootDir);
 
       expect(code).toBe(exitCode);
       await expect(stat(credentialPath)).rejects.toThrow();

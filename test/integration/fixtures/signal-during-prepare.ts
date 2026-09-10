@@ -40,8 +40,9 @@ const fake: Runtime = {
     const credentialPath = join(isolation.rootDir, 'bridged-credential.txt');
     await writeFile(credentialPath, 'secret\n', 'utf8');
     // The credential is on disk and the pipeline's signal handler is already
-    // installed. This write is the test's cue that it is safe to signal.
-    await writeFile(markerPath, `${credentialPath}\n`, 'utf8');
+    // installed. This write is the test's cue that it is safe to signal. Both
+    // paths are reported so the test never has to derive one from the other.
+    await writeFile(markerPath, `${isolation.rootDir}\n${credentialPath}\n`, 'utf8');
     // Stand in for the adapter work that follows the credential write
     // (reading the file back, spawning the runtime to detect its version).
     // prepare() never returns, so the signal lands with no PreparedRun.
