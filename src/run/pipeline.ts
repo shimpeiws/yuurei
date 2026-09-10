@@ -99,6 +99,24 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // threw, and so a signal killing the process mid-dispose never leaves
     // credential material behind.
     await scrubCredentials();
+    // `prepared` only exists once prepare() has returned, so a run that ends
+    // inside prepare() — a throw, or a signal arriving mid-flight — leaves no
+    // credential manifest to scrub against, while an adapter may already have
+    // written credential material into the isolation root (the Codex
+    // auth-file bridge writes auth.json, then reads it back and spawns the
+    // runtime to detect its version before returning). Nothing can identify
+    // those files after the fact, so `--keep` must not preserve the root:
+    // §9.2 places credential material outside what --keep may retain, and a
+    // run that never started the runtime has no logs or trace worth keeping.
+    // Deliberately fail closed here rather than have prepare() report each
+    // path as it writes it, which would still leave the guarantee resting on
+    // every adapter remembering to report.
+    if (prepared === undefined && context.keep) {
+      warn(
+        `run ended before the runtime started; removing the isolation directory despite --keep, because credential material written during setup cannot be identified: ${context.rootDir}`,
+      );
+      context.keep = false;
+    }
     await disposeContext();
   };
 
