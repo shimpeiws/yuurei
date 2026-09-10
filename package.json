@@ -28,7 +28,7 @@
   "dependencies": {
     "cac": "^6.7.14",
     "yaml": "^2.6.0",
-    "zod": "^3.24.0"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@tsconfig/strictest": "^2.0.5",
