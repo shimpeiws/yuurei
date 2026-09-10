@@ -9,3 +9,7 @@ examples/*/.yuurei/runs/
 .DS_Store
 .verification/
 .worktrees/
+
+# .claude/agents/ is committed; local session state is not.
+.claude/*.lock
+.claude/settings.local.json
