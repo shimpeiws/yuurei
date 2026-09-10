@@ -14,12 +14,23 @@ import type {
   RuntimeResult,
 } from '../types.js';
 import { writeFileTree } from '../../util/fs.js';
+import { assertNoReservedConfigPath } from '../reserved-paths.js';
 import { buildClaudeCodeArgs } from './args.js';
 import { claudeConfigDir } from './paths.js';
 
 const RUNTIME_ID = 'claude-code';
 const COMMAND = 'claude';
 const MIN_SUPPORTED_VERSION: [number, number, number] = [2, 0, 0];
+
+/**
+ * Claude Code resolves its credential store to `<config dir>/.credentials.json`
+ * (verified against 2.1.267: a token planted there is read, parsed and sent to
+ * the API). Unlike Codex there is no bridged credential *file* of yuurei's own
+ * to protect -- the reservation exists because the isolated run holds no
+ * credential at all under subscription login, so a profile-supplied one would
+ * be used unconditionally.
+ */
+const CLAUDE_RESERVED_CONFIG_PATHS = ['.credentials.json'] as const;
 
 const CLAUDE_CREDENTIAL_ENV_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
 
@@ -64,6 +75,15 @@ export class ClaudeCodeRuntime implements Runtime {
     const env = { ...isolation.env };
     const configDir = claudeConfigDir(configRootOf(isolation));
     await mkdir(configDir, { recursive: true, mode: 0o700 });
+    // Reject before anything is written, rather than relying on write order to
+    // paper over the collision (§9.2). Claude Code resolves its credential
+    // store from CLAUDE_CONFIG_DIR, which is exactly the directory the profile
+    // is materialized into.
+    assertNoReservedConfigPath(
+      configDir,
+      cell.resolvedProfile.content.configFiles,
+      CLAUDE_RESERVED_CONFIG_PATHS,
+    );
     await writeFileTree(configDir, cell.resolvedProfile.content.configFiles);
     const credentialValuesToRedact = bridgeClaudeCredentials(env);
     env['CLAUDE_CONFIG_DIR'] = configDir;

@@ -53,7 +53,11 @@ describe('profile materialization', () => {
   // $CLAUDE_CONFIG_DIR/.credentials.json is read, parsed and sent to the API,
   // and the isolated run reaches no credential of its own to compete with it.
   describe.each([
-    { runtimeId: 'claude-code', reserved: '.credentials.json', make: () => new ClaudeCodeRuntime() },
+    {
+      runtimeId: 'claude-code',
+      reserved: '.credentials.json',
+      make: () => new ClaudeCodeRuntime(),
+    },
     { runtimeId: 'codex', reserved: 'auth.json', make: () => new CodexRuntime() },
   ])('$runtimeId reserved credential path', ({ runtimeId, reserved, make }) => {
     it.each([
