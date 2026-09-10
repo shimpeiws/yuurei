@@ -9,6 +9,7 @@ import {
   writeArtifactManifest,
 } from '../artifact/collector.js';
 import { createIsolation, createVerifiedIsolation } from '../isolation/index.js';
+import { toProfileManifest } from '../profile/manifest.js';
 import { getRuntime } from '../runtime/registry.js';
 import type { PreparedRun, Runtime } from '../runtime/types.js';
 import { writeTrace } from '../trace/writer.js';
@@ -158,9 +159,11 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     };
 
     await writeTrace(layout.runDir, trace);
+    // Identity, not content: §10.1 records a digest of the profile content,
+    // and §10.2 keeps a profile's own secrets out of the durable run dir.
     await writeFile(
       layout.resolvedProfilePath,
-      JSON.stringify(cell.resolvedProfile, null, 2),
+      JSON.stringify(toProfileManifest(cell.resolvedProfile), null, 2),
       'utf8',
     );
 
