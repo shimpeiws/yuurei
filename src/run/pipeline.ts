@@ -88,10 +88,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     );
   };
 
-  const disposeContext = async () => {
+  /**
+   * `discardKept` overrides the context's own `keep` for this disposal only.
+   * Passed as a value rather than written back onto `context`, so the decision
+   * is visible at the call site instead of as a side effect on shared state.
+   */
+  const disposeContext = async (discardKept = false) => {
     if (disposed) return;
     disposed = true;
-    await isolation.dispose(context);
+    await isolation.dispose(discardKept ? { ...context, keep: false } : context);
   };
 
   const cleanup = async () => {
@@ -99,7 +104,18 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // threw, and so a signal killing the process mid-dispose never leaves
     // credential material behind.
     await scrubCredentials();
-    await disposeContext();
+    // `prepared` only exists once prepare() has returned, so a run that ended
+    // inside it may have credential material on disk with no manifest to scrub
+    // against — the Codex auth-file bridge writes auth.json, then reads it back
+    // and spawns the runtime before returning. Nothing can identify those files
+    // afterwards, so `--keep` does not apply (§9.2).
+    const startedRuntime = prepared !== undefined;
+    if (!startedRuntime && context.keep) {
+      warn(
+        `run ended before the runtime started; removing the isolation directory despite --keep, because credential material written during setup cannot be identified: ${context.rootDir}`,
+      );
+    }
+    await disposeContext(!startedRuntime);
   };
 
   const signalCleanup = installSignalCleanup({ cleanup });

@@ -138,6 +138,73 @@ describe('run pipeline', () => {
     await rm(observedRootDir, { recursive: true, force: true });
   });
 
+  it('removes a kept isolation root when prepare() throws, and says why', async () => {
+    // The signal variant of this window lives in signal-cleanup.test.ts; a
+    // throwing prepare() reaches the same state in-process. Either way the
+    // pipeline holds no PreparedRun, so it cannot know which files under the
+    // root are credential material — and the Codex auth-file bridge writes
+    // one before prepare() returns. §9.2 puts credentials outside what --keep
+    // may retain, so the whole root goes.
+    const profile: ResolvedProfile = {
+      name: 'fake-prepare-throws',
+      runtime: 'fake-prepare-throws-runtime',
+      content: { profileYaml: { runtime: 'fake-prepare-throws-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+
+    let credentialPath: string | undefined;
+    let observedRootDir: string | undefined;
+    const warnings: string[] = [];
+
+    const fake: Runtime = {
+      id: () => 'fake-prepare-throws-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (_cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => {
+        observedRootDir = isolation.rootDir;
+        credentialPath = join(isolation.rootDir, 'bridged-credential.txt');
+        await writeFile(credentialPath, 'secret\n', 'utf8');
+        throw new Error('adapter failed after writing the credential');
+      },
+      execute: async () => {
+        throw new Error('execute() must not be reached');
+      },
+      normalize: async () => ({
+        runtime: { id: 'fake-prepare-throws-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: 0, durationMs: 0 },
+        usage: {},
+      }),
+    };
+
+    await expect(
+      runPipeline({
+        runtimeId: profile.runtime,
+        requestedModel: '',
+        profile,
+        taskPath,
+        yuureiVersion: '0.0.1',
+        yuureiDir: workDir,
+        isolationStrategy: 'level1',
+        keep: true,
+        resolveRuntime: () => fake,
+        onWarning: (message) => warnings.push(message),
+      }),
+    ).rejects.toThrow('adapter failed after writing the credential');
+
+    if (!credentialPath || !observedRootDir)
+      throw new Error('fake runtime prepare() was never called');
+    expect(await pathExists(credentialPath)).toBe(false);
+    expect(await pathExists(observedRootDir)).toBe(false);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('despite --keep');
+    expect(warnings[0]).toContain(observedRootDir);
+  });
+
   it('warns instead of throwing when a credential file cannot be scrubbed', async () => {
     // Point credentialFilePaths at a non-empty directory: rm(path, { force: true })
     // (no `recursive: true`) throws on that, exercising the failure branch of the
