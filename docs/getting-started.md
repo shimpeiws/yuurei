@@ -5,8 +5,13 @@ and logs. Run the commands below in a POSIX shell.
 
 ## Prepare the CLI
 
-Use Node.js 21 or later and pnpm. To build yuurei from a source checkout,
-run these commands in the yuurei repository:
+Use Node.js 21 or later. Install yuurei from npm:
+
+```sh
+npm install -g yuurei
+```
+
+Or build it from a source checkout:
 
 ```sh
 pnpm install
