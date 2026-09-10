@@ -2,6 +2,8 @@
 
 > Isolated, reproducible runtime environments for coding agents
 
+![Yuurei ghost DJ operating a mixing console](docs/assets/yuurei-top.jpg)
+
 `yuurei` isolates coding-agent runtime environments (Claude Code, Codex)
 from your normal global configuration, so different harness profiles
 (skills, instructions, settings, hooks) can be swapped and run

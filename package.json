@@ -15,7 +15,8 @@
     "yuurei": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs/assets"
   ],
   "type": "module",
   "main": "./dist/index.js",
