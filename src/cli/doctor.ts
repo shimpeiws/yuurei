@@ -2,6 +2,7 @@ import { access, constants, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { listRuntimeIds, getRuntime } from '../runtime/registry.js';
+import { findOrphanTempDirs, type OrphanTempDir } from '../isolation/tempdir.js';
 import type { Logger } from '../util/logger.js';
 
 interface DoctorRuntimeCheck {
@@ -15,6 +16,13 @@ interface DoctorRuntimeCheck {
 export interface DoctorReport {
   runtimes: DoctorRuntimeCheck[];
   canWriteOutputDir: boolean;
+  /** `yuurei-*` temp dirs left behind by abnormal termination (design doc §15). */
+  orphanTempDirs: OrphanTempDir[];
+}
+
+export interface DoctorOptions {
+  /** Scan root for orphaned temp dirs. Defaults to `os.tmpdir()`. Injectable for tests. */
+  tempDir?: string;
 }
 
 /**
@@ -22,7 +30,7 @@ export interface DoctorReport {
  * (design doc §8.1). Authentication is reported only when an installed
  * runtime has credentials available through its supported default path.
  */
-export async function runDoctor(): Promise<DoctorReport> {
+export async function runDoctor(options?: DoctorOptions): Promise<DoctorReport> {
   const runtimes: DoctorRuntimeCheck[] = [];
   for (const runtimeId of listRuntimeIds()) {
     const detection = await getRuntime(runtimeId).detect();
@@ -38,6 +46,9 @@ export async function runDoctor(): Promise<DoctorReport> {
   return {
     runtimes,
     canWriteOutputDir: await canWriteToTempDir(),
+    orphanTempDirs: await findOrphanTempDirs(
+      options?.tempDir === undefined ? undefined : { root: options.tempDir },
+    ),
   };
 }
 
@@ -50,6 +61,14 @@ export function printDoctorReport(report: DoctorReport, logger: Logger): void {
     });
   }
   logger.info(`output directory writable: ${report.canWriteOutputDir}`);
+  if (report.orphanTempDirs.length === 0) {
+    logger.info('no orphaned isolation temp directories found');
+  } else {
+    logger.warn(
+      `found ${report.orphanTempDirs.length} orphaned isolation temp director${report.orphanTempDirs.length === 1 ? 'y' : 'ies'}; run "yuurei clean" to remove them`,
+      { paths: report.orphanTempDirs.map((orphan) => orphan.path) },
+    );
+  }
 }
 
 async function canWriteToTempDir(): Promise<boolean> {

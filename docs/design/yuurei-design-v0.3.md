@@ -415,6 +415,9 @@ yuurei run refactor-claude-pstack --keep
 
 # Show an existing trace
 yuurei trace show <run-id>
+
+# Remove isolation temp directories orphaned by abnormal termination
+yuurei clean
 ```
 
 ### 8.1 `doctor`
@@ -430,7 +433,7 @@ Checks performed:
 
 `doctor` never corrects the environment — it is limited to inspection and displaying remediation suggestions.
 
-### 8.2 Exit codes
+### 8.3 Exit codes
 
 Examples:
 
@@ -440,6 +443,10 @@ Examples:
 - `4`: Isolation verification failed
 - `5`: Runtime execution failed
 - `6`: Trace or artifact save failed
+
+### 8.4 `clean`
+
+`doctor` detects `yuurei-*` temp directories in the OS temp root that were orphaned by abnormal termination (`SIGKILL`, power loss, hard crash — the cleanup paths in §9.1 cannot run in those cases). `clean` is the recovery half of that safety regression (§15): it finds the same orphaned directories and removes those older than a threshold (24h by default) so an in-progress run is never touched. Deletion is best-effort; failures are reported, not fatal.
 
 ---
 
