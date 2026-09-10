@@ -1,5 +1,6 @@
 import { rm, writeFile } from 'node:fs/promises';
 import { NoopCostModel } from '../cost/noop.js';
+import { installSignalCleanup } from './signals.js';
 import { resolveCell, type CellResolutionInput } from '../cell/resolver.js';
 import type { ResolvedCell } from '../cell/types.js';
 import {
@@ -59,7 +60,49 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   context.keep = input.keep;
 
   let prepared: PreparedRun | undefined;
+  let scrubbed = false;
+  let disposed = false;
   const warn = (message: string) => input.onWarning?.(message);
+
+  const scrubCredentials = async () => {
+    // Credential material should never survive a run, even under `--keep` —
+    // `--keep` preserves config/logs for debugging, never bridged auth
+    // material. Best-effort, not a guarantee: a failed deletion is reported
+    // via onWarning (naming the residual path) rather than silently
+    // swallowed. Shared by the finally block and the signal handler, guarded
+    // so a signal arriving mid-cleanup can't double-scrub and double-report.
+    if (!prepared || scrubbed) return;
+    scrubbed = true;
+    await Promise.all(
+      prepared.credentialFilePaths.map(async (path) => {
+        try {
+          await rm(path, { force: true });
+        } catch (error) {
+          warn(
+            `failed to scrub credential file, it may still be present on disk: ${path} (${
+              error instanceof Error ? error.message : String(error)
+            })`,
+          );
+        }
+      }),
+    );
+  };
+
+  const disposeContext = async () => {
+    if (disposed) return;
+    disposed = true;
+    await isolation.dispose(context);
+  };
+
+  const cleanup = async () => {
+    // Scrub before dispose() so this runs regardless of which branch above
+    // threw, and so a signal killing the process mid-dispose never leaves
+    // credential material behind.
+    await scrubCredentials();
+    await disposeContext();
+  };
+
+  const signalCleanup = installSignalCleanup({ cleanup });
   try {
     const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
     prepared = await runtime.prepare(cell, context);
@@ -147,32 +190,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
 
     return { runId, runDir: layout.runDir, cell, trace };
   } finally {
-    // Credential material should never survive a run, even under `--keep` —
-    // `--keep` preserves config/logs for debugging, never bridged auth
-    // material. Best-effort, not a guarantee: a failed deletion is reported
-    // via onWarning (naming the residual path) rather than silently
-    // swallowed — and reported here, in finally, specifically because this
-    // is the only place a warning can still reach the caller when an
-    // earlier step (execute/normalize/trace write/artifact collection)
-    // threw and no RunPipelineResult will ever be returned. A killing
-    // signal can still bypass this async finally entirely (tracked
-    // separately in #16). Scrub before dispose() so this runs regardless of
-    // which branch above threw.
-    if (prepared) {
-      await Promise.all(
-        prepared.credentialFilePaths.map(async (path) => {
-          try {
-            await rm(path, { force: true });
-          } catch (error) {
-            warn(
-              `failed to scrub credential file, it may still be present on disk: ${path} (${
-                error instanceof Error ? error.message : String(error)
-              })`,
-            );
-          }
-        }),
-      );
-    }
-    await isolation.dispose(context);
+    // The finally block and the signal handler share the same guarded
+    // cleanup, so the dispose can't run twice even when a signal arrives
+    // while this block is mid-flight. The signal handler awaits the same
+    // `cleanup` promise, so its `process.exit()` cannot preempt this block's
+    // in-flight dispose — the exit fires only after both the finally block
+    // and the handler's own cleanup have run. Uninstall before cleaning up:
+    // a signal arriving after this run completed must not re-enter the
+    // cleanup/exit path (the run already finished; the signal is unrelated).
+    signalCleanup.uninstall();
+    await cleanup();
   }
 }
