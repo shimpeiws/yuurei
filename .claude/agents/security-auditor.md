@@ -1,6 +1,6 @@
 ---
 name: security-auditor
-description: yuurei のローカルファイル操作・認証情報・プロセス起動まわりのセキュリティ監査。読み取り専用で、設計文書が宣言する不変条件と実装を突き合わせる。
+description: Read-only security audit of yuurei's local file operations, credential handling and process spawning, checking the implementation against the invariants the design doc declares.
 tools: Read, Glob, Grep
 model: opus
 ---
