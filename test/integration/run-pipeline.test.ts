@@ -31,7 +31,7 @@ describe('run pipeline', () => {
       runtime: 'not-a-real-runtime',
       content: {
         profileYaml: { runtime: 'not-a-real-runtime' },
-        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+        configFiles: {},
       },
       digest: 'sha256:0000',
     };
@@ -62,7 +62,7 @@ describe('run pipeline', () => {
       runtime: 'fake-cred-runtime',
       content: {
         profileYaml: { runtime: 'fake-cred-runtime' },
-        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+        configFiles: {},
       },
       digest: 'sha256:0000',
     };
@@ -147,7 +147,7 @@ describe('run pipeline', () => {
       runtime: 'fake-cred-runtime-2',
       content: {
         profileYaml: { runtime: 'fake-cred-runtime-2' },
-        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+        configFiles: {},
       },
       digest: 'sha256:0000',
     };
@@ -230,7 +230,7 @@ describe('run pipeline', () => {
       runtime: 'fake-cred-runtime-4',
       content: {
         profileYaml: { runtime: 'fake-cred-runtime-4' },
-        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+        configFiles: {},
       },
       digest: 'sha256:0000',
     };
@@ -300,7 +300,7 @@ describe('run pipeline', () => {
       runtime: 'fake-cred-runtime-3',
       content: {
         profileYaml: { runtime: 'fake-cred-runtime-3' },
-        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+        configFiles: {},
       },
       digest: 'sha256:0000',
     };
@@ -375,7 +375,7 @@ describe('run pipeline', () => {
       runtime: 'fake-timeout-runtime',
       content: {
         profileYaml: { runtime: 'fake-timeout-runtime' },
-        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+        configFiles: {},
       },
       digest: 'sha256:0000',
     };
@@ -449,7 +449,7 @@ describe('run pipeline', () => {
       runtime: 'fake-no-timeout-runtime',
       content: {
         profileYaml: { runtime: 'fake-no-timeout-runtime' },
-        configFiles: {} as Record<string, { content: Buffer; mode: number }>,
+        configFiles: {},
       },
       digest: 'sha256:0000',
     };
