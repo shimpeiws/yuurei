@@ -145,7 +145,7 @@ the bytes must be retained, decode them to text and run them through `redactFile
 
 **Test coverage.** Not covered.
 
-## 4. Verification items (V1–V2 resolved, V3–V5 open)
+## 4. Verification items (V1–V2 resolved, V3–V4 open, V5 investigated — open pending empirical confirmation)
 
 V1 and V2 were open at the time of the audit and have since been **resolved by experiment**
 (Claude Code 2.1.267, macOS 25.5, 2026-09-10). They are retained here with their results, because the
@@ -204,7 +204,42 @@ method is reusable when the runtime is upgraded. V3–V5 remain open and were re
 - **V5 — `credentialFilePaths` is a snapshot taken at `prepare()` time.** An in-place `auth.json`
   refresh during the run is still scrubbed, since the path is unchanged; a _differently-named_
   sidecar written by the runtime after `prepare()` is not on the list, so it is never scrubbed and
-  `--keep` preserves it. Confirm what files Codex actually writes into `CODEX_HOME` during a run.
+  `--keep` preserves it.
+
+  **Investigated 2026-09-10 against codex-cli 0.153.4** (issue #60). Evidentiary status: items
+  marked "(measured)" rest on direct observation; the final conclusion is marked "(inference)" and
+  has not been confirmed by running an OAuth MCP flow to completion.
+
+  _(measured)_ A real `codex exec` run against an isolated `CODEX_HOME` seeded only with the
+  bridged `auth.json`, using the same `-c` flags `buildCodexArgs` passes, wrote roughly 200 files.
+  No credential-named file appeared beyond `auth.json`. The notable additions are operational state:
+  `sessions/2026/…/rollout-*.jsonl` (full session transcript), `state_5.sqlite`,
+  `thread_history_1.sqlite`, `memories_1.sqlite`, `goals_1.sqlite`, `queue_1.sqlite`,
+  `logs_2.sqlite`, `plugins/cache/openai-curated-remote/**` (plugin bundles), `models_cache.json`,
+  `installation_id`, `.sandbox_migration`. These survive `--keep` but are not credential material.
+
+  _(measured)_ `mcp_oauth_credentials_store` accepts exactly three values: `auto`, `file`,
+  `keyring`. `ephemeral` is rejected. The binary's embedded default is `auto`, which prefers the
+  keyring when one is available. The current `buildCodexArgs` pin to `file` is therefore
+  load-bearing — without it, an OAuth-using MCP server would reach the operator's real OS keychain
+  (§9.2 violation). The pin is confirmed correct and should stay.
+
+  _(inference, not measured)_ For a credential file to exist, Codex must complete an MCP OAuth
+  flow. That flow requires a local callback server (`mcp_oauth_callback_port`) and a browser
+  redirect. `yuurei` runs `codex exec --json`, non-interactive, against a freshly created
+  `CODEX_HOME` holding no prior tokens. Under this execution model the OAuth flow has no path to
+  completion, so the credential file has no path to being written.
+
+  **Residual exposure after #55.** Finding 1 (#55) changed the calculus: the isolation root is
+  now removed on every exit path except a completed run under `--keep`. The remaining exposure is:
+  `--keep` **and** a run that reached completion **and** a profile configuring an
+  OAuth-authenticating MCP server. Narrower than the original framing, but the inference above is
+  what makes even this path appear unreachable.
+
+  **Disposition.** Issue #60 remains open. The inference is plausible and the original concern is
+  substantially narrowed, but it has not been settled empirically. Closing empirically requires
+  standing up an OAuth MCP server, observing what file Codex writes, and adding that path to the
+  reserved set alongside `auth.json`. If that work is done, update this entry and close #60.
 
 ## 5. Accepted risks (§12.1)
 
