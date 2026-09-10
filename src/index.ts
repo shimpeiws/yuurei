@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import cac from 'cac';
+import { runClean } from './cli/clean.js';
 import { printDoctorReport, runDoctor } from './cli/doctor.js';
 import { runInspect } from './cli/inspect.js';
 import { EXIT_CODES, YuureiError } from './cli/exit-codes.js';
@@ -58,6 +59,15 @@ cli
   .action(
     withErrorHandling(async (profileName: string, flags: { json?: boolean }) => {
       await runInspect(process.cwd(), profileName, loggerForFlags(flags));
+    }),
+  );
+
+cli
+  .command('clean', 'Remove orphaned isolation temp directories')
+  .option('--json', 'Output as JSON')
+  .action(
+    withErrorHandling(async (flags: { json?: boolean }) => {
+      await runClean(loggerForFlags(flags));
     }),
   );
 

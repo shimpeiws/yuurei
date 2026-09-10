@@ -22,7 +22,9 @@ toward `yuurei`.
 
 Start with the [Getting started guide](docs/getting-started.md) to create
 your first project configuration, profile, and task, then inspect the
-resulting trace and logs.
+resulting trace and logs. `yuurei doctor` also reports isolated temp
+directories orphaned by an abnormal termination (SIGKILL, power loss,
+hard crash); `yuurei clean` removes them.
 
 ```sh
 yuurei doctor
@@ -32,6 +34,7 @@ yuurei run <run-name>
 yuurei run --profile <profile> --task <path/to/task.md>
 yuurei run <run-name> --keep
 yuurei trace show <run-id>
+yuurei clean
 ```
 
 ## Status
