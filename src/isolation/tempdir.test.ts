@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { findOrphanTempDirs, ORPHAN_TEMP_DIR_MIN_AGE_MS, removeOrphanTempDirs } from './tempdir.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -34,6 +34,28 @@ describe('orphaned temp directory sweep', () => {
 
     expect(orphans.map((orphan) => orphan.path)).toEqual([stale]);
     expect(orphans[0].ageMs).toBeGreaterThanOrEqual(ORPHAN_TEMP_DIR_MIN_AGE_MS);
+  });
+
+  // The sweep deletes. On macOS os.tmpdir() is per-user, so every yuurei-*
+  // directory there is already the caller's; on a Linux host with a shared
+  // /tmp it is not, and `yuurei clean` must not reach another user's run.
+  // Ownership is asserted by stubbing the caller's identity rather than by
+  // chown-ing a fixture, which would need root.
+  it('ignores a directory owned by another user', async () => {
+    await makeDir('yuurei-stale', STALE);
+    const notMe = ((process.getuid?.() ?? 0) + 1) >>> 0;
+    const spy = vi.spyOn(process, 'getuid').mockReturnValue(notMe);
+
+    try {
+      expect(await findOrphanTempDirs({ root })).toEqual([]);
+      const result = await removeOrphanTempDirs({ root });
+      expect(result.removed).toEqual([]);
+      expect(result.failed).toEqual([]);
+      // Not merely unreported: still on disk.
+      await expect(stat(join(root, 'yuurei-stale'))).resolves.toBeDefined();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('ignores plain files and symlinks even with the prefix', async () => {
