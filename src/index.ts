@@ -103,6 +103,7 @@ cli
             profile: flags.profile ?? 'claude-basic',
             task: flags.task ?? 'hello',
             ...(flags.run !== undefined ? { run: flags.run } : {}),
+            json: flags.json ?? false,
           },
           loggerForFlags(flags),
         );

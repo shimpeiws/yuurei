@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -97,6 +97,58 @@ describe('yuurei init', () => {
 
     expect(second.code).toBe(0);
     expect(second.stdout).toMatch(/already scaffolded/);
+  });
+
+  it('emits a structured JSON report with --json', async () => {
+    const dir = await makeWorkDir();
+    const result = await runCli(dir, ['init', '--json']);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    const lines = result.stdout.trim().split('\n');
+    expect(lines).toHaveLength(1);
+    const report = JSON.parse(lines[0]) as Record<string, unknown>;
+    expect(report).toMatchObject({
+      level: 'info',
+      message: 'init',
+      // cwd is canonicalized by the child process, so compare the normalized path.
+      targetDir: await realpath(dir),
+      created: true,
+      profile: 'claude-basic',
+      task: 'hello',
+      run: 'hello',
+    });
+    expect(report['scaffoldPaths']).toEqual([
+      '.yuurei/yuurei.yaml',
+      '.yuurei/profiles/claude-basic/profile.yaml',
+      '.yuurei/profiles/claude-basic/config/.gitkeep',
+      '.yuurei/tasks/hello.md',
+    ]);
+  });
+
+  it('reports created:false and custom fields in JSON on an idempotent re-run', async () => {
+    const dir = await makeWorkDir();
+    await runCli(dir, ['init', '--profile', 'sc-starter', '--task', 'hello', '--run', 'r1']);
+    const second = await runCli(dir, [
+      'init',
+      '--profile',
+      'sc-starter',
+      '--task',
+      'hello',
+      '--run',
+      'r1',
+      '--json',
+    ]);
+
+    expect(second.code).toBe(0);
+    const lines = second.stdout.trim().split('\n');
+    expect(lines).toHaveLength(1);
+    const report = JSON.parse(lines[0]) as Record<string, unknown>;
+    expect(report).toMatchObject({
+      created: false,
+      profile: 'sc-starter',
+      run: 'r1',
+    });
   });
 
   it('refuses to overwrite on a conflict and leaves files untouched', async () => {

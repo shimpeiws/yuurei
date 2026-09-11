@@ -13,6 +13,20 @@ export interface InitOptions {
   task: string;
   /** Named run referencing the generated profile and task. Defaults to `task`. */
   run?: string;
+  /** Emit the structured `InitReport` as the JSON output instead of the human report. */
+  json?: boolean;
+}
+
+/** Structured report for `yuurei init`, emitted on stdout when `--json` is set. */
+export interface InitReport {
+  targetDir: string;
+  /** False when the target was already a matching scaffold, so nothing was written. */
+  created: boolean;
+  /** Paths written (or verified to already match), relative to `targetDir`. */
+  scaffoldPaths: string[];
+  profile: string;
+  task: string;
+  run: string;
 }
 
 /** One generated file, `relPath` relative to the project root (starts with `.yuurei/`). */
@@ -85,24 +99,37 @@ function displayPaths(options: InitOptions): string[] {
   ];
 }
 
-function printInitReport(
-  targetDir: string,
-  options: InitOptions,
-  created: boolean,
-  logger: Logger,
-): void {
-  const run = options.run ?? options.task;
+function buildInitReport(targetDir: string, options: InitOptions, created: boolean): InitReport {
+  return {
+    targetDir,
+    created,
+    scaffoldPaths: displayPaths(options),
+    profile: options.profile,
+    task: options.task,
+    run: options.run ?? options.task,
+  };
+}
+
+function printInitReport(report: InitReport, options: InitOptions, logger: Logger): void {
+  if (options.json) {
+    logger.info('init', { ...report });
+    return;
+  }
   logger.info(
-    created ? `scaffolded project at ${targetDir}` : `project already scaffolded at ${targetDir}`,
+    report.created
+      ? `scaffolded project at ${report.targetDir}`
+      : `project already scaffolded at ${report.targetDir}`,
   );
-  for (const pathName of displayPaths(options)) {
+  for (const pathName of report.scaffoldPaths) {
     logger.info(pathName);
   }
-  logger.info(`run "${run}" resolves to profile "${options.profile}" and task "${options.task}"`);
+  logger.info(
+    `run "${report.run}" resolves to profile "${report.profile}" and task "${report.task}"`,
+  );
   logger.info('next commands:');
   logger.info('  yuurei profile list');
-  logger.info(`  yuurei inspect ${options.profile}`);
-  logger.info(`  yuurei run ${run}`);
+  logger.info(`  yuurei inspect ${report.profile}`);
+  logger.info(`  yuurei run ${report.run}`);
 }
 
 /**
@@ -151,7 +178,7 @@ export async function runInit(cwd: string, options: InitOptions, logger: Logger)
         EXIT_CODES.CONFIG_ERROR,
       );
     }
-    printInitReport(targetDir, options, false, logger);
+    printInitReport(buildInitReport(targetDir, options, false), options, logger);
     return;
   }
 
@@ -167,5 +194,5 @@ export async function runInit(cwd: string, options: InitOptions, logger: Logger)
     await rm(stagingDir, { recursive: true, force: true });
   }
 
-  printInitReport(targetDir, options, true, logger);
+  printInitReport(buildInitReport(targetDir, options, true), options, logger);
 }
