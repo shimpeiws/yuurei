@@ -59,8 +59,8 @@ export ANTHROPIC_API_KEY='<api-key>'
 ```
 
 Note: `claude auth status` may report `loggedIn: true` while `yuurei doctor`
-reports `authUsable: false`. These check different stores — `claude auth status`
-reads the OS credential store; yuurei checks for an explicit environment
+reports `authentication: required`. These check different stores — `claude auth
+status` reads the OS credential store; yuurei checks for an explicit environment
 variable. A shell export applies only to that shell and its child processes; do
 not persist the token in a profile, task, or committed file.
 
@@ -97,17 +97,43 @@ Check that the environment is ready:
 yuurei doctor
 ```
 
-Look for `authUsable: true` for the runtime you plan to use. If `authUsable`
-is `false`, `yuurei doctor` will print runtime-specific next steps. Note that
-`authUsable` reflects an explicit environment credential, not whether an
-interactive login exists: Codex can report `authUsable: false` even when a
-`~/.codex/auth.json` is available for explicit bridging, because the check
-detects `OPENAI_API_KEY` only. Verify a credential variable is present without
-printing its value:
+Each runtime prints as a compact status block:
+
+```text
+claude-code
+  status: installed
+  version: 2.1.269 (Claude Code)
+  supported: yes
+  authentication: ready
+
+codex
+  status: installed
+  version: codex-cli 0.154.0
+  supported: yes
+  authentication: required
+    Export OPENAI_API_KEY in this shell and re-run `yuurei doctor`. ...
+```
+
+Look for `authentication: ready` for the runtime you plan to use. If a runtime
+reports `authentication: required`, `yuurei doctor` prints safe,
+runtime-specific next steps. Note that the check reflects an explicit
+environment credential, not whether an interactive login exists: Codex can
+report `authentication: required` even when a `~/.codex/auth.json` is available
+for explicit bridging, because the check detects `OPENAI_API_KEY` only. Verify a
+credential variable is present without printing its value:
 
 ```sh
 [ -n "$ANTHROPIC_AUTH_TOKEN" ] && echo present || echo absent
 [ -n "$OPENAI_API_KEY" ] && echo present || echo absent
+```
+
+Orphaned temp directories are listed with a prominent count and the
+`yuurei clean` recovery command. Pass `--json` for machine-readable output that
+scripts can consume, one JSON object per line:
+
+```text
+{"level":"info","message":"claude-code: installed","version":"2.1.269 (Claude Code)","versionSupported":true,"authUsable":true}
+```
 ```
 
 ### Create a first project

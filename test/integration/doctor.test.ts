@@ -1,12 +1,48 @@
 import { mkdir, mkdtemp, rm, stat, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { printDoctorReport, runDoctor } from '../../src/cli/doctor.js';
 import { ORPHAN_TEMP_DIR_MIN_AGE_MS } from '../../src/isolation/tempdir.js';
-import type { Logger } from '../../src/util/logger.js';
+import { createLogger, type Logger, type LogFormat } from '../../src/util/logger.js';
+
+function makeLogger(format: LogFormat = 'human'): {
+  logger: Logger;
+  messages: { level: string; message: string; data?: Record<string, unknown> }[];
+} {
+  const messages: { level: string; message: string; data?: Record<string, unknown> }[] = [];
+  const logger: Logger = {
+    format,
+    info: (message, data) => messages.push({ level: 'info', message, data }),
+    warn: (message, data) => messages.push({ level: 'warn', message, data }),
+    error: (message, data) => messages.push({ level: 'error', message, data }),
+  };
+  return { logger, messages };
+}
+
+function claudeCodeRuntime(
+  overrides: Partial<{
+    version: string | null;
+    versionSupported: boolean | null;
+    authUsable: boolean | null;
+    authGuidance?: string;
+  }> = {},
+) {
+  return {
+    runtimeId: 'claude-code',
+    installed: true,
+    version: '2.1.269 (Claude Code)',
+    versionSupported: true,
+    authUsable: true,
+    ...overrides,
+  };
+}
 
 describe('yuurei doctor', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('reports a detection entry for every registered runtime', async () => {
     const report = await runDoctor();
 
@@ -49,110 +85,168 @@ describe('yuurei doctor', () => {
     }
   });
 
-  it('emits auth guidance when authUsable is false, not when true or null', () => {
-    const messages: { level: string; message: string; data?: Record<string, unknown> }[] = [];
-    const logger: Logger = {
-      info: (message, data) => messages.push({ level: 'info', message, data }),
-      warn: (message, data) => messages.push({ level: 'warn', message, data }),
-      error: (message, data) => messages.push({ level: 'error', message, data }),
-    };
-
-    // authUsable: false + authGuidance → guidance emitted
-    messages.length = 0;
+  it('renders each runtime as a readable block with no inline JSON', () => {
+    const { logger, messages } = makeLogger('human');
     printDoctorReport(
       {
-        runtimes: [
-          {
-            runtimeId: 'claude-code',
-            installed: true,
-            version: '2.1.0',
-            versionSupported: true,
-            authUsable: false,
-            authGuidance: 'Run claude setup-token and export ANTHROPIC_AUTH_TOKEN.',
-          },
-        ],
+        runtimes: [claudeCodeRuntime()],
         canWriteOutputDir: true,
         orphanTempDirs: [],
       },
       logger,
     );
-    const warnMessages = messages.filter((m) => m.level === 'warn');
-    expect(warnMessages.length).toBeGreaterThan(0);
-    const guidanceMsg = warnMessages.find((m) => m.data?.['authGuidance'] !== undefined);
-    expect(guidanceMsg).toBeDefined();
-    expect(guidanceMsg?.data?.['authGuidance']).toContain('claude setup-token');
-    expect(guidanceMsg?.data?.['authGuidance']).toContain('ANTHROPIC_AUTH_TOKEN');
-    // No secrets appear in the output
-    const allText = messages.map((m) => m.message + JSON.stringify(m.data ?? {})).join('\n');
-    expect(allText).not.toContain('sk-ant-api03-');
-    expect(allText).not.toContain('ANTHROPIC_AUTH_TOKEN=sk-ant-secret');
 
-    // authUsable: true → no guidance
-    messages.length = 0;
+    const text = messages.map((m) => m.message);
+    expect(text).toContain('claude-code');
+    expect(text).toContain('  status: installed');
+    expect(text).toContain('  version: 2.1.269 (Claude Code)');
+    expect(text).toContain('  supported: yes');
+    expect(text).toContain('  authentication: ready');
+    // Human output must not append structured data to the line.
+    for (const m of messages) {
+      expect(m.data).toBeUndefined();
+      expect(m.message).not.toContain('"version"');
+      expect(m.message).not.toMatch(/\{[^}]*\}/);
+    }
+  });
+
+  it('distinguishes not found, unsupported, and unauthenticated states', () => {
+    const { logger, messages } = makeLogger('human');
     printDoctorReport(
       {
         runtimes: [
           {
-            runtimeId: 'claude-code',
-            installed: true,
-            version: '2.1.0',
-            versionSupported: true,
-            authUsable: true,
-          },
-        ],
-        canWriteOutputDir: true,
-        orphanTempDirs: [],
-      },
-      logger,
-    );
-    expect(messages.filter((m) => m.level === 'warn' && m.data?.['authGuidance'])).toHaveLength(0);
-
-    // authUsable: null → no guidance
-    messages.length = 0;
-    printDoctorReport(
-      {
-        runtimes: [
-          {
-            runtimeId: 'claude-code',
-            installed: true,
+            ...claudeCodeRuntime(),
+            runtimeId: 'codex',
+            installed: false,
             version: null,
             versionSupported: null,
             authUsable: null,
           },
+          { ...claudeCodeRuntime(), version: '1.5.0', versionSupported: false },
+          { ...claudeCodeRuntime(), authUsable: null },
         ],
         canWriteOutputDir: true,
         orphanTempDirs: [],
       },
       logger,
     );
-    expect(messages.filter((m) => m.level === 'warn' && m.data?.['authGuidance'])).toHaveLength(0);
+
+    const text = messages.map((m) => m.message);
+    const warn = messages.filter((m) => m.level === 'warn').map((m) => m.message);
+    expect(text).toContain('  status: not found');
+    expect(warn.some((m) => m.includes('WARNING: supported: no'))).toBe(true);
+    expect(warn.some((m) => m.includes('upgrade this runtime to a supported version'))).toBe(true);
+    expect(text).toContain('  authentication: not checked');
+  });
+
+  it('renders auth guidance as an indented paragraph and never prints secrets', () => {
+    const { logger, messages } = makeLogger('human');
+    const guidance =
+      'For subscription login, run `claude setup-token` once, then in this shell export the result as ANTHROPIC_AUTH_TOKEN. ' +
+      'Re-run `yuurei doctor` and look for authentication: ready.';
+    printDoctorReport(
+      {
+        runtimes: [claudeCodeRuntime({ authUsable: false, authGuidance: guidance })],
+        canWriteOutputDir: true,
+        orphanTempDirs: [],
+      },
+      logger,
+    );
+
+    const text = messages.map((m) => m.message);
+    const warn = messages.filter((m) => m.level === 'warn').map((m) => m.message);
+    expect(warn.some((m) => m.includes('WARNING: authentication: required'))).toBe(true);
+    const guidanceLines = warn.filter((m) => m.startsWith('    '));
+    expect(guidanceLines.join(' ')).toContain('claude setup-token');
+    expect(guidanceLines.join(' ')).toContain('ANTHROPIC_AUTH_TOKEN');
+    // No secrets appear in the output.
+    const allText = text.join('\n');
+    expect(allText).not.toContain('sk-ant-api03-');
+    expect(allText).not.toContain('ANTHROPIC_AUTH_TOKEN=sk-ant-secret');
+    expect(allText).not.toContain('sk-proj-');
+  });
+
+  it('keeps the machine-readable JSON schema stable', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const logger = createLogger('json');
+    printDoctorReport(
+      {
+        runtimes: [
+          claudeCodeRuntime({
+            authUsable: false,
+            authGuidance: 'Run `claude setup-token` and export ANTHROPIC_AUTH_TOKEN.',
+          }),
+        ],
+        canWriteOutputDir: true,
+        orphanTempDirs: [{ path: '/tmp/yuurei-old', ageMs: 1 }],
+      },
+      logger,
+    );
+
+    const lines = logSpy.mock.calls.map((call) => call[0]) as string[];
+    expect(lines.length).toBe(4);
+    const parsed = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+
+    expect(parsed[0]).toEqual({
+      level: 'info',
+      message: 'claude-code: installed',
+      version: '2.1.269 (Claude Code)',
+      versionSupported: true,
+      authUsable: false,
+    });
+    expect(parsed[1]).toEqual({
+      level: 'warn',
+      message: 'claude-code: authentication required — next steps',
+      authGuidance: 'Run `claude setup-token` and export ANTHROPIC_AUTH_TOKEN.',
+    });
+    expect(parsed[2]).toEqual({ level: 'info', message: 'output directory writable: true' });
+    expect(parsed[3]).toEqual({
+      level: 'warn',
+      message: 'found 1 orphaned isolation temp directory; run "yuurei clean" to remove them',
+      paths: ['/tmp/yuurei-old'],
+    });
   });
 
   it('suggests "yuurei clean" when orphans are found and stays silent otherwise', () => {
-    const makeLogger = (messages: { level: string; message: string }[]): Logger => ({
-      info: (message) => messages.push({ level: 'info', message }),
-      warn: (message) => messages.push({ level: 'warn', message }),
-      error: (message) => messages.push({ level: 'error', message }),
-    });
+    const clean = makeLogger('human');
+    printDoctorReport({ runtimes: [], canWriteOutputDir: true, orphanTempDirs: [] }, clean.logger);
+    expect(clean.messages.some((m) => m.message.includes('yuurei clean'))).toBe(false);
 
-    const cleanMessages: { level: string; message: string }[] = [];
-    printDoctorReport(
-      { runtimes: [], canWriteOutputDir: true, orphanTempDirs: [] },
-      makeLogger(cleanMessages),
-    );
-    expect(cleanMessages.some((m) => m.message.includes('yuurei clean'))).toBe(false);
-
-    const orphanMessages: { level: string; message: string }[] = [];
+    const orphans = makeLogger('human');
     printDoctorReport(
       {
         runtimes: [],
         canWriteOutputDir: true,
         orphanTempDirs: [{ path: '/tmp/yuurei-old', ageMs: 1 }],
       },
-      makeLogger(orphanMessages),
+      orphans.logger,
     );
-    expect(
-      orphanMessages.some((m) => m.level === 'warn' && m.message.includes('yuurei clean')),
-    ).toBe(true);
+    const warn = orphans.messages.filter((m) => m.level === 'warn');
+    expect(warn.some((m) => m.message.includes('WARNING: found 1 orphaned'))).toBe(true);
+    expect(warn.some((m) => m.message.includes('yuurei clean'))).toBe(true);
+  });
+
+  it('lists orphaned temp dir paths one per line without truncation', () => {
+    const count = 25;
+    const orphanTempDirs = Array.from({ length: count }, (_, i) => ({
+      path: `/tmp/yuurei-${i}`,
+      ageMs: 1,
+    }));
+
+    const { logger, messages } = makeLogger('human');
+    printDoctorReport({ runtimes: [], canWriteOutputDir: true, orphanTempDirs }, logger);
+
+    const warn = messages.filter((m) => m.level === 'warn').map((m) => m.message);
+    // The count and cleanup command appear first, before the path list.
+    const countLineIndex = warn.findIndex((m) => m.includes('WARNING: found 25 orphaned'));
+    expect(countLineIndex).toBeGreaterThanOrEqual(0);
+    const cleanLineIndex = warn.findIndex((m) => m.includes('Run "yuurei clean" to remove them'));
+    expect(cleanLineIndex).toBeGreaterThan(countLineIndex);
+    const pathLines = warn.filter((m) => /^  \/tmp\/yuurei-\d+$/.test(m));
+    expect(pathLines).toHaveLength(count);
+    for (let i = 0; i < count; i++) {
+      expect(pathLines).toContain(`  /tmp/yuurei-${i}`);
+    }
   });
 });

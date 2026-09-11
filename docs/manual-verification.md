@@ -31,14 +31,14 @@ export ANTHROPIC_AUTH_TOKEN='<token from claude setup-token>'
 **Expected outcome:**
 
 - `echo present` (the token is not printed).
-- `yuurei doctor` reports `claude-code: installed`, `versionSupported: true`,
-  and `authUsable: true`.
+- `yuurei doctor` reports `claude-code` with `status: installed`, `supported:
+  yes`, and `authentication: ready`.
 
 Note: `claude auth status` may report `loggedIn: true` while `yuurei doctor`
-reports `authUsable: false`. These check different stores — `claude auth
-status` reads the OS credential store, while yuurei checks for an explicit
-environment variable. Both can be true at the same time; the values are
-independent.
+reports `authentication: required` for `claude-code`. These check different
+stores — `claude auth status` reads the OS credential store, while yuurei
+checks for an explicit environment variable. Both can be true at the same time;
+the values are independent.
 
 ### 2. Claude Code — API key
 
@@ -50,7 +50,7 @@ export ANTHROPIC_API_KEY='<api-key>'
 **Expected outcome:**
 
 - `echo present`.
-- `yuurei doctor` reports `authUsable: true` for `claude-code`.
+- `yuurei doctor` reports `authentication: ready` for `claude-code`.
 - Use one Claude path at a time in a fresh shell (mixing the subscription
   token and the API key is ambiguous and unsupported).
 
@@ -64,12 +64,12 @@ export OPENAI_API_KEY='<api-key>'
 **Expected outcome:**
 
 - `echo present`.
-- `yuurei doctor` reports `codex` with `authUsable: true` when `OPENAI_API_KEY`
-  is set.
+- `yuurei doctor` reports `codex` with `authentication: ready` when
+  `OPENAI_API_KEY` is set.
 - With only an interactive login available (a `~/.codex/auth.json` and no
-  `OPENAI_API_KEY`), `yuurei doctor` reports `authUsable: false` for `codex`.
-  That is the check's scope, not proof that the explicit bridge below cannot
-  run.
+  `OPENAI_API_KEY`), `yuurei doctor` reports `authentication: required` for
+  `codex`. That is the check's scope, not proof that the explicit bridge below
+  cannot run.
 
 ### 4. Codex — existing interactive login via the auth-file bridge _(requires runtime)_
 
