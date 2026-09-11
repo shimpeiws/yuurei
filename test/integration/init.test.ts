@@ -221,5 +221,19 @@ describe('yuurei init', () => {
 
     expect(result.code).toBe(0);
     expect(await readdir(join(sub, '.yuurei'))).toContain('yuurei.yaml');
+    expect(await readdir(dir)).not.toContain('.yuurei');
+  });
+
+  it('accepts an absolute target directory without nesting under cwd', async () => {
+    const dir = await makeWorkDir();
+    const absolute = join(dir, 'elsewhere', 'proj');
+    const result = await runCli(dir, ['init', absolute]);
+
+    expect(result.code).toBe(0);
+    expect(await readdir(join(absolute, '.yuurei'))).toContain('yuurei.yaml');
+    expect(await readdir(dir)).not.toContain('.yuurei');
+    // The absolute target must not be reproduced under cwd.
+    const nested = join(dir, absolute.replace(/^\//, ''));
+    expect(await readdir(nested).catch(() => null)).toBeNull();
   });
 });

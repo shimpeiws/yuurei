@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { listRuntimeIds } from '../runtime/registry.js';
 import { isPathWithin, pathExists } from '../util/fs.js';
 import { EXIT_CODES, YuureiError } from './exit-codes.js';
@@ -140,7 +140,9 @@ function printInitReport(report: InitReport, options: InitOptions, logger: Logge
  * unexpected failure cannot leave a partial scaffold (§2.3 fail-safe).
  */
 export async function runInit(cwd: string, options: InitOptions, logger: Logger): Promise<void> {
-  const targetDir = join(cwd, options.directory);
+  // resolve() not join(): the operand may be absolute, and join() would then
+  // nest it under cwd (join('/work', '/tmp/proj') === '/work/tmp/proj').
+  const targetDir = resolve(cwd, options.directory);
   const runtimeIds = listRuntimeIds();
   if (!runtimeIds.includes(options.runtime)) {
     throw new YuureiError(
