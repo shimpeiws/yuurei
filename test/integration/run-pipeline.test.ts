@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -52,7 +52,7 @@ function makeTrivialRuntime(id: string): Runtime {
     normalize: async () => ({
       runtime: { id, version: null },
       model: { requested: '', resolved: null },
-      execution: { exitCode: 0, durationMs: 0 },
+      execution: { exitCode: 0, signal: null, durationMs: 0 },
       usage: {},
     }),
   };
@@ -212,7 +212,7 @@ describe('run pipeline', () => {
       normalize: async (_result, context: NormalizationContext) => ({
         runtime: { id: 'fake-cred-runtime', version: context.runtimeVersion },
         model: { requested: '', resolved: null },
-        execution: { exitCode: 0, durationMs: 0 },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
         usage: {},
       }),
     };
@@ -275,7 +275,7 @@ describe('run pipeline', () => {
       normalize: async () => ({
         runtime: { id: 'fake-prepare-throws-runtime', version: null },
         model: { requested: '', resolved: null },
-        execution: { exitCode: 0, durationMs: 0 },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
         usage: {},
       }),
     };
@@ -363,7 +363,7 @@ describe('run pipeline', () => {
       normalize: async () => ({
         runtime: { id: 'fake-cred-runtime-2', version: null },
         model: { requested: '', resolved: null },
-        execution: { exitCode: 0, durationMs: 0 },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
         usage: {},
       }),
     };
@@ -434,7 +434,7 @@ describe('run pipeline', () => {
       normalize: async () => ({
         runtime: { id: 'fake-cred-runtime-4', version: null },
         model: { requested: '', resolved: null },
-        execution: { exitCode: 0, durationMs: 0 },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
         usage: {},
       }),
     };
@@ -513,7 +513,7 @@ describe('run pipeline', () => {
       normalize: async () => ({
         runtime: { id: 'fake-cred-runtime-3', version: null },
         model: { requested: '', resolved: null },
-        execution: { exitCode: 0, durationMs: 0 },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
         usage: {},
       }),
     };
@@ -588,7 +588,7 @@ describe('run pipeline', () => {
       normalize: async () => ({
         runtime: { id: 'fake-capped-runtime', version: null },
         model: { requested: '', resolved: null },
-        execution: { exitCode: 0, durationMs: 0 },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
         usage: {},
       }),
     };
@@ -668,7 +668,7 @@ describe('run pipeline', () => {
       normalize: async () => ({
         runtime: { id: 'fake-timeout-runtime', version: null },
         model: { requested: '', resolved: null },
-        execution: { exitCode: null, durationMs: 0 },
+        execution: { exitCode: null, signal: null, durationMs: 0 },
         usage: {},
       }),
     };
@@ -742,7 +742,7 @@ describe('run pipeline', () => {
       normalize: async () => ({
         runtime: { id: 'fake-no-timeout-runtime', version: null },
         model: { requested: '', resolved: null },
-        execution: { exitCode: 0, durationMs: 0 },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
         usage: {},
       }),
     };
@@ -808,7 +808,7 @@ describe('run pipeline', () => {
       normalize: async () => ({
         runtime: { id: 'fake-concurrent-runtime', version: null },
         model: { requested: '', resolved: null },
-        execution: { exitCode: 0, durationMs: 0 },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
         usage: {},
       }),
     };
@@ -885,7 +885,7 @@ describe('run pipeline', () => {
       normalize: async () => ({
         runtime: { id: 'fake-isolation-identity-runtime', version: null },
         model: { requested: '', resolved: null },
-        execution: { exitCode: 0, durationMs: 0 },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
         usage: {},
       }),
     };
@@ -960,7 +960,7 @@ describe('run pipeline', () => {
       normalize: async () => ({
         runtime: { id: 'fake-cost-runtime', version: null },
         model: { requested: '', resolved: 'resolved-model' },
-        execution: { exitCode: 0, durationMs: 0 },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
         usage: { input_tokens: 123, output_tokens: null },
       }),
     };
@@ -983,5 +983,140 @@ describe('run pipeline', () => {
       tokensIn: 123,
       tokensOut: null,
     });
+  });
+
+  it('records signal in the trace when the runtime child is killed by a signal', async () => {
+    // Defect A: a signal-terminated child (exitCode null, signal 'SIGINT') must
+    // be recorded in trace.execution.signal; exit_code stays null.
+    const profile: ResolvedProfile = {
+      name: 'fake-sigint',
+      runtime: 'fake-sigint-runtime',
+      content: { profileYaml: { runtime: 'fake-sigint-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+
+    const fake: Runtime = {
+      id: () => 'fake-sigint-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+        runtimeId: 'fake-sigint-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialFilePaths: [],
+        credentialValuesToRedact: [],
+      }),
+      execute: async (run: PreparedRun) => {
+        const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+        const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+        await writeFile(stdoutPath, '', 'utf8');
+        await writeFile(stderrPath, '', 'utf8');
+        return {
+          exitCode: null,
+          signal: 'SIGINT' as const,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          stdoutPath,
+          stderrPath,
+          timedOut: false,
+        };
+      },
+      normalize: async (result) => ({
+        runtime: { id: 'fake-sigint-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: result.exitCode, signal: result.signal, durationMs: 0 },
+        usage: {},
+      }),
+    };
+
+    const result = await runPipeline({
+      runtimeId: profile.runtime,
+      requestedModel: '',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      resolveRuntime: () => fake,
+    });
+
+    expect(result.trace.execution.signal).toBe('SIGINT');
+    expect(result.trace.execution.exit_code).toBeNull();
+    expect(result.trace.execution.timed_out).toBe(false);
+    // Schema must still be valid (signal-terminated run is a documented outcome).
+    const { TraceSchema } = await import('../../src/trace/schema.js');
+    expect(() => TraceSchema.parse(result.trace)).not.toThrow();
+  });
+
+  it('removes the run directory when the pipeline throws before writing a trace', async () => {
+    // Defect B: any run that ends before writeTrace (here: execute() throws)
+    // must not leave a partial run directory behind.
+    const profile: ResolvedProfile = {
+      name: 'fake-throw',
+      runtime: 'fake-throw-runtime',
+      content: { profileYaml: { runtime: 'fake-throw-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+
+    const fake: Runtime = {
+      id: () => 'fake-throw-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+        runtimeId: 'fake-throw-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialFilePaths: [],
+        credentialValuesToRedact: [],
+      }),
+      execute: async () => {
+        throw new Error('simulated execute failure');
+      },
+      normalize: async () => ({
+        runtime: { id: 'fake-throw-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: null, signal: null, durationMs: 0 },
+        usage: {},
+      }),
+    };
+
+    const runsDir = join(workDir, 'runs');
+
+    await expect(
+      runPipeline({
+        runtimeId: profile.runtime,
+        requestedModel: '',
+        profile,
+        taskPath,
+        yuureiVersion: '0.0.1',
+        yuureiDir: workDir,
+        isolationStrategy: 'level1',
+        keep: false,
+        resolveRuntime: () => fake,
+      }),
+    ).rejects.toThrow('simulated execute failure');
+
+    // Runs dir may exist (created by createUniqueRunLayout) but must be empty.
+    const entries = await readdir(runsDir).catch(() => []);
+    expect(entries).toHaveLength(0);
   });
 });

@@ -6,6 +6,7 @@ import { runPipeline } from '../run/pipeline.js';
 import { MAX_TIMEOUT_MS } from '../runtime/exec.js';
 import { isPathWithin } from '../util/fs.js';
 import { YuureiError, EXIT_CODES } from './exit-codes.js';
+import { exitCodeForSignal } from '../run/signals.js';
 import type { Logger } from '../util/logger.js';
 import type { IsolationStrategy } from '../isolation/types.js';
 
@@ -120,6 +121,11 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
 
   logger.info(`run ${result.runId} finished`, {
     exitCode: result.trace.execution.exit_code,
+    signal: result.trace.execution.signal,
     runDir: result.runDir,
   });
+
+  if (result.trace.execution.signal !== null) {
+    process.exitCode = exitCodeForSignal(result.trace.execution.signal);
+  }
 }

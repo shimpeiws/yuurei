@@ -45,7 +45,11 @@ fake = {
     // Signal handler is installed by the pipeline before prepare() runs; the
     // credential file now exists on disk. This synchronous write is the
     // test's cue that it is safe to send the signal.
-    await writeFile(markerPath, `${rootDir}\n`, 'utf8');
+    await writeFile(
+      markerPath,
+      JSON.stringify({ rootDir, runsDir: join(workDir, 'runs') }),
+      'utf8',
+    );
     return {
       runtimeId: 'fake-signal-runtime',
       command: 'true',
@@ -63,7 +67,7 @@ fake = {
   normalize: async () => ({
     runtime: { id: 'fake-signal-runtime', version: null },
     model: { requested: '', resolved: null },
-    execution: { exitCode: 0, durationMs: 0 },
+    execution: { exitCode: 0, signal: null, durationMs: 0 },
     usage: {},
   }),
 };

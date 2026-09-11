@@ -12,6 +12,15 @@ export const SIGNAL_EXIT_CODES: Record<string, number> = {
   SIGTERM: 143,
 };
 
+/**
+ * Maps a signal name to the shell-convention exit code (128 + signal number).
+ * Handles SIGINT (130) and SIGTERM (143) by the well-known table; falls back
+ * to 128 for any other signal so the process never exits 0 for a killed run.
+ */
+export function exitCodeForSignal(signal: string): number {
+  return SIGNAL_EXIT_CODES[signal] ?? 128;
+}
+
 export interface SignalCleanupOptions {
   /**
    * Cleans up the active run (credential scrub + isolation dispose) and

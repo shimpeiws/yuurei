@@ -11,7 +11,7 @@ const validTrace = {
   profile: { name: 'default', digest: 'sha256:profile' },
   task: { source: 'task.md', digest: 'sha256:task' },
   isolation: { strategy: 'level1', verified: true },
-  execution: { exit_code: 0, duration_ms: 1000, timed_out: false },
+  execution: { exit_code: 0, signal: null, duration_ms: 1000, timed_out: false },
   usage: { tokens_in: null },
   cost: null,
   artifacts: [],
@@ -23,6 +23,6 @@ describe('TraceSchema', () => {
   });
 
   it('rejects a trace with the wrong schema version', () => {
-    expect(() => TraceSchema.parse({ ...validTrace, schema_version: '0.1' })).toThrow();
+    expect(() => TraceSchema.parse({ ...validTrace, schema_version: '0.2' })).toThrow();
   });
 });

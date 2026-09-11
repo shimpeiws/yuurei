@@ -256,7 +256,7 @@ At minimum, it holds the following.
 
 ```json
 {
-  "schema_version": "0.2",
+  "schema_version": "0.3",
   "run_id": "...",
   "started_at": "...",
   "finished_at": "...",
@@ -282,6 +282,7 @@ At minimum, it holds the following.
   },
   "execution": {
     "exit_code": 0,
+    "signal": null,
     "duration_ms": 0,
     "timed_out": false
   },
@@ -290,6 +291,13 @@ At minimum, it holds the following.
   "artifacts": []
 }
 ```
+
+`execution.signal` is the OS signal name (`"SIGINT"`, `"SIGTERM"`, etc.) when the runtime child
+was killed by a signal, or `null` otherwise. When a signal is recorded, `exit_code` is `null`
+because the process had no exit code to report. A run interrupted by a signal that yuurei itself
+caught (SIGINT/SIGTERM during the run) produces no durable run directory (the partial directory
+is removed before exit); a signal delivered to the runtime child after the pipeline completes
+execution produces a valid trace with `signal` set and `exit_code: null`.
 
 The trace distinguishes "a value that could not be observed" from "zero." It never fills in an unknown value by guessing.
 

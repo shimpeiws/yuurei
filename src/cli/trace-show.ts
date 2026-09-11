@@ -18,6 +18,7 @@ export async function runTraceShow(cwd: string, runId: string, logger: Logger): 
   logger.info(runId, {
     runtime: trace.runtime.id,
     exitCode: trace.execution.exit_code,
+    signal: trace.execution.signal,
     durationMs: trace.execution.duration_ms,
     timedOut: trace.execution.timed_out,
   });
