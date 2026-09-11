@@ -73,12 +73,80 @@ yuurei doctor
 Look for `authUsable: true` for the runtime you plan to use. If `authUsable`
 is `false`, `yuurei doctor` will print runtime-specific next steps.
 
-Start with the
-[Getting started guide](https://github.com/shimpeiws/yuurei/blob/main/docs/getting-started.md)
-to create your first project configuration, profile, and task, then inspect
-the resulting trace and logs. `yuurei doctor` also reports isolated temp
-directories orphaned by an abnormal termination (SIGKILL, power loss,
-hard crash); `yuurei clean` removes them.
+### Create a first project
+
+A Yuurei project keeps its configuration under `.yuurei/`. The project
+configuration names profiles and runs. A profile selects a runtime and its
+runtime-native config files. A task is the instruction sent to that runtime.
+Each run creates a trace and logs under `.yuurei/runs/<run-id>/`.
+
+Create the smallest Claude Code project:
+
+```sh
+mkdir yuurei-demo
+cd yuurei-demo
+mkdir -p .yuurei/profiles/claude-basic/config .yuurei/tasks
+
+cat > .yuurei/yuurei.yaml <<'YAML'
+version: 1
+profiles:
+  claude-basic:
+    runtime: claude-code
+    source: ./profiles/claude-basic
+runs:
+  hello:
+    profile: claude-basic
+    task: ./tasks/hello.md
+YAML
+
+cat > .yuurei/profiles/claude-basic/profile.yaml <<'YAML'
+runtime: claude-code
+YAML
+
+cat > .yuurei/tasks/hello.md <<'MARKDOWN'
+Reply with "Hello from yuurei." Do not read or write files or run commands.
+MARKDOWN
+```
+
+The named run resolves `profile` and `task` from `.yuurei/yuurei.yaml`:
+
+```sh
+yuurei profile list
+yuurei inspect claude-basic
+yuurei run hello
+```
+
+To choose both values at the command line, run:
+
+```sh
+yuurei run --profile claude-basic --task .yuurei/tasks/hello.md
+```
+
+After a run, use the printed run ID to inspect the result:
+
+```sh
+RUN_ID='<run-id>'
+yuurei trace show "$RUN_ID"
+cat ".yuurei/runs/$RUN_ID/trace.json"
+cat ".yuurei/runs/$RUN_ID/stdout.log"
+cat ".yuurei/runs/$RUN_ID/stderr.log"
+cat ".yuurei/runs/$RUN_ID/artifacts.json"
+```
+
+The trace records the runtime, exit status, timeout status, profile and task
+digests, and isolation result. Yuurei does not copy your project source into
+the temporary execution cell, and it does not import your global runtime
+configuration automatically.
+
+The `task` path in a named run must stay inside `.yuurei/`. A direct
+`--task` path is an explicit operator choice and may point elsewhere. Keep
+profile and task files trusted because the runtime executes their contents.
+
+For runtime-specific authentication, config files, isolation levels, and
+security details, read the [Getting started guide](https://github.com/shimpeiws/yuurei/blob/main/docs/getting-started.md).
+
+`yuurei doctor` also reports isolated temp directories orphaned by an abnormal
+termination (SIGKILL, power loss, hard crash); `yuurei clean` removes them.
 
 ```sh
 yuurei doctor
