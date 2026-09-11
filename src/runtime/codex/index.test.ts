@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CodexRuntime } from './index.js';
+import { CodexRuntime, stripCodexStdinNotice } from './index.js';
 import type { NormalizationContext, RuntimeResult } from '../types.js';
 
 // Real JSONL captured from `codex exec --json "say hello"`.
@@ -170,6 +170,22 @@ describe('CodexRuntime.normalize()', () => {
     expect(fragment.usage).toMatchObject({ input_tokens: 50, output_tokens: 3 });
     expect(fragment.warnings).toEqual(
       expect.arrayContaining([expect.stringContaining('1 unparseable JSONL line(s)')]),
+    );
+  });
+});
+
+describe('stripCodexStdinNotice', () => {
+  it('removes only Codex’s benign stdin notice and preserves other stderr', () => {
+    expect(
+      stripCodexStdinNotice(
+        'Reading additional input from stdin...\nreal runtime failure\nReading additional input from stdin...',
+      ),
+    ).toBe('real runtime failure');
+  });
+
+  it('preserves stderr that does not contain the exact notice', () => {
+    expect(stripCodexStdinNotice('Reading additional input from stdin')).toBe(
+      'Reading additional input from stdin',
     );
   });
 });
