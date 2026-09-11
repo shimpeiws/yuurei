@@ -50,10 +50,10 @@ export ANTHROPIC_API_KEY='<api-key>'
 ```
 
 Note: `claude auth status` may report `loggedIn: true` while `yuurei doctor`
-reports `authUsable: false`. These check different stores — `claude auth
+reports `authentication: required`. These check different stores — `claude auth
 status` reads the OS credential store; yuurei checks for an explicit
 environment variable. A shell export applies only to that shell and its
-child processes; do not overwrite a token in a profile, task, or committed
+child processes; do not persist the token in a profile, task, or committed
 file.
 
 ### Codex
@@ -89,14 +89,24 @@ Now verify the environment works:
 yuurei doctor
 ```
 
-The check in the output detects an explicit environment credential; it does
-not validate the credential with the service. Look for `claude-code:
-installed`, `versionSupported: true`, and `authUsable: true` for the
-runtime you plan to use. If `authUsable` is `false`, `yuurei doctor` will
-print runtime-specific next steps. For Codex, `authUsable` reflects an
-`OPENAI_API_KEY` export only: an available `~/.codex/auth.json` for explicit
-bridging does not make the check report `true`. Codex can be absent for this
-tutorial.
+Each runtime prints as a compact status block:
+
+```text
+claude-code
+  status: installed
+  version: <installed-version>
+  supported: yes
+  authentication: ready
+```
+
+Look for `status: installed`, `supported: yes`, and `authentication: ready`
+for the runtime you plan to use. The check detects an explicit environment
+credential; it does not validate the credential with the service. If a runtime
+shows `authentication: required`, `yuurei doctor` prints safe,
+runtime-specific next steps. For Codex, the check reflects an `OPENAI_API_KEY`
+export only: an available `~/.codex/auth.json` for explicit bridging does not
+make it report `authentication: ready`. Codex can be absent for this tutorial.
+Use `yuurei doctor --json` for machine-readable output.
 
 Verify a credential variable is present without printing its value:
 
