@@ -28,11 +28,13 @@ Claude Code 2.0.0 or later.
 ## Set up authentication (required)
 
 `yuurei` forwards explicit credential variables into the isolated runtime.
-It does **not** copy your usual Claude configuration or read your
+It does **not** copy your usual Claude Code configuration or read your
 interactive login from the OS credential store (design doc §9.2/§10.2).
 Keep credentials out of profile and task files.
 
-**Claude Code — subscription login:** Run `claude setup-token` once in
+### Claude Code
+
+**Subscription login (default path):** run `claude setup-token` once in
 this shell to obtain a long-lived token, then export it:
 
 ```sh
@@ -41,34 +43,67 @@ claude setup-token
 export ANTHROPIC_AUTH_TOKEN='<token from claude setup-token>'
 ```
 
-Verify the variable is set without printing its value:
+**API key:** export `ANTHROPIC_API_KEY` instead:
 
 ```sh
-[ -n "$ANTHROPIC_AUTH_TOKEN" ] && echo present || echo absent
+export ANTHROPIC_API_KEY='<api-key>'
 ```
 
 Note: `claude auth status` may report `loggedIn: true` while `yuurei doctor`
 reports `authUsable: false`. These check different stores — `claude auth
 status` reads the OS credential store; yuurei checks for an explicit
 environment variable. A shell export applies only to that shell and its
-child processes; do not persist the token in a profile, task, or committed
+child processes; do not overwrite a token in a profile, task, or committed
 file.
 
-**Claude Code — API key:** export `ANTHROPIC_API_KEY` instead.
+### Codex
 
-**Codex:** export `OPENAI_API_KEY`.
+**API key (default path):** export `OPENAI_API_KEY`:
 
-Now verify the environment is ready:
+```sh
+export OPENAI_API_KEY='<api-key>'
+```
+
+**Existing interactive login (experimental, opt-in):** if you already have a
+`~/.codex/auth.json` from a `codex` interactive login, you can reuse it in
+the isolated run with `--bridge-codex-auth-file`:
+
+```sh
+yuurei run <run-name> --bridge-codex-auth-file
+```
+
+This flag is experimental and off by default. When enabled, yuurei copies
+exactly `~/.codex/auth.json` into the isolated run, runs with it, and scrubs
+the isolated copy afterward. The real global file is never modified. It is an
+explicit opt-in because that file can carry a rotating OAuth access/refresh
+token pair: if the token refreshes mid-run, only the isolated copy receives
+the new state while the real file stays stale, and the valid rotated copy is
+then discarded on cleanup. Do not copy credentials into profile or task
+files.
+
+### Verify the environment
+
+Now verify the environment works:
 
 ```sh
 yuurei doctor
 ```
 
-Look for `claude-code: installed`, `versionSupported: true`, and
-`authUsable: true` in the output. The authentication check detects an
-available credential variable; it does not validate the credential with
-the service. If `authUsable` is `false`, `yuurei doctor` will print
-runtime-specific next steps. Codex can be absent for this tutorial.
+The check in the output detects an explicit environment credential; it does
+not validate the credential with the service. Look for `claude-code:
+installed`, `versionSupported: true`, and `authUsable: true` for the
+runtime you plan to use. If `authUsable` is `false`, `yuurei doctor` will
+print runtime-specific next steps. For Codex, `authUsable` reflects an
+`OPENAI_API_KEY` export only: an available `~/.codex/auth.json` for explicit
+bridging does not make the check report `true`. Codex can be absent for this
+tutorial.
+
+Verify a credential variable is present without printing its value:
+
+```sh
+[ -n "$ANTHROPIC_AUTH_TOKEN" ] && echo present || echo absent
+[ -n "$OPENAI_API_KEY" ] && echo present || echo absent
+```
 
 ## Create the project layout
 
@@ -132,8 +167,10 @@ contribute to the profile digest saved with the run. Your normal global
 configuration is not imported automatically.
 
 For a Codex profile, use `runtime: codex` in both YAML files and export
-`OPENAI_API_KEY`. Codex profile `config/auth.json` is reserved and rejected;
-do not put credentials there.
+`OPENAI_API_KEY` (or reuse an interactive login with the experimental
+`--bridge-codex-auth-file` flag — see the authentication section above).
+Codex profile `config/auth.json` is reserved and rejected; do not put
+credentials there.
 
 ## Write a task
 

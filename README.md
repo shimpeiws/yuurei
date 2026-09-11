@@ -37,9 +37,13 @@ yuurei --help
 ### Required authentication setup
 
 `yuurei` forwards explicit credential variables into the isolated runtime. It
-does **not** read your interactive login from the OS credential store.
+does **not** read your interactive login from the OS credential store, so you
+must make a credential available explicitly before running a task. Keep
+credentials out of profile and task files.
 
-**Claude Code (subscription login):** Run `claude setup-token` once in this
+#### Claude Code
+
+**Subscription login (default path):** Run `claude setup-token` once in this
 shell to obtain a long-lived token, then export it before running any task:
 
 ```sh
@@ -48,10 +52,10 @@ claude setup-token
 export ANTHROPIC_AUTH_TOKEN='<token from claude setup-token>'
 ```
 
-Verify the variable is set without printing its value:
+**API key:** export `ANTHROPIC_API_KEY` instead:
 
 ```sh
-[ -n "$ANTHROPIC_AUTH_TOKEN" ] && echo present || echo absent
+export ANTHROPIC_API_KEY='<api-key>'
 ```
 
 Note: `claude auth status` may report `loggedIn: true` while `yuurei doctor`
@@ -60,9 +64,32 @@ reads the OS credential store; yuurei checks for an explicit environment
 variable. A shell export applies only to that shell and its child processes; do
 not persist the token in a profile, task, or committed file.
 
-**Claude Code (API key):** export `ANTHROPIC_API_KEY` instead.
+#### Codex
 
-**Codex:** export `OPENAI_API_KEY`.
+**API key (default path):** export `OPENAI_API_KEY`:
+
+```sh
+export OPENAI_API_KEY='<api-key>'
+```
+
+**Existing interactive login (experimental, opt-in):** if you already have a
+`~/.codex/auth.json` from a `codex` interactive login, you can reuse it in the
+isolated run with `--bridge-codex-auth-file`:
+
+```sh
+yuurei run <run-name> --bridge-codex-auth-file
+```
+
+This flag is experimental and off by default. When enabled, yuurei copies
+exactly `~/.codex/auth.json` into the isolated run, runs with it, and scrubs
+the isolated copy afterward. The real global file is never modified. It is an
+explicit opt-in because that file can carry a rotating OAuth access/refresh
+token pair: if the token refreshes mid-run, only the isolated copy receives the
+new state while the real file stays stale, and the valid rotated copy is then
+discarded on cleanup. Do not copy credentials into profiles, tasks, traces,
+artifacts, or logs.
+
+#### Verify the environment
 
 Check that the environment is ready:
 
@@ -71,7 +98,17 @@ yuurei doctor
 ```
 
 Look for `authUsable: true` for the runtime you plan to use. If `authUsable`
-is `false`, `yuurei doctor` will print runtime-specific next steps.
+is `false`, `yuurei doctor` will print runtime-specific next steps. Note that
+`authUsable` reflects an explicit environment credential, not whether an
+interactive login exists: Codex can report `authUsable: false` even when a
+`~/.codex/auth.json` is available for explicit bridging, because the check
+detects `OPENAI_API_KEY` only. Verify a credential variable is present without
+printing its value:
+
+```sh
+[ -n "$ANTHROPIC_AUTH_TOKEN" ] && echo present || echo absent
+[ -n "$OPENAI_API_KEY" ] && echo present || echo absent
+```
 
 ### Create a first project
 
@@ -155,6 +192,7 @@ yuurei inspect <profile-name>
 yuurei run <run-name>
 yuurei run --profile <profile> --task <path/to/task.md>
 yuurei run <run-name> --keep
+yuurei run <run-name> --bridge-codex-auth-file
 yuurei trace show <run-id>
 yuurei clean
 ```
