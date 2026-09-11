@@ -13,3 +13,13 @@ examples/*/.yuurei/runs/
 # .claude/agents/ is committed; local session state is not.
 .claude/*.lock
 .claude/settings.local.json
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# graft per-developer wiring (optional tool; each developer runs `graft init` locally).
+.claude/settings.json
+.claude/helpers/
+.claude/skills/graft/
+.mcp.json
+opencode.json
