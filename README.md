@@ -117,34 +117,26 @@ configuration names profiles and runs. A profile selects a runtime and its
 runtime-native config files. A task is the instruction sent to that runtime.
 Each run creates a trace and logs under `.yuurei/runs/<run-id>/`.
 
-Create the smallest Claude Code project:
+Create the smallest Claude Code project with the scaffold command:
 
 ```sh
 mkdir yuurei-demo
 cd yuurei-demo
-mkdir -p .yuurei/profiles/claude-basic/config .yuurei/tasks
-
-cat > .yuurei/yuurei.yaml <<'YAML'
-version: 1
-profiles:
-  claude-basic:
-    runtime: claude-code
-    source: ./profiles/claude-basic
-runs:
-  hello:
-    profile: claude-basic
-    task: ./tasks/hello.md
-YAML
-
-cat > .yuurei/profiles/claude-basic/profile.yaml <<'YAML'
-runtime: claude-code
-YAML
-
-cat > .yuurei/tasks/hello.md <<'MARKDOWN'
-Reply with "Hello from yuurei." Do not read or write files or run commands.
-MARKDOWN
+yuurei init
 ```
 
+`init` writes a valid `.yuurei/yuurei.yaml`, one profile
+(`profiles/claude-basic/profile.yaml`), and one safe task
+(`tasks/hello.md`). It never overwrites existing files and creates no
+credentials. Pass options to change the runtime, profile, task, run, or
+target directory:
+
+```sh
+yuurei init --runtime codex --profile codex-basic --task hello --run first-run
+yuurei init ../other-project
+```
+
+The default profile is `claude-basic` and the default task is `hello`.
 The named run resolves `profile` and `task` from `.yuurei/yuurei.yaml`:
 
 ```sh
@@ -186,6 +178,7 @@ security details, read the [Getting started guide](https://github.com/shimpeiws/
 termination (SIGKILL, power loss, hard crash); `yuurei clean` removes them.
 
 ```sh
+yuurei init [--runtime <runtime>] [--profile <name>] [--task <name>] [--run <name>] [directory]
 yuurei doctor
 yuurei profile list
 yuurei inspect <profile-name>

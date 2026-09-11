@@ -105,20 +105,61 @@ Verify a credential variable is present without printing its value:
 [ -n "$OPENAI_API_KEY" ] && echo present || echo absent
 ```
 
-## Create the project layout
+## Scaffold the project
 
-Start with an empty directory:
+Start with an empty directory and run `yuurei init`:
 
 ```sh
 mkdir yuurei-demo
 cd yuurei-demo
-mkdir -p .yuurei/profiles/claude-basic/config .yuurei/tasks
+yuurei init
 ```
 
-Create `.yuurei/yuurei.yaml`:
+The command creates a valid first project:
+
+```text
+.yuurei/
+├── yuurei.yaml
+├── profiles/
+│   └── claude-basic/
+│       ├── profile.yaml
+│       └── config/
+│           └── .gitkeep
+└── tasks/
+    └── hello.md
+```
+
+The generated task asks for a reply only and does not modify files or run
+commands. Yuurei sends the task file's text to the runtime as the prompt.
+The runtime starts in a temporary directory with an isolated home. Yuurei
+does not copy this project's source files into that directory, so this
+first task needs no project files.
+
+`init` never overwrites existing files: re-run it on an untouched scaffold
+and it reports that the project is already initialized; if a generated file
+differs, it stops and lists the exact conflicts before writing anything. It
+creates no credentials, `.env` files, or global runtime configuration.
+
+`init` accepts options to choose the runtime, profile, task, run, and
+target directory:
 
 ```sh
-cat > .yuurei/yuurei.yaml <<'YAML'
+yuurei init --runtime codex --profile codex-basic --task hello --run first-run
+yuurei init ../other-project
+```
+
+The default runtime is `claude-code`, the default profile name is
+`claude-basic`, and the default task and run name is `hello`. The scaffolded
+`yuurei.yaml` registers one profile and one named run. You can also create
+and edit these files by hand for full customization; the format is described
+below.
+
+## The project layout
+
+Yuurei searches upward from the current directory for `.yuurei/`, like git
+finds `.git/`. The configuration lives at `.yuurei/yuurei.yaml`:
+
+```yaml
 version: 1
 
 profiles:
@@ -130,28 +171,24 @@ runs:
   hello:
     profile: claude-basic
     task: ./tasks/hello.md
-YAML
 ```
 
-`source` and the named run's `task` are relative to `.yuurei/`.
-The named task must stay inside that directory. Yuurei searches upward
-from the current directory for `.yuurei/`.
+`source` and the named run's `task` are relative to `.yuurei/`. The named
+task must stay inside that directory.
 
 ## Write the profile
 
-Create `.yuurei/profiles/claude-basic/profile.yaml`:
+Each profile has a `profile.yaml` like this one:
 
-```sh
-cat > .yuurei/profiles/claude-basic/profile.yaml <<'YAML'
+```yaml
 runtime: claude-code
 description: Minimal Claude Code profile for a first run.
-YAML
 ```
 
 `runtime` is required and `description` is optional. Keep the runtime
 in this file and in `yuurei.yaml` the same.
 
-Leave `config/` empty for this first run. It can also be omitted.
+Leave `config/` empty (`init` puts a `.gitkeep` in it) for this first run.
 When you add files, yuurei reads their contents and copies them into the
 runtime's isolated configuration directory, preserving relative paths:
 
@@ -171,34 +208,6 @@ For a Codex profile, use `runtime: codex` in both YAML files and export
 `--bridge-codex-auth-file` flag — see the authentication section above).
 Codex profile `config/auth.json` is reserved and rejected; do not put
 credentials there.
-
-## Write a task
-
-Create `.yuurei/tasks/hello.md`:
-
-```sh
-cat > .yuurei/tasks/hello.md <<'MARKDOWN'
-Reply with "Hello from yuurei." Do not read or write any files or run commands.
-MARKDOWN
-```
-
-Yuurei sends the task file's text to the runtime as the prompt. The runtime
-starts in a temporary directory with an isolated home. Yuurei does not
-copy this project's source files into that directory, so this first task
-needs no project files.
-
-The project now contains:
-
-```text
-.yuurei/
-├── yuurei.yaml
-├── profiles/
-│   └── claude-basic/
-│       ├── profile.yaml
-│       └── config/
-└── tasks/
-    └── hello.md
-```
 
 ## Inspect and run
 
