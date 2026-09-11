@@ -20,6 +20,31 @@ function makeCell(requestedModel: string): ResolvedCell {
 }
 
 describe('buildCodexArgs', () => {
+  it('builds the isolated non-Git invocation before appending an optional model', () => {
+    expect(buildCodexArgs(makeCell(''))).toEqual([
+      'exec',
+      '--json',
+      '--skip-git-repo-check',
+      '-c',
+      'cli_auth_credentials_store="file"',
+      '-c',
+      'mcp_oauth_credentials_store="file"',
+      'do the thing',
+    ]);
+    expect(buildCodexArgs(makeCell('o3'))).toEqual([
+      'exec',
+      '--json',
+      '--skip-git-repo-check',
+      '-c',
+      'cli_auth_credentials_store="file"',
+      '-c',
+      'mcp_oauth_credentials_store="file"',
+      'do the thing',
+      '--model',
+      'o3',
+    ]);
+  });
+
   it('always forces the file-backed credential store, regardless of model', () => {
     const args = buildCodexArgs(makeCell(''));
     expect(args).toContain('-c');
