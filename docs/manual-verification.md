@@ -10,6 +10,104 @@ verifies and provides exact copy-paste commands with expected outcomes.
 
 ---
 
+## Authentication paths
+
+This section verifies each supported authentication path without printing
+credential values. It confirms the behavior the tests cover in isolation: how
+`yuurei doctor` judges credentials, how the Codex auth-file bridge behaves, and
+what happens to the isolated copy afterward.
+
+### 1. Claude Code — subscription token _(requires runtime)_
+
+Run `claude setup-token` and export the printed token, then confirm the
+variable is present without printing its value:
+
+```sh
+claude setup-token
+export ANTHROPIC_AUTH_TOKEN='<token from claude setup-token>'
+[ -n "$ANTHROPIC_AUTH_TOKEN" ] && echo present || echo absent
+```
+
+**Expected outcome:**
+
+- `echo present` (the token is not printed).
+- `yuurei doctor` reports `claude-code: installed`, `versionSupported: true`,
+  and `authUsable: true`.
+
+Note: `claude auth status` may report `loggedIn: true` while `yuurei doctor`
+reports `authUsable: false`. These check different stores — `claude auth
+status` reads the OS credential store, while yuurei checks for an explicit
+environment variable. Both can be true at the same time; the values are
+independent.
+
+### 2. Claude Code — API key
+
+```sh
+export ANTHROPIC_API_KEY='<api-key>'
+[ -n "$ANTHROPIC_API_KEY" ] && echo present || echo absent
+```
+
+**Expected outcome:**
+
+- `echo present`.
+- `yuurei doctor` reports `authUsable: true` for `claude-code`.
+- Use one Claude path at a time in a fresh shell (mixing the subscription
+  token and the API key is ambiguous and unsupported).
+
+### 3. Codex — API key
+
+```sh
+export OPENAI_API_KEY='<api-key>'
+[ -n "$OPENAI_API_KEY" ] && echo present || echo absent
+```
+
+**Expected outcome:**
+
+- `echo present`.
+- `yuurei doctor` reports `codex` with `authUsable: true` when `OPENAI_API_KEY`
+  is set.
+- With only an interactive login available (a `~/.codex/auth.json` and no
+  `OPENAI_API_KEY`), `yuurei doctor` reports `authUsable: false` for `codex`.
+  That is the check's scope, not proof that the explicit bridge below cannot
+  run.
+
+### 4. Codex — existing interactive login via the auth-file bridge _(requires runtime)_
+
+```sh
+test -f ~/.codex/auth.json && echo 'auth file present' || echo absent
+```
+
+**Expected outcome:** `auth file present` only if an interactive login exists.
+If absent, the bridge no-ops: the run proceeds unauthenticated rather than
+failing.
+
+To run with the real interactive login reused in the isolated run:
+
+```sh
+yuurei run <run-name> --bridge-codex-auth-file
+```
+
+**Expected outcome:**
+
+- The run proceeds with a copy of `~/.codex/auth.json` in the isolated
+  `CODEX_HOME` at mode `0600`.
+- The real `~/.codex/auth.json` is unmodified before and after the run.
+- After the run (and on `SIGINT`/`SIGTERM`), the isolated credential copy is
+  scrubbed even when `--keep` is set — `--keep` preserves config and logs for
+  debugging, never credentials.
+- `--bridge-codex-auth-file` is experimental and off by default; it is an
+  explicit opt-in flag and only applies to the Codex runtime.
+
+**Known limitation:** the file can carry a rotating OAuth access/refresh token
+pair. If the token refreshes mid-run, only the isolated copy receives the new
+state; the real file stays stale, and the valid rotated copy is discarded on
+cleanup. Writing the rotated state back would violate the "never modify the
+user's existing global configuration" guarantee, so this is documented rather
+than "fixed". Credentials are never recorded into profiles, tasks, traces,
+artifacts, or logs.
+
+---
+
 ## Task path trust boundary
 
 Yuurei enforces different rules for two kinds of task paths:
