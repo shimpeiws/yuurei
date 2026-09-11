@@ -11,6 +11,7 @@ interface DoctorRuntimeCheck {
   version: string | null;
   versionSupported: boolean | null;
   authUsable: boolean | null;
+  authGuidance?: string;
 }
 
 export interface DoctorReport {
@@ -40,6 +41,7 @@ export async function runDoctor(options?: DoctorOptions): Promise<DoctorReport> 
       version: detection.version,
       versionSupported: detection.versionSupported,
       authUsable: detection.authUsable,
+      ...(detection.authGuidance !== undefined ? { authGuidance: detection.authGuidance } : {}),
     });
   }
 
@@ -59,6 +61,11 @@ export function printDoctorReport(report: DoctorReport, logger: Logger): void {
       versionSupported: runtime.versionSupported,
       authUsable: runtime.authUsable,
     });
+    if (runtime.installed && runtime.authUsable === false && runtime.authGuidance !== undefined) {
+      logger.warn(`${runtime.runtimeId}: authentication required — next steps`, {
+        authGuidance: runtime.authGuidance,
+      });
+    }
   }
   logger.info(`output directory writable: ${report.canWriteOutputDir}`);
   if (report.orphanTempDirs.length === 0) {

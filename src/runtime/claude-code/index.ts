@@ -63,11 +63,23 @@ export class ClaudeCodeRuntime implements Runtime {
 
   async detect(): Promise<RuntimeDetection> {
     const detection = await detectViaVersionFlag(COMMAND);
+    const authUsable =
+      detection.installed && CLAUDE_CREDENTIAL_ENV_KEYS.some((key) => Boolean(process.env[key]));
     return {
       ...detection,
       versionSupported: isVersionAtLeast(detection.version, MIN_SUPPORTED_VERSION),
-      authUsable:
-        detection.installed && CLAUDE_CREDENTIAL_ENV_KEYS.some((key) => Boolean(process.env[key])),
+      authUsable,
+      ...(detection.installed && authUsable === false
+        ? {
+            authGuidance:
+              'Claude Code uses the OS credential store for interactive login, which yuurei never reads (design doc §9.2/§10.2). ' +
+              'For subscription login, run `claude setup-token` once, then in this shell export the result as ANTHROPIC_AUTH_TOKEN. ' +
+              'Re-run `yuurei doctor` and look for authUsable: true. ' +
+              'Note: `claude auth status` may report loggedIn: true while yuurei reports authUsable: false — those check different stores. ' +
+              'A shell export applies only to that shell and its child processes; do not persist the token in a profile, task, or committed file. ' +
+              'Verify the variable is set without printing its value: [ -n "$ANTHROPIC_AUTH_TOKEN" ] && echo present || echo absent',
+          }
+        : {}),
     };
   }
 

@@ -10,6 +10,12 @@ export interface RuntimeDetection {
   executablePath: string | null;
   /** null = auth usability was not checked. */
   authUsable: boolean | null;
+  /**
+   * Safe next-step guidance for the operator when authUsable is false.
+   * Only populated when installed && authUsable === false. Never contains
+   * credential values, paths, or recommendations to persist tokens.
+   */
+  authGuidance?: string;
 }
 
 export interface PreparedRun {
