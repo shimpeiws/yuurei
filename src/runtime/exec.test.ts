@@ -36,6 +36,25 @@ describe('execCapture', () => {
     await expect(readFile(stdoutPath, 'utf8')).resolves.toBe('hi');
   });
 
+  it('closes stdin so a child waiting for EOF can complete', async () => {
+    const result = await execCapture({
+      command: process.execPath,
+      args: [
+        '-e',
+        'process.stdin.on("data", () => process.stdout.write("unexpected-input")); process.stdin.on("end", () => process.stdout.write("stdin-eof"));',
+      ],
+      env: process.env as Record<string, string>,
+      cwd: tmpDir,
+      stdoutPath,
+      stderrPath,
+      timeoutMs: 1000,
+    });
+
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(0);
+    await expect(readFile(stdoutPath, 'utf8')).resolves.toBe('stdin-eof');
+  });
+
   it('sends SIGTERM and marks timedOut when timeoutMs elapses', async () => {
     const result = await execCapture({
       command: process.execPath,

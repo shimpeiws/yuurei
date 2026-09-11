@@ -70,6 +70,7 @@ export function execCapture(options: ExecOptions): Promise<RuntimeResult> {
     const child = spawn(options.command, options.args, {
       env: options.env,
       cwd: options.cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
     let timedOut = false;
