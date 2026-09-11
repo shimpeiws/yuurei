@@ -187,7 +187,11 @@ Or select the profile and task directly from the project root:
 yuurei run --profile claude-basic --task .yuurei/tasks/hello.md
 ```
 
-The direct `--task` path is relative to your current working directory.
+The direct `--task` path is relative to your current working directory
+and may point outside `.yuurei` — this is an explicit operator choice and
+is allowed by design. A named run's `task:` field in `yuurei.yaml`, by
+contrast, is resolved relative to `.yuurei` and must stay inside it; yuurei
+rejects a path that escapes before starting the runtime.
 Each invocation creates a separate run. To request a model, add
 `--model <model-name>`. To limit execution time, add `--timeout 60000`
 for a 60-second timeout. There is no timeout by default. To select the
