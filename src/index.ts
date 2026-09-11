@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import cac from 'cac';
 import { runClean } from './cli/clean.js';
 import { printDoctorReport, runDoctor } from './cli/doctor.js';
+import { runInit } from './cli/init.js';
 import { runInspect } from './cli/inspect.js';
 import { EXIT_CODES, YuureiError } from './cli/exit-codes.js';
 import { loggerForFlags } from './cli/output.js';
@@ -73,6 +74,41 @@ cli
     withErrorHandling(async (flags: { json?: boolean }) => {
       await runClean(loggerForFlags(flags));
     }),
+  );
+
+cli
+  .command('init [directory]', 'Scaffold a new project for a first run')
+  .option('--runtime <runtime>', 'Runtime to scaffold for (default: claude-code)')
+  .option('--profile <name>', 'Profile name (default: claude-basic)')
+  .option('--task <name>', 'Task name (default: hello)')
+  .option('--run <name>', 'Named run referencing the profile and task (default: the task name)')
+  .option('--json', 'Output as JSON')
+  .action(
+    withErrorHandling(
+      async (
+        directory: string | undefined,
+        flags: {
+          runtime?: string;
+          profile?: string;
+          task?: string;
+          run?: string;
+          json?: boolean;
+        },
+      ) => {
+        await runInit(
+          process.cwd(),
+          {
+            directory: directory ?? '',
+            runtime: flags.runtime ?? 'claude-code',
+            profile: flags.profile ?? 'claude-basic',
+            task: flags.task ?? 'hello',
+            ...(flags.run !== undefined ? { run: flags.run } : {}),
+            json: flags.json ?? false,
+          },
+          loggerForFlags(flags),
+        );
+      },
+    ),
   );
 
 cli
