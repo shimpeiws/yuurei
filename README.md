@@ -134,7 +134,6 @@ scripts can consume, one JSON object per line:
 ```text
 {"level":"info","message":"claude-code: installed","version":"<installed-version>","versionSupported":true,"authUsable":true}
 ```
-```
 
 ### Create a first project
 

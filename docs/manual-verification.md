@@ -31,8 +31,8 @@ export ANTHROPIC_AUTH_TOKEN='<token from claude setup-token>'
 **Expected outcome:**
 
 - `echo present` (the token is not printed).
-- `yuurei doctor` reports `claude-code` with `status: installed`, `supported:
-  yes`, and `authentication: ready`.
+- `claude-code` shows `status: installed`, `supported: yes`, and
+  `authentication: ready`.
 
 Note: `claude auth status` may report `loggedIn: true` while `yuurei doctor`
 reports `authentication: required` for `claude-code`. These check different
