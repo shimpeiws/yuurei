@@ -22,6 +22,7 @@ export function buildCodexArgs(cell: ResolvedCell): string[] {
   const args = [
     'exec',
     '--json',
+    '--skip-git-repo-check',
     '-c',
     'cli_auth_credentials_store="file"',
     '-c',
