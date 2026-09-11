@@ -94,7 +94,7 @@ Each runtime prints as a compact status block:
 ```text
 claude-code
   status: installed
-  version: 2.1.269 (Claude Code)
+  version: <installed-version>
   supported: yes
   authentication: ready
 ```

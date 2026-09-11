@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { listRuntimeIds, getRuntime } from '../runtime/registry.js';
 import { findOrphanTempDirs, type OrphanTempDir } from '../isolation/tempdir.js';
-import type { Logger } from '../util/logger.js';
+import type { Logger, LogFormat } from '../util/logger.js';
 
 interface DoctorRuntimeCheck {
   runtimeId: string;
@@ -54,8 +54,8 @@ export async function runDoctor(options?: DoctorOptions): Promise<DoctorReport> 
   };
 }
 
-export function printDoctorReport(report: DoctorReport, logger: Logger): void {
-  if (logger.format === 'json') {
+export function printDoctorReport(report: DoctorReport, logger: Logger, format: LogFormat): void {
+  if (format === 'json') {
     printDoctorReportJson(report, logger);
     return;
   }

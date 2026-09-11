@@ -4,15 +4,14 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { printDoctorReport, runDoctor } from '../../src/cli/doctor.js';
 import { ORPHAN_TEMP_DIR_MIN_AGE_MS } from '../../src/isolation/tempdir.js';
-import { createLogger, type Logger, type LogFormat } from '../../src/util/logger.js';
+import { createLogger, type Logger } from '../../src/util/logger.js';
 
-function makeLogger(format: LogFormat = 'human'): {
+function makeLogger(): {
   logger: Logger;
   messages: { level: string; message: string; data?: Record<string, unknown> }[];
 } {
   const messages: { level: string; message: string; data?: Record<string, unknown> }[] = [];
   const logger: Logger = {
-    format,
     info: (message, data) => messages.push({ level: 'info', message, data }),
     warn: (message, data) => messages.push({ level: 'warn', message, data }),
     error: (message, data) => messages.push({ level: 'error', message, data }),
@@ -86,7 +85,7 @@ describe('yuurei doctor', () => {
   });
 
   it('renders each runtime as a readable block with no inline JSON', () => {
-    const { logger, messages } = makeLogger('human');
+    const { logger, messages } = makeLogger();
     printDoctorReport(
       {
         runtimes: [claudeCodeRuntime()],
@@ -94,6 +93,7 @@ describe('yuurei doctor', () => {
         orphanTempDirs: [],
       },
       logger,
+      'human',
     );
 
     const text = messages.map((m) => m.message);
@@ -111,7 +111,7 @@ describe('yuurei doctor', () => {
   });
 
   it('distinguishes not found, unsupported, and unauthenticated states', () => {
-    const { logger, messages } = makeLogger('human');
+    const { logger, messages } = makeLogger();
     printDoctorReport(
       {
         runtimes: [
@@ -130,6 +130,7 @@ describe('yuurei doctor', () => {
         orphanTempDirs: [],
       },
       logger,
+      'human',
     );
 
     const text = messages.map((m) => m.message);
@@ -141,7 +142,7 @@ describe('yuurei doctor', () => {
   });
 
   it('renders auth guidance as an indented paragraph and never prints secrets', () => {
-    const { logger, messages } = makeLogger('human');
+    const { logger, messages } = makeLogger();
     const guidance =
       'For subscription login, run `claude setup-token` once, then in this shell export the result as ANTHROPIC_AUTH_TOKEN. ' +
       'Re-run `yuurei doctor` and look for authentication: ready.';
@@ -152,6 +153,7 @@ describe('yuurei doctor', () => {
         orphanTempDirs: [],
       },
       logger,
+      'human',
     );
 
     const text = messages.map((m) => m.message);
@@ -182,6 +184,7 @@ describe('yuurei doctor', () => {
         orphanTempDirs: [{ path: '/tmp/yuurei-old', ageMs: 1 }],
       },
       logger,
+      'json',
     );
 
     const lines = logSpy.mock.calls.map((call) => call[0]) as string[];
@@ -209,11 +212,15 @@ describe('yuurei doctor', () => {
   });
 
   it('suggests "yuurei clean" when orphans are found and stays silent otherwise', () => {
-    const clean = makeLogger('human');
-    printDoctorReport({ runtimes: [], canWriteOutputDir: true, orphanTempDirs: [] }, clean.logger);
+    const clean = makeLogger();
+    printDoctorReport(
+      { runtimes: [], canWriteOutputDir: true, orphanTempDirs: [] },
+      clean.logger,
+      'human',
+    );
     expect(clean.messages.some((m) => m.message.includes('yuurei clean'))).toBe(false);
 
-    const orphans = makeLogger('human');
+    const orphans = makeLogger();
     printDoctorReport(
       {
         runtimes: [],
@@ -221,6 +228,7 @@ describe('yuurei doctor', () => {
         orphanTempDirs: [{ path: '/tmp/yuurei-old', ageMs: 1 }],
       },
       orphans.logger,
+      'human',
     );
     const warn = orphans.messages.filter((m) => m.level === 'warn');
     expect(warn.some((m) => m.message.includes('WARNING: found 1 orphaned'))).toBe(true);
@@ -234,8 +242,8 @@ describe('yuurei doctor', () => {
       ageMs: 1,
     }));
 
-    const { logger, messages } = makeLogger('human');
-    printDoctorReport({ runtimes: [], canWriteOutputDir: true, orphanTempDirs }, logger);
+    const { logger, messages } = makeLogger();
+    printDoctorReport({ runtimes: [], canWriteOutputDir: true, orphanTempDirs }, logger, 'human');
 
     const warn = messages.filter((m) => m.level === 'warn').map((m) => m.message);
     // The count and cleanup command appear first, before the path list.

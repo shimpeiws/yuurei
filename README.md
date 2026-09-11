@@ -102,13 +102,13 @@ Each runtime prints as a compact status block:
 ```text
 claude-code
   status: installed
-  version: 2.1.269 (Claude Code)
+  version: <installed-version>
   supported: yes
   authentication: ready
 
 codex
   status: installed
-  version: codex-cli 0.154.0
+  version: <installed-version>
   supported: yes
   authentication: required
     Export OPENAI_API_KEY in this shell and re-run `yuurei doctor`. ...
@@ -132,7 +132,7 @@ Orphaned temp directories are listed with a prominent count and the
 scripts can consume, one JSON object per line:
 
 ```text
-{"level":"info","message":"claude-code: installed","version":"2.1.269 (Claude Code)","versionSupported":true,"authUsable":true}
+{"level":"info","message":"claude-code: installed","version":"<installed-version>","versionSupported":true,"authUsable":true}
 ```
 ```
 

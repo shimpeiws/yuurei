@@ -41,7 +41,7 @@ cli
   .action(
     withErrorHandling(async (flags: { json?: boolean }) => {
       const report = await runDoctor();
-      printDoctorReport(report, loggerForFlags(flags));
+      printDoctorReport(report, loggerForFlags(flags), flags.json ? 'json' : 'human');
     }),
   );
 
