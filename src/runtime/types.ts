@@ -65,7 +65,7 @@ export interface NormalizationContext {
 export interface NormalizedTraceFragment {
   runtime: { id: string; version: string | null };
   model: { requested: string; resolved: string | null };
-  execution: { exitCode: number | null; durationMs: number | null };
+  execution: { exitCode: number | null; signal: string | null; durationMs: number | null };
   /** null = usage metric was not observed; never default to 0. */
   usage: Record<string, number | null>;
   /**

@@ -175,7 +175,7 @@ export class ClaudeCodeRuntime implements Runtime {
     return {
       runtime: { id: RUNTIME_ID, version: context.runtimeVersion },
       model: { requested: '', resolved: null },
-      execution: { exitCode: result.exitCode, durationMs },
+      execution: { exitCode: result.exitCode, signal: result.signal, durationMs },
       usage,
       ...(warnings.length > 0 ? { warnings } : {}),
     };

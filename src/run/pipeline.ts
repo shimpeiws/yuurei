@@ -9,6 +9,7 @@ import {
   writeArtifactManifest,
 } from '../artifact/collector.js';
 import { createIsolation, createVerifiedIsolation } from '../isolation/index.js';
+import type { IsolationContext } from '../isolation/types.js';
 import { toProfileManifest } from '../profile/manifest.js';
 import { getRuntime } from '../runtime/registry.js';
 import type { PreparedRun, Runtime } from '../runtime/types.js';
@@ -57,12 +58,22 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   const { runId, layout } = await createUniqueRunLayout(input.yuureiDir);
 
   const isolation = createIsolation(input.isolationStrategy);
-  const context = await createVerifiedIsolation(isolation, cell);
+  let context: IsolationContext;
+  try {
+    context = await createVerifiedIsolation(isolation, cell);
+  } catch (error) {
+    // Isolation verification failed (§12.2 fail-closed). The run dir was
+    // already created; remove it so no partial directory is left behind.
+    await rm(layout.runDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
   context.keep = input.keep;
 
   let prepared: PreparedRun | undefined;
   let scrubbed = false;
   let disposed = false;
+  let traceWritten = false;
+  let runDirRemoved = false;
   const warn = (message: string) => input.onWarning?.(message);
 
   const scrubCredentials = async () => {
@@ -100,6 +111,20 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     await isolation.dispose(discardKept ? { ...context, keep: false } : context);
   };
 
+  const removeRunDir = async () => {
+    if (runDirRemoved) return;
+    runDirRemoved = true;
+    try {
+      await rm(layout.runDir, { recursive: true, force: true });
+    } catch (error) {
+      warn(
+        `failed to remove partial run directory: ${layout.runDir} (${
+          error instanceof Error ? error.message : String(error)
+        })`,
+      );
+    }
+  };
+
   const cleanup = async () => {
     // Scrub before dispose() so this runs regardless of which branch above
     // threw, and so a signal killing the process mid-dispose never leaves
@@ -117,6 +142,12 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       );
     }
     await disposeContext(!startedRuntime);
+    // If no trace was written (signal-interrupted or threw before writeTrace),
+    // remove the partial run directory so no undocumented directory is left
+    // that cannot be consumed by `yuurei trace show`.
+    if (!traceWritten) {
+      await removeRunDir();
+    }
   };
 
   const signalCleanup = installSignalCleanup({ cleanup });
@@ -147,6 +178,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       isolation: { strategy: context.strategy, verified: true },
       execution: {
         exit_code: fragment.execution.exitCode,
+        signal: fragment.execution.signal,
         duration_ms: fragment.execution.durationMs,
         timed_out: result.timedOut,
       },
@@ -159,6 +191,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     };
 
     await writeTrace(layout.runDir, trace);
+    traceWritten = true;
     // Identity, not content: §10.1 records a digest of the profile content,
     // and §10.2 keeps a profile's own secrets out of the durable run dir.
     await writeFile(

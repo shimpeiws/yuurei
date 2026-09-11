@@ -42,7 +42,15 @@ const fake: Runtime = {
     // The credential is on disk and the pipeline's signal handler is already
     // installed. This write is the test's cue that it is safe to signal. Both
     // paths are reported so the test never has to derive one from the other.
-    await writeFile(markerPath, `${isolation.rootDir}\n${credentialPath}\n`, 'utf8');
+    await writeFile(
+      markerPath,
+      JSON.stringify({
+        rootDir: isolation.rootDir,
+        credentialPath,
+        runsDir: join(workDir, 'runs'),
+      }),
+      'utf8',
+    );
     // Stand in for the adapter work that follows the credential write
     // (reading the file back, spawning the runtime to detect its version).
     // prepare() never returns, so the signal lands with no PreparedRun.
@@ -54,7 +62,7 @@ const fake: Runtime = {
   normalize: async () => ({
     runtime: { id: 'fake-prepare-runtime', version: null },
     model: { requested: '', resolved: null },
-    execution: { exitCode: 0, durationMs: 0 },
+    execution: { exitCode: 0, signal: null, durationMs: 0 },
     usage: {},
   }),
 };

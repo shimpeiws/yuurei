@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -7,6 +7,17 @@ import { SIGNAL_EXIT_CODES } from '../../src/run/signals.js';
 
 const FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-hang.ts');
 const PREPARE_FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-during-prepare.ts');
+
+interface HangMarker {
+  rootDir: string;
+  runsDir: string;
+}
+
+interface PrepareMarker {
+  rootDir: string;
+  credentialPath: string;
+  runsDir: string;
+}
 
 describe('signal cleanup', () => {
   let markerDir: string;
@@ -29,12 +40,12 @@ describe('signal cleanup', () => {
    * Spawns a fixture, waits for it to synchronously write the marker file
    * (proving the pipeline's signal handler is installed and the credential
    * file exists), then sends `signal` and returns the child's exit code and
-   * whatever path the fixture reported.
+   * the parsed marker JSON.
    */
   async function runFixtureUntilSignal(
     signal: string,
     fixture: string = FIXTURE,
-  ): Promise<{ code: number | null; marker: string }> {
+  ): Promise<{ code: number | null; marker: Record<string, string> }> {
     const markerPath = join(markerDir, 'marker');
     const child = spawn(process.execPath, ['--import', 'tsx', fixture], {
       cwd: process.cwd(),
@@ -47,13 +58,13 @@ describe('signal cleanup', () => {
       child.on('close', (code) => resolve(code));
     });
 
-    let reported: string | undefined;
+    let parsed: Record<string, string> | undefined;
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline) {
       try {
-        const marker = (await readFile(markerPath, 'utf8')).trim();
-        if (marker) {
-          reported = marker;
+        const raw = (await readFile(markerPath, 'utf8')).trim();
+        if (raw) {
+          parsed = JSON.parse(raw) as Record<string, string>;
           break;
         }
       } catch {
@@ -62,7 +73,7 @@ describe('signal cleanup', () => {
       await new Promise((r) => setTimeout(r, 20));
     }
 
-    if (reported === undefined) {
+    if (parsed === undefined) {
       child.kill('SIGKILL');
       throw new Error(
         `fixture never reported ready (stderr: ${Buffer.concat(stderrChunks).toString()})`,
@@ -71,18 +82,22 @@ describe('signal cleanup', () => {
 
     child.kill(signal);
     const code = await exited;
-    return { code, marker: reported };
+    return { code, marker: parsed };
   }
 
   it.each([
     ['SIGINT', SIGNAL_EXIT_CODES.SIGINT],
     ['SIGTERM', SIGNAL_EXIT_CODES.SIGTERM],
   ])('scrubs credentials and disposes the isolation temp dir on %s', async (signal, exitCode) => {
-    const { code, marker: rootDir } = await runFixtureUntilSignal(signal);
+    const { code, marker } = await runFixtureUntilSignal(signal);
+    const { rootDir, runsDir } = marker as unknown as HangMarker;
     rootDirs.push(rootDir);
 
     expect(code).toBe(exitCode);
     await expect(stat(rootDir)).rejects.toThrow();
+    // Defect B: no partial run directory should remain after a caught signal.
+    const runEntries = await readdir(runsDir).catch(() => []);
+    expect(runEntries).toHaveLength(0);
   });
 
   // §9.2: --keep preserves config and logs for debugging, never credential
@@ -96,12 +111,14 @@ describe('signal cleanup', () => {
     'scrubs a credential written during prepare() on %s, even under --keep',
     async (signal, exitCode) => {
       const { code, marker } = await runFixtureUntilSignal(signal, PREPARE_FIXTURE);
-      const [rootDir, credentialPath] = marker.split('\n');
-      if (!rootDir || !credentialPath) throw new Error(`fixture reported "${marker}"`);
+      const { rootDir, credentialPath, runsDir } = marker as unknown as PrepareMarker;
       rootDirs.push(rootDir);
 
       expect(code).toBe(exitCode);
       await expect(stat(credentialPath)).rejects.toThrow();
+      // Defect B: no partial run directory should remain after a caught signal.
+      const runEntries = await readdir(runsDir).catch(() => []);
+      expect(runEntries).toHaveLength(0);
     },
   );
 });

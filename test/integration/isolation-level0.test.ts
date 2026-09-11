@@ -20,7 +20,7 @@ const NOW = new Date().toISOString();
 const FRAGMENT: NormalizedTraceFragment = {
   runtime: { id: 'fake', version: null },
   model: { requested: '', resolved: null },
-  execution: { exitCode: 0, durationMs: 0 },
+  execution: { exitCode: 0, signal: null, durationMs: 0 },
   usage: {},
 };
 
