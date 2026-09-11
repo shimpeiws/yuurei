@@ -1,4 +1,4 @@
-import { chmod, copyFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { IsolationContext } from '../../isolation/types.js';
@@ -30,6 +30,15 @@ const MIN_SUPPORTED_VERSION: [number, number, number] = [0, 100, 0];
  * enforced even when the bridge is disabled.
  */
 const CODEX_RESERVED_CONFIG_PATHS = ['auth.json'] as const;
+const CODEX_STDIN_NOTICE = 'Reading additional input from stdin...';
+
+/** Remove Codex's benign non-interactive stdin notice from durable stderr logs. */
+export function stripCodexStdinNotice(stderr: string): string {
+  return stderr
+    .split('\n')
+    .filter((line) => line !== CODEX_STDIN_NOTICE && line !== `${CODEX_STDIN_NOTICE}\r`)
+    .join('\n');
+}
 
 /**
  * Supported v0.3 method (design doc §9.2) for Codex: forward an explicitly-set
@@ -215,7 +224,7 @@ export class CodexRuntime implements Runtime {
   }
 
   async execute(run: PreparedRun, timeoutMs: number | null): Promise<RuntimeResult> {
-    return execCapture({
+    const result = await execCapture({
       command: run.command,
       args: run.args,
       env: run.env,
@@ -224,6 +233,12 @@ export class CodexRuntime implements Runtime {
       stderrPath: join(run.isolation.rootDir, 'stderr.log'),
       ...(timeoutMs !== null ? { timeoutMs } : {}),
     });
+    const stderr = await readFile(result.stderrPath, 'utf8');
+    const filteredStderr = stripCodexStdinNotice(stderr);
+    if (filteredStderr !== stderr) {
+      await writeFile(result.stderrPath, filteredStderr, 'utf8');
+    }
+    return result;
   }
 
   async normalize(
