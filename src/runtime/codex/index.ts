@@ -157,10 +157,19 @@ export class CodexRuntime implements Runtime {
 
   async detect(): Promise<RuntimeDetection> {
     const detection = await detectViaVersionFlag(COMMAND);
+    const authUsable = detection.installed && Boolean(process.env['OPENAI_API_KEY']);
     return {
       ...detection,
       versionSupported: isVersionAtLeast(detection.version, MIN_SUPPORTED_VERSION),
-      authUsable: detection.installed && Boolean(process.env['OPENAI_API_KEY']),
+      authUsable,
+      ...(detection.installed && authUsable === false
+        ? {
+            authGuidance:
+              'Export OPENAI_API_KEY in this shell and re-run `yuurei doctor`. ' +
+              'A shell export applies only to that shell and its child processes; do not persist the key in a profile, task, or committed file. ' +
+              'Verify the variable is set without printing its value: [ -n "$OPENAI_API_KEY" ] && echo present || echo absent',
+          }
+        : {}),
     };
   }
 

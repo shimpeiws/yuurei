@@ -4,6 +4,7 @@ import { loadYuureiConfig } from '../config/yuurei-config.js';
 import { loadProfile } from '../profile/loader.js';
 import { runPipeline } from '../run/pipeline.js';
 import { MAX_TIMEOUT_MS } from '../runtime/exec.js';
+import { getRuntime } from '../runtime/registry.js';
 import { isPathWithin } from '../util/fs.js';
 import { YuureiError, EXIT_CODES } from './exit-codes.js';
 import { exitCodeForSignal } from '../run/signals.js';
@@ -127,5 +128,24 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
 
   if (result.trace.execution.signal !== null) {
     process.exitCode = exitCodeForSignal(result.trace.execution.signal);
+  }
+
+  // Surface auth guidance on failure without exposing runtime stdout/stderr
+  // (§10.2). Only for a numeric non-zero exit code — a signal-terminated run
+  // (exit_code null) is covered by the signal exit-code propagation above.
+  if (
+    typeof result.trace.execution.exit_code === 'number' &&
+    result.trace.execution.exit_code !== 0
+  ) {
+    const detection = await getRuntime(profile.runtime).detect();
+    if (
+      detection.installed &&
+      detection.authUsable === false &&
+      detection.authGuidance !== undefined
+    ) {
+      logger.warn(`${profile.runtime}: authentication required — next steps`, {
+        authGuidance: detection.authGuidance,
+      });
+    }
   }
 }

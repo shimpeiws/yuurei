@@ -25,11 +25,40 @@ Keep this shell open for the remaining steps. Install Claude Code
 separately so that `claude` is on `PATH`. Yuurei's adapter checks for
 Claude Code 2.0.0 or later.
 
-Export a valid `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in this shell
-before running a task. Yuurei forwards these variables into the isolated
-runtime. It does not copy your usual Claude configuration or read your
-interactive login from the OS keychain. Keep credentials out of the
-profile and task files.
+## Set up authentication (required)
+
+`yuurei` forwards explicit credential variables into the isolated runtime.
+It does **not** copy your usual Claude configuration or read your
+interactive login from the OS credential store (design doc §9.2/§10.2).
+Keep credentials out of profile and task files.
+
+**Claude Code — subscription login:** Run `claude setup-token` once in
+this shell to obtain a long-lived token, then export it:
+
+```sh
+claude setup-token
+# follow the prompts, then copy the token it prints
+export ANTHROPIC_AUTH_TOKEN='<token from claude setup-token>'
+```
+
+Verify the variable is set without printing its value:
+
+```sh
+[ -n "$ANTHROPIC_AUTH_TOKEN" ] && echo present || echo absent
+```
+
+Note: `claude auth status` may report `loggedIn: true` while `yuurei doctor`
+reports `authUsable: false`. These check different stores — `claude auth
+status` reads the OS credential store; yuurei checks for an explicit
+environment variable. A shell export applies only to that shell and its
+child processes; do not persist the token in a profile, task, or committed
+file.
+
+**Claude Code — API key:** export `ANTHROPIC_API_KEY` instead.
+
+**Codex:** export `OPENAI_API_KEY`.
+
+Now verify the environment is ready:
 
 ```sh
 yuurei doctor
@@ -38,7 +67,8 @@ yuurei doctor
 Look for `claude-code: installed`, `versionSupported: true`, and
 `authUsable: true` in the output. The authentication check detects an
 available credential variable; it does not validate the credential with
-the service. Codex can be absent for this tutorial.
+the service. If `authUsable` is `false`, `yuurei doctor` will print
+runtime-specific next steps. Codex can be absent for this tutorial.
 
 ## Create the project layout
 

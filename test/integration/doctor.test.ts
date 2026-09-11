@@ -49,6 +49,85 @@ describe('yuurei doctor', () => {
     }
   });
 
+  it('emits auth guidance when authUsable is false, not when true or null', () => {
+    const messages: { level: string; message: string; data?: Record<string, unknown> }[] = [];
+    const logger: Logger = {
+      info: (message, data) => messages.push({ level: 'info', message, data }),
+      warn: (message, data) => messages.push({ level: 'warn', message, data }),
+      error: (message, data) => messages.push({ level: 'error', message, data }),
+    };
+
+    // authUsable: false + authGuidance → guidance emitted
+    messages.length = 0;
+    printDoctorReport(
+      {
+        runtimes: [
+          {
+            runtimeId: 'claude-code',
+            installed: true,
+            version: '2.1.0',
+            versionSupported: true,
+            authUsable: false,
+            authGuidance: 'Run claude setup-token and export ANTHROPIC_AUTH_TOKEN.',
+          },
+        ],
+        canWriteOutputDir: true,
+        orphanTempDirs: [],
+      },
+      logger,
+    );
+    const warnMessages = messages.filter((m) => m.level === 'warn');
+    expect(warnMessages.length).toBeGreaterThan(0);
+    const guidanceMsg = warnMessages.find((m) => m.data?.['authGuidance'] !== undefined);
+    expect(guidanceMsg).toBeDefined();
+    expect(guidanceMsg?.data?.['authGuidance']).toContain('claude setup-token');
+    expect(guidanceMsg?.data?.['authGuidance']).toContain('ANTHROPIC_AUTH_TOKEN');
+    // No secrets appear in the output
+    const allText = messages.map((m) => m.message + JSON.stringify(m.data ?? {})).join('\n');
+    expect(allText).not.toContain('sk-ant-api03-');
+    expect(allText).not.toContain('ANTHROPIC_AUTH_TOKEN=sk-ant-secret');
+
+    // authUsable: true → no guidance
+    messages.length = 0;
+    printDoctorReport(
+      {
+        runtimes: [
+          {
+            runtimeId: 'claude-code',
+            installed: true,
+            version: '2.1.0',
+            versionSupported: true,
+            authUsable: true,
+          },
+        ],
+        canWriteOutputDir: true,
+        orphanTempDirs: [],
+      },
+      logger,
+    );
+    expect(messages.filter((m) => m.level === 'warn' && m.data?.['authGuidance'])).toHaveLength(0);
+
+    // authUsable: null → no guidance
+    messages.length = 0;
+    printDoctorReport(
+      {
+        runtimes: [
+          {
+            runtimeId: 'claude-code',
+            installed: true,
+            version: null,
+            versionSupported: null,
+            authUsable: null,
+          },
+        ],
+        canWriteOutputDir: true,
+        orphanTempDirs: [],
+      },
+      logger,
+    );
+    expect(messages.filter((m) => m.level === 'warn' && m.data?.['authGuidance'])).toHaveLength(0);
+  });
+
   it('suggests "yuurei clean" when orphans are found and stays silent otherwise', () => {
     const makeLogger = (messages: { level: string; message: string }[]): Logger => ({
       info: (message) => messages.push({ level: 'info', message }),

@@ -28,12 +28,50 @@ Install yuurei from npm, or build it from a source checkout:
 npm install -g yuurei
 ```
 
-Check that the CLI is on your PATH and the environment is ready:
+Check that the CLI is on your PATH:
 
 ```sh
 yuurei --help
+```
+
+### Required authentication setup
+
+`yuurei` forwards explicit credential variables into the isolated runtime. It
+does **not** read your interactive login from the OS credential store.
+
+**Claude Code (subscription login):** Run `claude setup-token` once in this
+shell to obtain a long-lived token, then export it before running any task:
+
+```sh
+claude setup-token
+# follow the prompts, then copy the token it prints
+export ANTHROPIC_AUTH_TOKEN='<token from claude setup-token>'
+```
+
+Verify the variable is set without printing its value:
+
+```sh
+[ -n "$ANTHROPIC_AUTH_TOKEN" ] && echo present || echo absent
+```
+
+Note: `claude auth status` may report `loggedIn: true` while `yuurei doctor`
+reports `authUsable: false`. These check different stores — `claude auth status`
+reads the OS credential store; yuurei checks for an explicit environment
+variable. A shell export applies only to that shell and its child processes; do
+not persist the token in a profile, task, or committed file.
+
+**Claude Code (API key):** export `ANTHROPIC_API_KEY` instead.
+
+**Codex:** export `OPENAI_API_KEY`.
+
+Check that the environment is ready:
+
+```sh
 yuurei doctor
 ```
+
+Look for `authUsable: true` for the runtime you plan to use. If `authUsable`
+is `false`, `yuurei doctor` will print runtime-specific next steps.
 
 Start with the
 [Getting started guide](https://github.com/shimpeiws/yuurei/blob/main/docs/getting-started.md)
