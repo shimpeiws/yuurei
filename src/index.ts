@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { createRequire } from 'node:module';
 import cac from 'cac';
 import { runClean } from './cli/clean.js';
 import { printDoctorReport, runDoctor } from './cli/doctor.js';
@@ -10,9 +9,7 @@ import { loggerForFlags } from './cli/output.js';
 import { runProfileList } from './cli/profile-list.js';
 import { runRun } from './cli/run.js';
 import { runTraceShow } from './cli/trace-show.js';
-
-const require = createRequire(import.meta.url);
-const { version } = require('../package.json');
+import { packageVersion } from './version.js';
 
 const cli = cac('yuurei');
 
@@ -173,5 +170,5 @@ cli
   );
 
 cli.help();
-cli.version(version);
+cli.version(packageVersion);
 cli.parse();
