@@ -8,6 +8,7 @@ import { getRuntime } from '../runtime/registry.js';
 import { isPathWithin } from '../util/fs.js';
 import { YuureiError, EXIT_CODES } from './exit-codes.js';
 import { exitCodeForSignal } from '../run/signals.js';
+import { packageVersion } from '../version.js';
 import type { Logger } from '../util/logger.js';
 import type { IsolationStrategy } from '../isolation/types.js';
 
@@ -38,7 +39,7 @@ export interface RunOptions {
   bridgeCodexAuthFile: boolean | undefined;
 }
 
-const YUUREI_VERSION = '0.0.1';
+const YUUREI_VERSION = packageVersion;
 
 export async function runRun(cwd: string, options: RunOptions, logger: Logger): Promise<void> {
   const yuureiDir = await findYuureiDir(cwd);

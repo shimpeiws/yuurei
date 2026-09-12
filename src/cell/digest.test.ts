@@ -36,4 +36,13 @@ describe('computeCellDigest', () => {
       computeCellDigest({ ...base, isolationStrategy: 'level1' }),
     );
   });
+
+  it('changes when the yuurei version changes', () => {
+    // A cell is identified by the yuurei release that built it: identical
+    // profile/task work against a different release is a different cell
+    // (#113). Guards against a stale version feeding the digest after a bump.
+    expect(computeCellDigest({ ...base, yuureiVersion: '0.0.2' })).not.toBe(
+      computeCellDigest(base),
+    );
+  });
 });
