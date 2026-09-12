@@ -9,7 +9,12 @@ import { pathExists } from '../../src/util/fs.js';
 import { sha256Digest } from '../../src/util/hash.js';
 import type { ResolvedProfile } from '../../src/profile/types.js';
 import type { IsolationContext } from '../../src/isolation/types.js';
-import type { NormalizationContext, PreparedRun, Runtime } from '../../src/runtime/types.js';
+import type {
+  NormalizationContext,
+  PreparedRun,
+  RegisterCredentialPath,
+  Runtime,
+} from '../../src/runtime/types.js';
 import type { ResolvedCell } from '../../src/cell/types.js';
 
 /** A runtime that does nothing but satisfy the pipeline's happy path. */
@@ -22,7 +27,11 @@ function makeTrivialRuntime(id: string): Runtime {
       executablePath: null,
       authUsable: null,
     }),
-    prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+    prepare: async (
+      cell: ResolvedCell,
+      isolation: IsolationContext,
+      _registerCredentialPath: RegisterCredentialPath,
+    ): Promise<PreparedRun> => ({
       runtimeId: id,
       command: 'true',
       args: [],
@@ -31,7 +40,6 @@ function makeTrivialRuntime(id: string): Runtime {
       isolation,
       cell,
       runtimeVersion: null,
-      credentialFilePaths: [],
       credentialValuesToRedact: [],
     }),
     execute: async (run: PreparedRun) => {
@@ -177,9 +185,14 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => {
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => {
         observedRootDir = isolation.rootDir;
         credentialPath = join(isolation.rootDir, 'bridged-credential.txt');
+        registerCredentialPath(credentialPath);
         await writeFile(credentialPath, 'secret\n', 'utf8');
         return {
           runtimeId: 'fake-cred-runtime',
@@ -190,7 +203,6 @@ describe('run pipeline', () => {
           isolation,
           cell,
           runtimeVersion: null,
-          credentialFilePaths: [credentialPath],
           credentialValuesToRedact: [],
         };
       },
@@ -239,11 +251,13 @@ describe('run pipeline', () => {
 
   it('removes a kept isolation root when prepare() throws, and says why', async () => {
     // The signal variant of this window lives in signal-cleanup.test.ts; a
-    // throwing prepare() reaches the same state in-process. Either way the
-    // pipeline holds no PreparedRun, so it cannot know which files under the
-    // root are credential material — and the Codex auth-file bridge writes
-    // one before prepare() returns. §9.2 puts credentials outside what --keep
-    // may retain, so the whole root goes.
+    // throwing prepare() reaches the same state in-process. This fake writes a
+    // credential file WITHOUT registering it — the residual gap #55 protects
+    // against. The pipeline cannot name the credential material (nothing is on
+    // the sink), so under --keep the whole root goes rather than risk residue;
+    // an adapter that registers at write time gets the precise scrub instead
+    // (covered by the signal-during-prepare fixture). §9.2 puts credentials
+    // outside what --keep may retain.
     const profile: ResolvedProfile = {
       name: 'fake-prepare-throws',
       runtime: 'fake-prepare-throws-runtime',
@@ -263,7 +277,11 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (_cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => {
+      prepare: async (
+        _cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => {
         observedRootDir = isolation.rootDir;
         credentialPath = join(isolation.rootDir, 'bridged-credential.txt');
         await writeFile(credentialPath, 'secret\n', 'utf8');
@@ -305,7 +323,7 @@ describe('run pipeline', () => {
   });
 
   it('warns instead of throwing when a credential file cannot be scrubbed', async () => {
-    // Point credentialFilePaths at a non-empty directory: rm(path, { force: true })
+    // Point the registered credential path at a non-empty directory: rm(path, { force: true })
     // (no `recursive: true`) throws on that, exercising the failure branch of the
     // scrub without needing to mock fs.
     const profile: ResolvedProfile = {
@@ -328,10 +346,15 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => {
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => {
         unscrubbablePath = join(isolation.rootDir, 'not-actually-a-file');
         await mkdir(unscrubbablePath, { recursive: true });
         await writeFile(join(unscrubbablePath, 'inner.txt'), 'x', 'utf8');
+        registerCredentialPath(unscrubbablePath);
         return {
           runtimeId: 'fake-cred-runtime-2',
           command: 'true',
@@ -341,7 +364,6 @@ describe('run pipeline', () => {
           isolation,
           cell,
           runtimeVersion: null,
-          credentialFilePaths: [unscrubbablePath],
           credentialValuesToRedact: [],
         };
       },
@@ -411,10 +433,15 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => {
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => {
         unscrubbablePath = join(isolation.rootDir, 'not-actually-a-file');
         await mkdir(unscrubbablePath, { recursive: true });
         await writeFile(join(unscrubbablePath, 'inner.txt'), 'x', 'utf8');
+        registerCredentialPath(unscrubbablePath);
         return {
           runtimeId: 'fake-cred-runtime-4',
           command: 'true',
@@ -424,7 +451,6 @@ describe('run pipeline', () => {
           isolation,
           cell,
           runtimeVersion: null,
-          credentialFilePaths: [unscrubbablePath],
           credentialValuesToRedact: [],
         };
       },
@@ -481,7 +507,11 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
         runtimeId: 'fake-cred-runtime-3',
         command: 'true',
         args: [],
@@ -490,7 +520,6 @@ describe('run pipeline', () => {
         isolation,
         cell,
         runtimeVersion: null,
-        credentialFilePaths: [],
         credentialValuesToRedact: [secretValue],
       }),
       execute: async (run: PreparedRun) => {
@@ -552,7 +581,11 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
         runtimeId: 'fake-capped-runtime',
         command: 'true',
         args: [],
@@ -561,7 +594,6 @@ describe('run pipeline', () => {
         isolation,
         cell,
         runtimeVersion: null,
-        credentialFilePaths: [],
         credentialValuesToRedact: [secretValue],
       }),
       execute: async (run: PreparedRun) => {
@@ -637,7 +669,11 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
         runtimeId: 'fake-timeout-runtime',
         command: 'true',
         args: [],
@@ -646,7 +682,6 @@ describe('run pipeline', () => {
         isolation,
         cell,
         runtimeVersion: null,
-        credentialFilePaths: [],
         credentialValuesToRedact: [],
       }),
       execute: async (run: PreparedRun, timeoutMs: number | null) => {
@@ -711,7 +746,11 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
         runtimeId: 'fake-no-timeout-runtime',
         command: 'true',
         args: [],
@@ -720,7 +759,6 @@ describe('run pipeline', () => {
         isolation,
         cell,
         runtimeVersion: null,
-        credentialFilePaths: [],
         credentialValuesToRedact: [],
       }),
       execute: async (run: PreparedRun, timeoutMs: number | null) => {
@@ -779,7 +817,11 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
         runtimeId: 'fake-concurrent-runtime',
         command: 'true',
         args: [],
@@ -788,7 +830,6 @@ describe('run pipeline', () => {
         isolation,
         cell,
         runtimeVersion: null,
-        credentialFilePaths: [],
         credentialValuesToRedact: [],
       }),
       execute: async (run: PreparedRun) => {
@@ -855,7 +896,11 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
         runtimeId: 'fake-isolation-identity-runtime',
         command: 'true',
         args: [],
@@ -864,7 +909,6 @@ describe('run pipeline', () => {
         isolation,
         cell,
         runtimeVersion: null,
-        credentialFilePaths: [],
         credentialValuesToRedact: [],
       }),
       execute: async (run: PreparedRun) => {
@@ -930,7 +974,11 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
         runtimeId: 'fake-cost-runtime',
         command: 'true',
         args: [],
@@ -939,7 +987,6 @@ describe('run pipeline', () => {
         isolation,
         cell,
         runtimeVersion: null,
-        credentialFilePaths: [],
         credentialValuesToRedact: [],
       }),
       execute: async (run: PreparedRun) => {
@@ -1003,7 +1050,11 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
         runtimeId: 'fake-sigint-runtime',
         command: 'true',
         args: [],
@@ -1012,7 +1063,6 @@ describe('run pipeline', () => {
         isolation,
         cell,
         runtimeVersion: null,
-        credentialFilePaths: [],
         credentialValuesToRedact: [],
       }),
       execute: async (run: PreparedRun) => {
@@ -1076,7 +1126,11 @@ describe('run pipeline', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => ({
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
         runtimeId: 'fake-throw-runtime',
         command: 'true',
         args: [],
@@ -1085,7 +1139,6 @@ describe('run pipeline', () => {
         isolation,
         cell,
         runtimeVersion: null,
-        credentialFilePaths: [],
         credentialValuesToRedact: [],
       }),
       execute: async () => {

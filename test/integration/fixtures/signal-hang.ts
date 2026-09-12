@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { runPipeline } from '../../../src/run/pipeline.js';
 import type { ResolvedCell } from '../../../src/cell/types.js';
 import type { IsolationContext } from '../../../src/isolation/types.js';
-import type { PreparedRun, Runtime } from '../../../src/runtime/types.js';
+import type { PreparedRun, RegisterCredentialPath, Runtime } from '../../../src/runtime/types.js';
 
 /**
  * Fixture for the signal-cleanup integration test: runs the real pipeline
@@ -38,9 +38,14 @@ fake = {
     executablePath: null,
     authUsable: null,
   }),
-  prepare: async (cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => {
+  prepare: async (
+    cell: ResolvedCell,
+    isolation: IsolationContext,
+    registerCredentialPath: RegisterCredentialPath,
+  ): Promise<PreparedRun> => {
     const rootDir = isolation.rootDir;
     const credentialPath = join(rootDir, 'bridged-credential.txt');
+    registerCredentialPath(credentialPath);
     await writeFile(credentialPath, 'secret\n', 'utf8');
     // Signal handler is installed by the pipeline before prepare() runs; the
     // credential file now exists on disk. This synchronous write is the
@@ -59,7 +64,6 @@ fake = {
       isolation,
       cell,
       runtimeVersion: null,
-      credentialFilePaths: [credentialPath],
       credentialValuesToRedact: [],
     };
   },

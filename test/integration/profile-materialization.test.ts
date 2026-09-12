@@ -73,7 +73,7 @@ describe('profile materialization', () => {
       const isolation = new Level1Isolation();
       const context = await createVerifiedIsolation(isolation, cell);
       try {
-        await expect(make().prepare(cell, context)).rejects.toMatchObject({
+        await expect(make().prepare(cell, context, () => {})).rejects.toMatchObject({
           exitCode: EXIT_CODES.CONFIG_ERROR,
         });
       } finally {
@@ -91,7 +91,7 @@ describe('profile materialization', () => {
     const isolation = new Level1Isolation();
     const context = await createVerifiedIsolation(isolation, cell);
     try {
-      await new ClaudeCodeRuntime().prepare(cell, context);
+      await new ClaudeCodeRuntime().prepare(cell, context, () => {});
 
       const homeDir = context.homeDir;
       if (!homeDir) throw new Error('level1 isolation must provide homeDir');
@@ -152,8 +152,9 @@ describe('profile materialization', () => {
     const isolation = new Level1Isolation();
     const context = await createVerifiedIsolation(isolation, cell);
     try {
-      const prepared = await new CodexRuntime().prepare(cell, context);
-      expect(prepared.credentialFilePaths).toEqual([]);
+      const registeredPaths: string[] = [];
+      await new CodexRuntime().prepare(cell, context, (path) => registeredPaths.push(path));
+      expect(registeredPaths).toEqual([]);
 
       const homeDir = context.homeDir;
       if (!homeDir) throw new Error('level1 isolation must provide homeDir');
@@ -186,14 +187,19 @@ describe('profile materialization', () => {
     const isolation = new Level1Isolation();
     const context = await createVerifiedIsolation(isolation, cell);
     try {
-      const prepared = await new CodexRuntime().prepare(cell, context);
+      const registeredPaths: string[] = [];
+      const prepared = await new CodexRuntime().prepare(cell, context, (path) =>
+        registeredPaths.push(path),
+      );
 
       const homeDir = context.homeDir;
       if (!homeDir) throw new Error('level1 isolation must provide homeDir');
       const bridgedPath = join(homeDir, '.codex', 'auth.json');
       expect(await readFile(bridgedPath, 'utf8')).toBe(authJson);
       expect((await stat(bridgedPath)).mode & 0o777).toBe(0o600);
-      expect(prepared.credentialFilePaths).toEqual([bridgedPath]);
+      // The path must be registered with the pipeline at write time (#55), so
+      // the scrub reaches it even if prepare() never returns.
+      expect(registeredPaths).toEqual([bridgedPath]);
       // The OAuth token triple, not just OPENAI_API_KEY, must be reported for
       // log redaction -- these values can never be reached by a redaction
       // pass that only looks at PreparedRun.env's known key names, since
@@ -234,7 +240,7 @@ describe('profile materialization', () => {
     await writeFile(join(unscrubbableDest, 'inner.txt'), 'x', 'utf8');
 
     try {
-      await expect(new CodexRuntime().prepare(cell, context)).rejects.toMatchObject({
+      await expect(new CodexRuntime().prepare(cell, context, () => {})).rejects.toMatchObject({
         exitCode: EXIT_CODES.ISOLATION_VERIFICATION_FAILED,
         message: expect.stringContaining(unscrubbableDest),
       });
@@ -253,12 +259,17 @@ describe('profile materialization', () => {
     const isolation = new Level1Isolation();
     const context = await createVerifiedIsolation(isolation, cell);
     try {
-      const prepared = await new CodexRuntime().prepare(cell, context);
+      const registeredPaths: string[] = [];
+      const prepared = await new CodexRuntime().prepare(cell, context, (path) =>
+        registeredPaths.push(path),
+      );
       expect(prepared.command).toBe('codex');
-      expect(prepared.credentialFilePaths).toEqual([]);
-
+      // Registration happens before the copy (#55), so the destination is on
+      // the scrub list even when the bridge no-ops on a missing source — a
+      // path the copy never reaches is a harmless no-op for the scrub.
       const homeDir = context.homeDir;
       if (!homeDir) throw new Error('level1 isolation must provide homeDir');
+      expect(registeredPaths).toEqual([join(homeDir, '.codex', 'auth.json')]);
       await expect(readFile(join(homeDir, '.codex', 'auth.json'), 'utf8')).rejects.toThrow();
     } finally {
       await isolation.dispose(context);
@@ -273,9 +284,12 @@ describe('profile materialization', () => {
       const isolation = new Level1Isolation();
       const context = await createVerifiedIsolation(isolation, cell);
       try {
-        const prepared = await new CodexRuntime().prepare(cell, context);
+        const registeredPaths: string[] = [];
+        const prepared = await new CodexRuntime().prepare(cell, context, (path) =>
+          registeredPaths.push(path),
+        );
         expect(prepared.env['OPENAI_API_KEY']).toBe('sk-test-forwarded');
-        expect(prepared.credentialFilePaths).toEqual([]);
+        expect(registeredPaths).toEqual([]);
       } finally {
         await isolation.dispose(context);
       }
@@ -330,7 +344,7 @@ describe('profile materialization', () => {
     const isolation = new Level1Isolation();
     const context = await createVerifiedIsolation(isolation, cell);
     try {
-      await expect(new CodexRuntime().prepare(cell, context)).rejects.toMatchObject({
+      await expect(new CodexRuntime().prepare(cell, context, () => {})).rejects.toMatchObject({
         exitCode: EXIT_CODES.CONFIG_ERROR,
       });
     } finally {

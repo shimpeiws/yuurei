@@ -29,13 +29,6 @@ export interface PreparedRun {
   /** null = version could not be determined at prepare() time; never a hardcoded fallback. */
   runtimeVersion: string | null;
   /**
-   * Absolute paths to any credential material this adapter wrote to disk
-   * during prepare() (empty for adapters that only forward env vars). The
-   * pipeline scrubs these unconditionally before dispose(), even under
-   * `--keep` — `--keep` preserves config/logs for debugging, never credentials.
-   */
-  credentialFilePaths: string[];
-  /**
    * The actual real credential values this adapter forwarded or wrote,
    * regardless of where they ended up (an env var, or a field inside a
    * bridged file like Codex's auth.json). The pipeline redacts each of
@@ -83,6 +76,16 @@ export interface NormalizedTraceFragment {
 }
 
 /**
+ * The pipeline passes this to `prepare()` so an adapter can register each
+ * credential path on disk at the moment it writes it — not when prepare()
+ * returns. The scrub list is therefore populated by the write, so a signal or
+ * throw between the write and the return cannot strand credential material
+ * (design doc §9.2). `rm(path, { force: true })` on a never-written path is a
+ * no-op, so registering before an attempted write is safe.
+ */
+export type RegisterCredentialPath = (path: string) => void;
+
+/**
  * Hides runtime-specific launch/inspect/exit handling. Implementations
  * (ClaudeCodeRuntime, CodexRuntime) must keep their config path/CLI-arg/
  * env-var conventions encapsulated internally — nothing runtime-specific
@@ -91,7 +94,11 @@ export interface NormalizedTraceFragment {
 export interface Runtime {
   id(): string;
   detect(): Promise<RuntimeDetection>;
-  prepare(cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun>;
+  prepare(
+    cell: ResolvedCell,
+    isolation: IsolationContext,
+    registerCredentialPath: RegisterCredentialPath,
+  ): Promise<PreparedRun>;
   /** `timeoutMs` null means no timeout is enforced. */
   execute(run: PreparedRun, timeoutMs: number | null): Promise<RuntimeResult>;
   normalize(result: RuntimeResult, context: NormalizationContext): Promise<NormalizedTraceFragment>;

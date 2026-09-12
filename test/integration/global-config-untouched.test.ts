@@ -4,7 +4,12 @@ import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeCodeRuntime } from '../../src/runtime/claude-code/index.js';
 import { CodexRuntime } from '../../src/runtime/codex/index.js';
-import type { Runtime, PreparedRun, NormalizedTraceFragment } from '../../src/runtime/types.js';
+import type {
+  NormalizedTraceFragment,
+  PreparedRun,
+  RegisterCredentialPath,
+  Runtime,
+} from '../../src/runtime/types.js';
 import type { ResolvedCell } from '../../src/cell/types.js';
 import type { IsolationContext } from '../../src/isolation/types.js';
 import { runPipeline } from '../../src/run/pipeline.js';
@@ -86,8 +91,12 @@ describe('global config untouched', () => {
         executablePath: null,
         authUsable: null,
       }),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext) => {
-        observed = await new ClaudeCodeRuntime().prepare(cell, isolation);
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        registerCredentialPath: RegisterCredentialPath,
+      ) => {
+        observed = await new ClaudeCodeRuntime().prepare(cell, isolation, registerCredentialPath);
         return observed;
       },
       execute: async (run: PreparedRun) => {
@@ -171,8 +180,12 @@ describe('global config untouched', () => {
     const fake: Runtime = {
       id: () => 'fake',
       detect: () => codex.detect(),
-      prepare: async (cell: ResolvedCell, isolation: IsolationContext) => {
-        observed = await codex.prepare(cell, isolation);
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        registerCredentialPath: RegisterCredentialPath,
+      ) => {
+        observed = await codex.prepare(cell, isolation, registerCredentialPath);
         return observed;
       },
       execute: async (run: PreparedRun) => {

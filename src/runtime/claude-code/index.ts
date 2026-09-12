@@ -9,6 +9,7 @@ import type {
   NormalizationContext,
   NormalizedTraceFragment,
   PreparedRun,
+  RegisterCredentialPath,
   Runtime,
   RuntimeDetection,
   RuntimeResult,
@@ -83,7 +84,11 @@ export class ClaudeCodeRuntime implements Runtime {
     };
   }
 
-  async prepare(cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> {
+  async prepare(
+    cell: ResolvedCell,
+    isolation: IsolationContext,
+    _registerCredentialPath: RegisterCredentialPath,
+  ): Promise<PreparedRun> {
     const env = { ...isolation.env };
     const configDir = claudeConfigDir(configRootOf(isolation));
     await mkdir(configDir, { recursive: true, mode: 0o700 });
@@ -112,8 +117,8 @@ export class ClaudeCodeRuntime implements Runtime {
       cell,
       runtimeVersion: detection.version,
       // Credentials here are env vars only (bridgeClaudeCredentials above) —
-      // nothing is ever written to disk, so there's nothing to scrub.
-      credentialFilePaths: [],
+      // nothing is ever written to disk, so there is no path to register for
+      // the scrub.
       credentialValuesToRedact,
     };
   }

@@ -76,6 +76,16 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   let runDirRemoved = false;
   const warn = (message: string) => input.onWarning?.(message);
 
+  /**
+   * Every credential path an adapter writes during `prepare()` is registered
+   * here at the moment of the write. The scrub reads from this sink rather
+   * than from `prepared.credentialFilePaths`, which only exists once
+   * prepare() has returned — so a signal or throw between the write and the
+   * return no longer strands credential material (design doc §9.2, audit
+   * Finding 1).
+   */
+  const registeredCredentialPaths = new Set<string>();
+
   const scrubCredentials = async () => {
     // Credential material should never survive a run, even under `--keep` —
     // `--keep` preserves config/logs for debugging, never bridged auth
@@ -83,10 +93,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // via onWarning (naming the residual path) rather than silently
     // swallowed. Shared by the finally block and the signal handler, guarded
     // so a signal arriving mid-cleanup can't double-scrub and double-report.
-    if (!prepared || scrubbed) return;
+    if (scrubbed) return;
     scrubbed = true;
     await Promise.all(
-      prepared.credentialFilePaths.map(async (path) => {
+      [...registeredCredentialPaths].map(async (path) => {
         try {
           await rm(path, { force: true });
         } catch (error) {
@@ -130,18 +140,20 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // threw, and so a signal killing the process mid-dispose never leaves
     // credential material behind.
     await scrubCredentials();
-    // `prepared` only exists once prepare() has returned, so a run that ended
-    // inside it may have credential material on disk with no manifest to scrub
-    // against — the Codex auth-file bridge writes auth.json, then reads it back
-    // and spawns the runtime before returning. Nothing can identify those files
-    // afterwards, so `--keep` does not apply (§9.2).
+    // `prepared` only exists once prepare() has returned. If the run ended
+    // before that point AND the adapter registered no credential paths, we
+    // cannot rule out an unregistered credential write — removing the whole
+    // root is the only safe choice under `--keep` (§9.2). Once a path is
+    // registered the scrub handled it above, so the rest of the root may be
+    // kept for debugging.
     const startedRuntime = prepared !== undefined;
-    if (!startedRuntime && context.keep) {
+    const cannotIdentifyCredentials = !startedRuntime && registeredCredentialPaths.size === 0;
+    if (cannotIdentifyCredentials && context.keep) {
       warn(
         `run ended before the runtime started; removing the isolation directory despite --keep, because credential material written during setup cannot be identified: ${context.rootDir}`,
       );
     }
-    await disposeContext(!startedRuntime);
+    await disposeContext(cannotIdentifyCredentials);
     // If no trace was written (signal-interrupted or threw before writeTrace),
     // remove the partial run directory so no undocumented directory is left
     // that cannot be consumed by `yuurei trace show`.
@@ -153,7 +165,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   const signalCleanup = installSignalCleanup({ cleanup });
   try {
     const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
-    prepared = await runtime.prepare(cell, context);
+    prepared = await runtime.prepare(cell, context, (path) => registeredCredentialPaths.add(path));
     const result = await runtime.execute(prepared, input.timeoutMs ?? null);
     const fragment = await runtime.normalize(result, { runtimeVersion: prepared.runtimeVersion });
     for (const w of fragment.warnings ?? []) warn(w);
