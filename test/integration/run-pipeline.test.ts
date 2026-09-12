@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EXIT_CODES, YuureiError } from '../../src/cli/exit-codes.js';
 import { NoopCostModel } from '../../src/cost/noop.js';
+import { Level1Isolation } from '../../src/isolation/level1.js';
 import { runPipeline } from '../../src/run/pipeline.js';
 import { pathExists } from '../../src/util/fs.js';
 import { sha256Digest } from '../../src/util/hash.js';
 import type { ResolvedProfile } from '../../src/profile/types.js';
-import type { IsolationContext } from '../../src/isolation/types.js';
+import type { Isolation, IsolationContext, IsolationReport } from '../../src/isolation/types.js';
 import type {
   NormalizationContext,
   PreparedRun,
@@ -1171,5 +1172,96 @@ describe('run pipeline', () => {
     // Runs dir may exist (created by createUniqueRunLayout) but must be empty.
     const entries = await readdir(runsDir).catch(() => []);
     expect(entries).toHaveLength(0);
+  });
+
+  it('removes the partial run directory even when isolation.dispose() rejects', async () => {
+    // Review #116: after a primary run error, cleanup failures are caught and
+    // only warned about, so a rejecting isolation.dispose() must not strand
+    // the durable run directory as if the run were complete. The partial-run
+    // removal has to run independently of dispose().
+    const profile: ResolvedProfile = {
+      name: 'fake-dispose-fail',
+      runtime: 'fake-dispose-fail-runtime',
+      content: { profileYaml: { runtime: 'fake-dispose-fail-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+
+    const fake: Runtime = {
+      id: () => 'fake-dispose-fail-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
+        runtimeId: 'fake-dispose-fail-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialValuesToRedact: [],
+      }),
+      execute: async () => {
+        throw new Error('simulated execute failure');
+      },
+      normalize: async () => ({
+        runtime: { id: 'fake-dispose-fail-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: null, signal: null, durationMs: 0 },
+        usage: {},
+      }),
+    };
+
+    const realIsolation = new Level1Isolation();
+    let createdRootDir: string | undefined;
+    const failingDisposeIsolation: Isolation = {
+      create: async (cell) => {
+        const context = await realIsolation.create(cell);
+        createdRootDir = context.rootDir;
+        return context;
+      },
+      verify: (context) => realIsolation.verify(context) as Promise<IsolationReport>,
+      dispose: async () => {
+        throw new Error('simulated dispose failure');
+      },
+    };
+
+    const warnings: string[] = [];
+
+    await expect(
+      runPipeline({
+        runtimeId: profile.runtime,
+        requestedModel: '',
+        profile,
+        taskPath,
+        yuureiVersion: '0.0.1',
+        yuureiDir: workDir,
+        isolationStrategy: 'level1',
+        keep: false,
+        resolveRuntime: () => fake,
+        createIsolation: () => failingDisposeIsolation,
+        onWarning: (message) => warnings.push(message),
+      }),
+    ).rejects.toThrow('simulated execute failure');
+
+    // The durable run directory was removed despite the disposal failure.
+    const entries = await readdir(join(workDir, 'runs')).catch(() => []);
+    expect(entries).toHaveLength(0);
+    // The cleanup failure was reported rather than masking the primary error.
+    expect(warnings).toContainEqual(expect.stringContaining('cleanup failed after the run failed'));
+    expect(warnings[warnings.length - 1]).toContain('simulated dispose failure');
+
+    // The fake dispose() deliberately leaves the isolation root behind; the
+    // test cleans it up (a real adapter would remove it on success).
+    if (!createdRootDir) throw new Error('fake isolation create() was never called');
+    await rm(createdRootDir, { recursive: true, force: true });
   });
 });

@@ -169,12 +169,19 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         `run ended before the runtime started; removing the isolation directory despite --keep, because credential material written during setup cannot be identified: ${context.rootDir}`,
       );
     }
-    await disposeContext(cannotIdentifyCredentials);
     // If no trace was written (signal-interrupted or threw before writeTrace),
     // remove the partial run directory so no undocumented directory is left
-    // that cannot be consumed by `yuurei trace show`.
-    if (!traceWritten) {
-      await removeRunDir();
+    // that cannot be consumed by `yuurei trace show`. This must run even when
+    // isolation.dispose() rejects: a disposal failure must not strand the run
+    // directory as if the run were complete (review #116). disposeContext
+    // itself never throws from here — its rejection propagates out of
+    // runCleanup after the run directory has been handled.
+    try {
+      await disposeContext(cannotIdentifyCredentials);
+    } finally {
+      if (!traceWritten) {
+        await removeRunDir();
+      }
     }
   };
 
