@@ -76,8 +76,17 @@ export function installSignalCleanup(options: SignalCleanupOptions): SignalClean
       // during cleanup keeps the default action (kills the process) instead
       // of being re-entered or racing a second process.exit().
       uninstall();
-      await options.cleanup();
-      process.exit(exitCode);
+      try {
+        // cleanup is memoized, so this awaits the same lifecycle the
+        // pipeline's finally block is awaiting — process.exit() below cannot
+        // preempt an in-flight scrub/dispose.
+        await options.cleanup();
+      } finally {
+        // Exit with the signal code regardless of whether cleanup itself
+        // failed (a failed cleanup reports its own onWarning; the run was
+        // still killed by the signal).
+        process.exit(exitCode);
+      }
     };
     handlers.set(signal, handler);
     process.on(signal, handler);

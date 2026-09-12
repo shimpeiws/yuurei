@@ -9,7 +9,7 @@ import {
   writeArtifactManifest,
 } from '../artifact/collector.js';
 import { createIsolation, createVerifiedIsolation } from '../isolation/index.js';
-import type { IsolationContext } from '../isolation/types.js';
+import type { Isolation, IsolationContext, IsolationStrategy } from '../isolation/types.js';
 import { toProfileManifest } from '../profile/manifest.js';
 import { getRuntime } from '../runtime/registry.js';
 import type { PreparedRun, Runtime } from '../runtime/types.js';
@@ -29,6 +29,12 @@ export interface RunPipelineInput extends CellResolutionInput {
   maxArtifactBytes?: number;
   /** Test seam only. Defaults to the real registry; production callers omit it. */
   resolveRuntime?: (id: string) => Runtime;
+  /**
+   * Test seam only. Defaults to the real factory; production callers omit it.
+   * Lets a test wrap the isolation to put a barrier inside `dispose()` and
+   * prove the signal handler waits for the shared cleanup lifecycle.
+   */
+  createIsolation?: (strategy: IsolationStrategy) => Isolation;
   /**
    * Called synchronously for each non-fatal warning as it occurs (e.g. a
    * credential file that could not be scrubbed on cleanup). This is the
@@ -57,7 +63,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   const cell = await resolveCell(input);
   const { runId, layout } = await createUniqueRunLayout(input.yuureiDir);
 
-  const isolation = createIsolation(input.isolationStrategy);
+  const isolation = (input.createIsolation ?? createIsolation)(input.isolationStrategy);
   let context: IsolationContext;
   try {
     context = await createVerifiedIsolation(isolation, cell);
@@ -135,7 +141,17 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     }
   };
 
-  const cleanup = async () => {
+  /**
+   * The actual cleanup lifecycle, run exactly once. `cleanup` below memoizes
+   * this promise so that every caller — the finally block and the signal
+   * handler — awaits the *same* in-flight lifecycle. Without the memoization,
+   * a caller arriving while another caller's scrub/dispose is mid-await would
+   * short-circuit through the boolean guards (`scrubbed`/`disposed` are set
+   * before their awaits complete), return immediately, and let the signal
+   * handler's `process.exit()` fire before the first caller's in-flight
+   * rm/dispose had settled.
+   */
+  const runCleanup = async () => {
     // Scrub before dispose() so this runs regardless of which branch above
     // threw, and so a signal killing the process mid-dispose never leaves
     // credential material behind.
@@ -162,7 +178,14 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     }
   };
 
+  let cleanupPromise: Promise<void> | null = null;
+  const cleanup = (): Promise<void> => {
+    cleanupPromise ??= runCleanup();
+    return cleanupPromise;
+  };
+
   const signalCleanup = installSignalCleanup({ cleanup });
+  let primaryError: unknown;
   try {
     const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
     prepared = await runtime.prepare(cell, context, (path) => registeredCredentialPaths.add(path));
@@ -253,16 +276,36 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     await writeArtifactManifest(layout.runDir, manifest);
 
     return { runId, runDir: layout.runDir, cell, trace };
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    // The finally block and the signal handler share the same guarded
-    // cleanup, so the dispose can't run twice even when a signal arrives
-    // while this block is mid-flight. The signal handler awaits the same
-    // `cleanup` promise, so its `process.exit()` cannot preempt this block's
-    // in-flight dispose — the exit fires only after both the finally block
-    // and the handler's own cleanup have run. Uninstall before cleaning up:
-    // a signal arriving after this run completed must not re-enter the
-    // cleanup/exit path (the run already finished; the signal is unrelated).
-    signalCleanup.uninstall();
-    await cleanup();
+    // The finally block and the signal handler share ONE memoized cleanup
+    // promise (see `cleanup` above), so a signal arriving while this block is
+    // mid-cleanup joins the in-flight lifecycle instead of starting a second
+    // one: the handler's `await options.cleanup()` waits for the same
+    // scrub/dispose this block is awaiting, and its `process.exit()` fires
+    // only after both have settled. The handler stays installed until the
+    // cleanup has finished so a signal in that window is caught rather than
+    // taking the default disposition mid-rm; it is uninstalled last, closing
+    // the tiny post-completion window where an unrelated signal would be a
+    // no-op handler on an already-finished run.
+    try {
+      if (primaryError !== undefined) {
+        // The run already failed; a cleanup failure must not mask the primary
+        // error — report it via onWarning and let the original error propagate.
+        await cleanup().catch((cleanupError) =>
+          warn(
+            `cleanup failed after the run failed: ${
+              cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+            }`,
+          ),
+        );
+      } else {
+        await cleanup();
+      }
+    } finally {
+      signalCleanup.uninstall();
+    }
   }
 }
