@@ -1,12 +1,14 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SIGNAL_EXIT_CODES } from '../../src/run/signals.js';
+import { pathExists } from '../../src/util/fs.js';
 
 const FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-hang.ts');
 const PREPARE_FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-during-prepare.ts');
+const CLEANUP_FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-during-cleanup.ts');
 
 interface HangMarker {
   rootDir: string;
@@ -127,4 +129,63 @@ describe('signal cleanup', () => {
       expect(runEntries).toHaveLength(0);
     },
   );
+
+  // #110: the signal handler and the pipeline's finally block must join the
+  // SAME cleanup lifecycle. A barrier inside dispose() holds the lifecycle
+  // open after the run completed normally; a signal arriving then must NOT
+  // let process.exit() fire while scrub/dispose are still in flight.
+  it('waits for an in-flight shared cleanup lifecycle before process.exit() on a signal', async () => {
+    const signal = 'SIGINT';
+    const disposeEnteredPath = join(markerDir, 'dispose-entered');
+    const disposeDonePath = join(markerDir, 'dispose-done');
+    const releasePath = join(markerDir, 'release');
+
+    const child = spawn(process.execPath, ['--import', 'tsx', CLEANUP_FIXTURE], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        YUUREI_DISPOSE_ENTERED: disposeEnteredPath,
+        YUUREI_DISPOSE_DONE: disposeDonePath,
+        YUUREI_CLEANUP_RELEASE: releasePath,
+      },
+    });
+
+    let exitedInfo: { code: number | null; signal: string | null } | null = null;
+    child.on('close', (code, sig) => {
+      exitedInfo = { code, signal: sig };
+    });
+
+    // Wait until the pipeline's finally block has entered the blocking
+    // dispose() — the lifecycle is provably in flight and the signal handler
+    // is still installed.
+    const deadline = Date.now() + 15_000;
+    while (!(await pathExists(disposeEnteredPath))) {
+      if (Date.now() > deadline) {
+        child.kill('SIGKILL');
+        throw new Error('fixture never reached the dispose barrier');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    child.kill(signal);
+
+    // The handler awaits the same memoized lifecycle, so the process must
+    // still be alive with dispose blocked on the barrier — an early exit here
+    // would mean process.exit() preempted an in-flight scrub/dispose.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(exitedInfo).toBeNull();
+
+    // Release the barrier: dispose completes, then the handler exits with the
+    // signal code.
+    await writeFile(releasePath, 'go', 'utf8');
+    await new Promise<void>((resolve) => {
+      if (exitedInfo !== null) resolve();
+      else child.on('close', () => resolve());
+    });
+
+    expect(exitedInfo?.code).toBe(SIGNAL_EXIT_CODES.SIGINT);
+    // dispose() completed before the process exited — the exit waited for the
+    // shared lifecycle.
+    await expect(stat(disposeDonePath)).resolves.toBeDefined();
+  });
 });
