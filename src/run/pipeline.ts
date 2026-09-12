@@ -208,6 +208,46 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       tokensOut: fragment.usage['output_tokens'] ?? null,
     });
 
+    const knownCredentialValues = prepared.credentialValuesToRedact;
+    const maxArtifactBytes = input.maxArtifactBytes ?? DEFAULT_ARTIFACT_MAX_BYTES;
+    const redactLog = async (inputPath: string, outputPath: string): Promise<boolean> => {
+      try {
+        return await redactFile(inputPath, outputPath, knownCredentialValues, maxArtifactBytes);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          await writeFile(outputPath, '', 'utf8');
+          return false;
+        }
+        throw err;
+      }
+    };
+    const [stdoutTruncated, stderrTruncated] = await Promise.all([
+      redactLog(result.stdoutPath, layout.stdoutPath),
+      redactLog(result.stderrPath, layout.stderrPath),
+    ]);
+
+    // Collect artifacts and persist every durable output BEFORE the trace is
+    // written. trace.json is the completion marker: it is written last, so a
+    // failure in any step above leaves a run directory with no trace.json,
+    // which cleanup removes and `yuurei trace show` cannot consume. The
+    // artifact list in the trace is derived from the manifest, so the two can
+    // never disagree (#111).
+    const manifest = await collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log'], {
+      maxBytes: maxArtifactBytes,
+      truncatedPaths: [
+        ...(stdoutTruncated ? ['stdout.log'] : []),
+        ...(stderrTruncated ? ['stderr.log'] : []),
+      ],
+    });
+    await writeArtifactManifest(layout.runDir, manifest);
+    // Identity, not content: §10.1 records a digest of the profile content,
+    // and §10.2 keeps a profile's own secrets out of the durable run dir.
+    await writeFile(
+      layout.resolvedProfilePath,
+      JSON.stringify(toProfileManifest(cell.resolvedProfile), null, 2),
+      'utf8',
+    );
+
     const trace: Trace = {
       schema_version: TRACE_SCHEMA_VERSION,
       run_id: runId,
@@ -229,58 +269,13 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         costEstimate.amount === null
           ? null
           : { amount: costEstimate.amount, currency: costEstimate.currency ?? 'USD' },
-      artifacts: [],
+      // The actual artifacts just collected — mirrors artifacts.json rather
+      // than a placeholder empty list.
+      artifacts: manifest.artifacts.map(({ path, kind }) => ({ path, kind })),
     };
 
     await writeTrace(layout.runDir, trace);
     traceWritten = true;
-    // Identity, not content: §10.1 records a digest of the profile content,
-    // and §10.2 keeps a profile's own secrets out of the durable run dir.
-    await writeFile(
-      layout.resolvedProfilePath,
-      JSON.stringify(toProfileManifest(cell.resolvedProfile), null, 2),
-      'utf8',
-    );
-
-    // The runtime writes its logs inside the ephemeral isolation rootDir;
-    // read, redact, and persist them into the durable run directory before
-    // isolation.dispose() deletes that rootDir (design doc §10: .yuurei/
-    // runs/<run-id>/*.log). A full-file read+rewrite rather than copyFile:
-    // design doc §9.2 requires stripping tokens/keys from logs, and a
-    // trusted task can still accidentally print its own environment. Known
-    // bridged credential values (exact match, reported directly by the
-    // adapter via credentialValuesToRedact — not inferred from env var
-    // names, which can't reach a secret embedded in file content like a
-    // bridged auth.json's OAuth tokens) are stripped first, then the
-    // generic shape-based patterns as a fallback for anything not
-    // explicitly tracked. This means persisted logs are no longer a
-    // byte-for-byte copy of what the runtime produced.
-    const knownCredentialValues = prepared.credentialValuesToRedact;
-    const maxArtifactBytes = input.maxArtifactBytes ?? DEFAULT_ARTIFACT_MAX_BYTES;
-    const redactLog = async (inputPath: string, outputPath: string): Promise<boolean> => {
-      try {
-        return await redactFile(inputPath, outputPath, knownCredentialValues, maxArtifactBytes);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-          await writeFile(outputPath, '', 'utf8');
-          return false;
-        }
-        throw err;
-      }
-    };
-    const [stdoutTruncated, stderrTruncated] = await Promise.all([
-      redactLog(result.stdoutPath, layout.stdoutPath),
-      redactLog(result.stderrPath, layout.stderrPath),
-    ]);
-
-    const manifest = await collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log'], {
-      maxBytes: maxArtifactBytes,
-      truncatedPaths: [
-        ...(stdoutTruncated ? ['stdout.log'] : []),
-        ...(stderrTruncated ? ['stderr.log'] : []),
-      ],
-    });
-    await writeArtifactManifest(layout.runDir, manifest);
 
     return { runId, runDir: layout.runDir, cell, trace };
   } catch (error) {
