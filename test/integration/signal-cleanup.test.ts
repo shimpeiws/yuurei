@@ -103,7 +103,9 @@ describe('signal cleanup', () => {
   // §9.2: --keep preserves config and logs for debugging, never credential
   // material. The scrub must therefore reach a credential written during
   // prepare(), which is where the real Codex auth-file bridge writes it —
-  // an operator pressing Ctrl-C during run startup lands in that window.
+  // an operator pressing Ctrl-C during run startup lands in that window. The
+  // credential path is registered at write time (#55), so the scrub removes
+  // just that file and the isolation root survives for debugging.
   it.each([
     ['SIGINT', SIGNAL_EXIT_CODES.SIGINT],
     ['SIGTERM', SIGNAL_EXIT_CODES.SIGTERM],
@@ -115,7 +117,11 @@ describe('signal cleanup', () => {
       rootDirs.push(rootDir);
 
       expect(code).toBe(exitCode);
+      // The registered credential file is gone ...
       await expect(stat(credentialPath)).rejects.toThrow();
+      // ... while the isolation root is kept under --keep for debugging
+      // (precise scrub, so nothing needs to be discarded wholesale).
+      await expect(stat(rootDir)).resolves.toBeDefined();
       // Defect B: no partial run directory should remain after a caught signal.
       const runEntries = await readdir(runsDir).catch(() => []);
       expect(runEntries).toHaveLength(0);

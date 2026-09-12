@@ -11,6 +11,7 @@ import type {
   NormalizationContext,
   NormalizedTraceFragment,
   PreparedRun,
+  RegisterCredentialPath,
   Runtime,
   RuntimeDetection,
   RuntimeResult,
@@ -116,14 +117,15 @@ async function extractCodexAuthSecrets(path: string): Promise<string[]> {
  * partial credential — UNLESS cleaning up a failed copy also fails (a
  * double fault: e.g. copyFile succeeds but chmod then fails, and the
  * catch-block's own rm() fails too). In that case the file at `dest` is
- * left in an unknown, unregistered state that nothing would otherwise
- * retry scrubbing, so this throws rather than silently returning as if
- * nothing were bridged — aborting prepare() is judged safer than launching
- * Codex against a leftover, un-tracked credential file at a reserved path.
+ * left in an unknown state. prepare() already registered `dest` with the
+ * pipeline before this call, so the scrub retries the removal during
+ * cleanup; if that second removal also fails the pipeline reports the
+ * residual path via onWarning. This still throws (rather than silently
+ * returning as if nothing were bridged) because aborting prepare() is
+ * judged safer than launching Codex against a leftover, untracked
+ * credential file at a reserved path.
  */
-async function bridgeCodexAuthFile(
-  destDir: string,
-): Promise<{ wrote: boolean; secretValues: string[] }> {
+async function bridgeCodexAuthFile(destDir: string): Promise<string[]> {
   // homedir() follows process.env.HOME, so a test override of process.env.HOME
   // reaches this lookup — matching how Level1Isolation.verify() locates the real home.
   const realCodexHome = codexConfigDir(homedir());
@@ -132,8 +134,8 @@ async function bridgeCodexAuthFile(
 
   // Graft from synthesis.md: guard against auth.json itself being a symlink that
   // escapes ~/.codex (e.g. -> ~/.ssh/id_rsa). Non-fatal — return rather than throw.
-  if (!(await isPathWithin(realCodexHome, sourcePath))) return { wrote: false, secretValues: [] };
-  if (!(await pathExists(sourcePath))) return { wrote: false, secretValues: [] };
+  if (!(await isPathWithin(realCodexHome, sourcePath))) return [];
+  if (!(await pathExists(sourcePath))) return [];
 
   // Best-effort per §12.2: any I/O failure here (permission error, a source
   // file removed between the checks above and the copy, a full disk) must
@@ -153,10 +155,10 @@ async function bridgeCodexAuthFile(
         EXIT_CODES.ISOLATION_VERIFICATION_FAILED,
       );
     }
-    return { wrote: false, secretValues: [] };
+    return [];
   }
 
-  return { wrote: true, secretValues: await extractCodexAuthSecrets(dest) };
+  return extractCodexAuthSecrets(dest);
 }
 
 export class CodexRuntime implements Runtime {
@@ -182,7 +184,11 @@ export class CodexRuntime implements Runtime {
     };
   }
 
-  async prepare(cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> {
+  async prepare(
+    cell: ResolvedCell,
+    isolation: IsolationContext,
+    registerCredentialPath: RegisterCredentialPath,
+  ): Promise<PreparedRun> {
     const env = { ...isolation.env };
     const configDir = codexConfigDir(configRootOf(isolation));
     await mkdir(configDir, { recursive: true, mode: 0o700 });
@@ -198,10 +204,15 @@ export class CodexRuntime implements Runtime {
     await writeFileTree(configDir, cell.resolvedProfile.content.configFiles);
     const credentialValuesToRedact = bridgeCodexApiKey(env);
 
-    const credentialFilePaths: string[] = [];
     if (wantsCodexAuthFileBridge(cell.executionOptions)) {
-      const { wrote, secretValues } = await bridgeCodexAuthFile(configDir);
-      if (wrote) credentialFilePaths.push(join(configDir, 'auth.json'));
+      // Register the destination before the copy. A signal or throw between
+      // the write and prepare()'s return — or the documented double fault,
+      // where the adapter's own cleanup rm() fails — must still leave the file
+      // on the scrub list; the pipeline removes a registered path even on
+      // paths where no PreparedRun is ever returned (§9.2). Registering a path
+      // the copy never reaches is harmless: the scrub's rm has `force: true`.
+      registerCredentialPath(join(configDir, 'auth.json'));
+      const secretValues = await bridgeCodexAuthFile(configDir);
       credentialValuesToRedact.push(...secretValues);
     }
 
@@ -218,7 +229,6 @@ export class CodexRuntime implements Runtime {
       isolation,
       cell,
       runtimeVersion: detection.version,
-      credentialFilePaths,
       credentialValuesToRedact,
     };
   }

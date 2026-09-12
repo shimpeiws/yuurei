@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { runPipeline } from '../../../src/run/pipeline.js';
 import type { ResolvedCell } from '../../../src/cell/types.js';
 import type { IsolationContext } from '../../../src/isolation/types.js';
-import type { PreparedRun, Runtime } from '../../../src/runtime/types.js';
+import type { PreparedRun, RegisterCredentialPath, Runtime } from '../../../src/runtime/types.js';
 
 /**
  * Companion to `signal-hang.ts`, which covers a signal arriving during
@@ -16,10 +16,11 @@ import type { PreparedRun, Runtime } from '../../../src/runtime/types.js';
  * auth.json, then reads it back and spawns `codex --version` before
  * returning, so an operator pressing Ctrl-C during run startup lands here.
  *
- * `keep` is true because that is what makes the residue observable: without
- * it, `dispose()` removes the whole isolation root and takes the credential
- * with it. Design doc §9.2 requires `--keep` to preserve config and logs but
- * never credential material.
+ * The credential path is registered with the pipeline BEFORE the write (the
+ * #55 fix: the scrub list is populated by the write, not prepare()'s return).
+ * So on the signal the file is scrubbed precisely and the isolation root
+ * survives under `--keep` for debugging — matching §9.2, which preserves
+ * config and logs but never credential material.
  */
 const workDir = await mkdtemp(join(tmpdir(), 'yuurei-prepare-fixture-'));
 const taskPath = join(workDir, 'task.md');
@@ -36,8 +37,13 @@ const fake: Runtime = {
     executablePath: null,
     authUsable: null,
   }),
-  prepare: async (_cell: ResolvedCell, isolation: IsolationContext): Promise<PreparedRun> => {
+  prepare: async (
+    _cell: ResolvedCell,
+    isolation: IsolationContext,
+    registerCredentialPath: RegisterCredentialPath,
+  ): Promise<PreparedRun> => {
     const credentialPath = join(isolation.rootDir, 'bridged-credential.txt');
+    registerCredentialPath(credentialPath);
     await writeFile(credentialPath, 'secret\n', 'utf8');
     // The credential is on disk and the pipeline's signal handler is already
     // installed. This write is the test's cue that it is safe to signal. Both
