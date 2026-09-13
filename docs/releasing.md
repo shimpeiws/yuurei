@@ -86,6 +86,9 @@ Shipped versions are `Semantic Versioning` (https://semver.org/) compatible.
 - Verifies the tag matches `package.json` version with
   `scripts/verify-release-version.mjs`. A mismatch fails the job.
 - Runs the test suite.
+- Installs npm 11 before publishing. Trusted publishing requires npm
+  `>=11.5.1` and Node `>=22.14.0`; the npm bundled with Node 22 is 10.9.x and
+  fails with `ENEEDAUTH` because it cannot perform the OIDC exchange.
 - Publishes with `npm publish --provenance`. The OIDC credential is held by
   GitHub, so the workflow needs no real credentials.
 

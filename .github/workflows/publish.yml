@@ -28,6 +28,13 @@ jobs:
         with:
           node-version: '22'
 
+      # Trusted publishing (OIDC) requires npm >= 11.5.1. The npm bundled with
+      # Node 22 is 10.9.x, which has no OIDC exchange at all and fails the
+      # publish with ENEEDAUTH. Node stays at 22 so the pre-publish tests run
+      # on the same version CI tests against; only the publishing tool moves.
+      - name: Install an npm that supports trusted publishing
+        run: npm install -g npm@11.19.1
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
