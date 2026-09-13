@@ -6,6 +6,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- A root `SKILL.md`, so a coding agent can install yuurei as a skill
+  (`npx skills add shimpeiws/yuurei`) and discover the shortest path, the output
+  format, the exit codes, and the credential constraint on its own.
+- `AGENTS.md`, a short pointer to `CLAUDE.md` so non-Claude agents read the same
+  project rules without a second copy.
+
+### Changed
+
+- The README documents the exit-code table and the `npx skills add` command.
+
 ## [0.1.0] - 2026-09-13
 
 First published release. It implements the v0.3 design scope: single-runtime
