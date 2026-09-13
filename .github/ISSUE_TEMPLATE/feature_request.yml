@@ -1,0 +1,28 @@
+name: Feature request
+description: Propose a change in behaviour or a new capability.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is hard or impossible today. Describe the situation, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: desired
+    attributes:
+      label: Desired behaviour
+      description: What you want to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Relationship to the current scope
+      description: |
+        The [design document](https://github.com/shimpeiws/yuurei/blob/main/docs/design/yuurei-design-v0.3.md) §3.2 and §12.1 list what v0.3 deliberately excludes. If your request sits in one of those areas, say so — it can still be worth discussing, but it is a scope change rather than a gap.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

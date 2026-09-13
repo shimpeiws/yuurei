@@ -1,0 +1,39 @@
+name: Bug report
+description: Something behaves differently from what the design document or the docs describe.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security vulnerabilities here — follow [SECURITY.md](https://github.com/shimpeiws/yuurei/blob/main/SECURITY.md) instead.
+
+        Never paste credentials, tokens, or the contents of `auth.json` / `.credentials.json` into an issue. A `trace.json` is safe to attach; raw logs may not be.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The observed behaviour, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The exact commands, plus the profile and task shape if they matter.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Output of `yuurei --version` and `yuurei doctor`, plus your OS. `doctor` prints no credential values.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: trace
+    attributes:
+      label: Trace
+      description: Relevant parts of `.yuurei/runs/<run-id>/trace.json`, if the run produced one.
+      render: json
