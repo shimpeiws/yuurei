@@ -41,3 +41,10 @@ jobs:
 
       - name: Type check
         run: pnpm run build
+
+      # Exercises the published artifact itself: pack, install the tarball into
+      # a clean project, and run the installed bin. This runs here and not only
+      # in the release workflow, so a packaging defect fails a PR instead of
+      # surfacing for the first time while publishing a tag.
+      - name: Package smoke test
+        run: pnpm run smoke:package
