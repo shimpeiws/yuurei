@@ -28,6 +28,13 @@ Install yuurei from npm, or build it from a source checkout:
 npm install -g yuurei
 ```
 
+Coding agents can install yuurei as a skill so they can discover and use the
+CLI on their own:
+
+```sh
+npx skills add shimpeiws/yuurei
+```
+
 Check that the CLI is on your PATH:
 
 ```sh
@@ -214,6 +221,23 @@ yuurei run <run-name> --bridge-codex-auth-file
 yuurei trace show <run-id>
 yuurei clean
 ```
+
+## Exit codes
+
+`yuurei` exits with a code that maps a failure to the stage that produced it:
+
+| Code | Meaning                          |
+| ---: | -------------------------------- |
+|    0 | Execution succeeded              |
+|    2 | Configuration error              |
+|    3 | Runtime not found or unsupported |
+|    4 | Isolation verification failed    |
+|    5 | Runtime execution failed         |
+|    6 | Trace or artifact save failed    |
+
+A run killed by a signal uses the shell convention: 130 for `SIGINT` and 143 for
+`SIGTERM`. With `--json`, an error also emits a `{"level":"error",...}` line
+before the process exits.
 
 ## Status
 
