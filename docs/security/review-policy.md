@@ -29,8 +29,17 @@ setup. The two are mutually exclusive: enabling default setup in repository
 settings makes the committed workflow fail. Keep the workflow as the source of
 truth so the query suite, languages, and schedule are reviewable in the diff.
 
-Findings from both Semgrep and CodeQL surface as SARIF under
-**Security → Code scanning alerts**.
+Findings land in two places, deliberately. CodeQL uploads SARIF to
+**Security → Code scanning alerts**. Semgrep runs as `semgrep ci` against
+Semgrep Cloud, so its findings live there and reach a pull request as the
+`semgrep-cloud-platform/scan` check rather than as code scanning alerts.
+
+Routing Semgrep into code scanning as well would mean splitting `semgrep.yml`
+into two jobs: `github/codeql-action/upload-sarif` is a Node action and cannot
+run inside the `semgrep/semgrep` container, so the container job would have to
+publish the SARIF as an artifact for a container-less job to upload. That buys
+one place to read alerts instead of two, at the cost of restructuring a working
+security check, so it was declined (#45).
 
 ## Two review layers
 
