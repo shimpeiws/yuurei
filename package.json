@@ -1,12 +1,23 @@
 {
   "name": "yuurei",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Isolated, reproducible runtime environments for coding agents (Claude Code, Codex).",
+  "keywords": [
+    "agent",
+    "claude-code",
+    "cli",
+    "codex",
+    "coding-agent",
+    "isolation",
+    "reproducibility",
+    "sandbox"
+  ],
   "homepage": "https://github.com/shimpeiws/yuurei#readme",
   "bugs": {
     "url": "https://github.com/shimpeiws/yuurei/issues"
   },
   "license": "MIT",
+  "author": "Shimpei Takamatsu",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/shimpeiws/yuurei.git"

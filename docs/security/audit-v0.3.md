@@ -1,5 +1,12 @@
 # yuurei v0.3 Security Audit
 
+> **Superseded — historical record.** This report targets `8238315`
+> (branch `issue-9-orphan-temp-cleanup`, 2026-09-10) and its findings are **no longer current**:
+> Findings 1, 2(a) and 3 and verification items V3/V4 have since been fixed, and the invariant
+> table below still shows them as `VIOLATED` as they stood at that commit. For the state of the
+> shipped code, read [`audit-v0.3-release-candidate.md`](audit-v0.3-release-candidate.md), which
+> supersedes this report and re-classifies every item here in its §4.
+
 ## 1. Scope
 
 |            |                                                                                                                                                                               |

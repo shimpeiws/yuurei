@@ -7,41 +7,57 @@ how to produce a GitHub Release.
 
 - A public npm account with a verified email and two-factor authentication.
 - A GitHub account with `write` access to this repository.
+- **The GitHub repository must be public.** npm refuses to generate a
+  provenance attestation from a private source repository, and
+  `.github/workflows/publish.yml` publishes with `--provenance`.
 
-## One-time first publish
+## One-time setup
 
-The `yuurei` package name must be claimed once before the automated release
-workflow can publish under it.
+Both steps are done once, before the first release. Neither needs a published
+version to exist.
 
-1. From a clean `origin/main` checkout, run all checks locally:
-   `pnpm run check`, `pnpm run format`, `pnpm run knip`, `pnpm test`,
-   `pnpm run build`, and `pnpm run smoke:package`.
-2. Publish the current version manually:
+### 1. Register the trusted publisher
 
-   ```sh
-   npm publish --provenance --access public
-   ```
+npm (11.10.0 and later) can register a trusted publisher for a package that has
+not been published yet, so the very first release can come from the workflow
+with provenance — no manual publish, no placeholder version:
 
-   You must be logged in with `npm login`. This first publish claims the
-   package name manually because trusted publishing cannot authenticate the
-   first release.
+```sh
+npm login
+npm trust github yuurei --file publish.yml --repo shimpeiws/yuurei --env npm --allow-publish
+npm trust list yuurei
+```
 
-3. Verify the package on `https://www.npmjs.com/package/yuurei`.
+Check that `npm trust list` reports the same workflow file and environment name
+that `publish.yml` actually presents at OIDC exchange time. A mismatch here
+surfaces only as a failed publish during a real release.
 
-## Trusted publishing setup
+If the registry rejects registering a publisher for a name that does not exist
+yet, fall back to claiming the name manually and configuring trusted publishing
+afterwards in the npmjs.com package settings:
 
-After the package name is claimed, npm publishes can run from GitHub Actions
-without storing a token in this repository.
+```sh
+npm publish --access public   # no --provenance: a local publish cannot attest
+```
 
-In the npmjs.com package settings, create a trusted-publishing connection that
-points to this repository and the `npm` environment. In this repository,
-create a GitHub Actions environment named `npm` with the target GitHub
-repository as the trusted source. No `NODE_AUTH_TOKEN` or npm token is stored
-in the repository, so credentials cannot be leaked from the workflow.
+Claim it with a placeholder version **below** the version you intend to
+release, so the release itself still goes through the workflow. Publishing the
+release version by hand and then tagging it makes the workflow fail on a
+duplicate version. Deprecate the placeholder afterwards with
+`npm deprecate yuurei@<placeholder> "placeholder; use >=<release>"`.
 
-When `npm publish` runs inside `.github/workflows/publish.yml`, npm reads the
-OIDC token supplied by the runner and exchanges it for a publish credential
-that is scoped to `yuurei`.
+### 2. Create the `npm` GitHub environment
+
+`publish.yml` declares `environment: npm`, which must exist in this repository:
+
+```sh
+gh api -X PUT repos/shimpeiws/yuurei/environments/npm
+```
+
+No `NODE_AUTH_TOKEN` or npm token is stored in the repository. When
+`npm publish` runs inside the workflow, npm reads the OIDC token supplied by
+the runner and exchanges it for a publish credential scoped to `yuurei`, so
+there is no credential in the repository to leak.
 
 ## Cutting a release
 
@@ -49,8 +65,8 @@ Releases are source-of-truth from `package.json`. The tag must match the
 package version.
 
 1. Confirm the version in `package.json` is the version you intend to ship,
-   and that `src/index.ts` prints it via `yuurei --version` (the CLI reads
-   the version from `package.json` at runtime).
+   and that `yuurei --version` prints it (`src/version.ts` reads the version
+   from `package.json` at runtime).
 2. Update `CHANGELOG.md` following [Keep a Changelog]
    (https://keepachangelog.com/en/1.1.0/) in the `[Unreleased]` section.
 3. Open a PR with those changes, merge it against `origin/main`.
@@ -79,7 +95,8 @@ always matches a released tag.
 ## Version source of truth
 
 - `package.json` `version` is the single source of truth.
-- `src/index.ts` reads the version at runtime via `node:module`; the CLI
+- `src/version.ts` reads the version at runtime via `node:module` and is the
+  single source for both the CLI and cell identity (#113); the CLI
   `--version` output comes from `package.json`.
 - The npm and GitHub release versions are equal because of the tag match
   check above.

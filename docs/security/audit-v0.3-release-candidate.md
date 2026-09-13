@@ -2,14 +2,15 @@
 
 ## 1. Scope
 
-|                      |                                                                                                                                                                                                                            |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Commit**           | `07a61afbb1e577573dec5e9107c812c947c9461c` (release candidate: `main` + #55, #110, #111, #113)                                                                                                                             |
-| **Date**             | 2026-09-12                                                                                                                                                                                                                 |
-| **Method**           | Read-only repo-wide audit (design-doc invariants §9.1, §9.2, §9.3, §10.2, §12.1, §12.2 enumerated first; §12.1 non-goals applied as a false-positive filter) plus empirical runtime verification on isolated environments. |
-| **Runtime versions** | Claude Code `2.1.269`, `codex-cli 0.154.0`, `node v26.8.2` (macOS).                                                                                                                                                        |
-| **Test commands**    | `pnpm test` (175 tests, 35 files), `pnpm run check`, `pnpm run format`, `pnpm run build`, `pnpm run knip`, `pnpm run smoke:package` — all pass at this SHA.                                                                |
-| **Supersedes**       | `docs/security/audit-v0.3.md` (targeted `8238315`, branch `issue-9-orphan-temp-cleanup`). Findings and verification items from that report are re-classified in §4.                                                        |
+|                      |                                                                                                                                                                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Commit**           | `07a61afbb1e577573dec5e9107c812c947c9461c` (release candidate: `main` + #55, #110, #111, #113)                                                                                                                                                          |
+| **Re-verified at**   | `e4ad8c9` (the v0.1.0 release commit). The delta since `07a61af` is #116 (`src/run/pipeline.ts`) and #117 (`src/trace/writer.ts`) plus their tests; reviewed per `docs/security/review-policy.md` ("before any release tag") with no findings — see §6. |
+| **Date**             | 2026-09-12                                                                                                                                                                                                                                              |
+| **Method**           | Read-only repo-wide audit (design-doc invariants §9.1, §9.2, §9.3, §10.2, §12.1, §12.2 enumerated first; §12.1 non-goals applied as a false-positive filter) plus empirical runtime verification on isolated environments.                              |
+| **Runtime versions** | Claude Code `2.1.269`, `codex-cli 0.154.0`, `node v26.8.2` (macOS).                                                                                                                                                                                     |
+| **Test commands**    | `pnpm test` (175 tests, 35 files), `pnpm run check`, `pnpm run format`, `pnpm run build`, `pnpm run knip`, `pnpm run smoke:package` — all pass at this SHA.                                                                                             |
+| **Supersedes**       | `docs/security/audit-v0.3.md` (targeted `8238315`, branch `issue-9-orphan-temp-cleanup`). Findings and verification items from that report are re-classified in §4.                                                                                     |
 
 **Audited paths:** `src/run/*`, `src/runtime/**`, `src/isolation/*`, `src/artifact/collector.ts`,
 `src/trace/*`, `src/profile/{loader,manifest}.ts`, `src/cell/resolver.ts`, `src/util/fs.ts`,
@@ -120,6 +121,24 @@ on the installed binary. One structural hardening item is recorded (Claude adapt
 auth-steering `settings.json` keys / pin the credential store) but is **not** demonstrated
 exploitable on the supported Claude version. Old V5 (unregistered runtime sidecar under `--keep`)
 remains open and out of demonstrable reach; treat it as a future work item, not a release blocker.
+
+**Re-verified for the v0.1.0 tag (2026-09-13, commit `e4ad8c9`).** Two changes landed after the
+audited SHA and were reviewed against the same invariants:
+
+- **#116** — run-directory removal moved inside a `finally` around `disposeContext`
+  (`src/run/pipeline.ts`). `scrubCredentials()` still runs first and is unaffected, so I6
+  (`--keep` never preserves credentials) is unchanged; the new path only guarantees that a
+  rejecting `dispose()` cannot strand a trace-less run directory.
+- **#117** — `trace.json` is now published by write → `fsync` → `rename` from a same-directory
+  temporary file (`src/trace/writer.ts`). The temporary file holds the **already-redacted**
+  serialization (`redactSecrets` runs before the write), carries no content `trace.json` would not,
+  and is removed on any failure. It cannot be mistaken for durable output: `collectArtifacts` takes
+  an explicit path list (`['stdout.log','stderr.log']`) rather than enumerating the directory, and
+  `readTrace` addresses `trace.json` exactly. A temporary file left by a hard crash sits inside the
+  run directory and is removed with it (no `trace.json` ⇒ no completion marker ⇒ cleanup removes
+  the directory).
+
+No invariant is affected and no finding was raised. The verdict above stands for `e4ad8c9`.
 
 ## 7. Accepted risks (§12.1)
 
