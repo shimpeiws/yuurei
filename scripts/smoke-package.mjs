@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -10,13 +10,23 @@ let work = '';
 try {
   work = await mkdtemp(join(tmpdir(), 'yuurei-smoke-'));
   const manifest = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8'));
-  const pack = execFileSync(
-    npmCmd,
-    ['pack', '--json', '--ignore-scripts', '--pack-destination', work],
-    { cwd: process.cwd(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-  );
-  const entry = JSON.parse(pack)[0];
-  const tarball = join(work, entry.filename);
+  // The tarball is located by reading a dedicated empty directory rather than
+  // by parsing `npm pack --json`. Whether `npm pack` honours --ignore-scripts
+  // for the `prepare` script varies by npm version: npm 10 (bundled with the
+  // Node 22 that CI uses) still runs it, so lefthook's "sync hooks" line lands
+  // on stdout ahead of the JSON and JSON.parse throws. The directory holds
+  // exactly what this pack produced, so it needs no parsing at all.
+  const packDir = join(work, 'pack');
+  await mkdir(packDir, { recursive: true });
+  execFileSync(npmCmd, ['pack', '--ignore-scripts', '--pack-destination', packDir], {
+    cwd: process.cwd(),
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+  const tarballs = (await readdir(packDir)).filter((name) => name.endsWith('.tgz'));
+  if (tarballs.length !== 1) {
+    throw new Error(`expected exactly one packed tarball, found ${tarballs.length}`);
+  }
+  const tarball = join(packDir, tarballs[0]);
   const project = join(work, 'project');
   await mkdir(project, { recursive: true });
   await writeFile(join(project, 'package.json'), '{"private":true}\n', 'utf8');
