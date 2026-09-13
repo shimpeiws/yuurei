@@ -3,7 +3,34 @@
 This policy defines **when** a manual `/security-review` is required or
 recommended, **what** it checks, and **where** findings are recorded. It is the
 human-in-the-loop layer of the security workflow and complements the automated
-tools (Semgrep, Gitleaks, Dependabot) that catch pattern-based issues.
+scanners (Semgrep, CodeQL, Gitleaks, Dependabot) described below.
+
+## Automated scanning layers
+
+These run in CI without a human in the loop. They are not a substitute for the
+review layers below: a scanner checks for known-bad shapes, while the review
+checks whether this repository's invariants still hold.
+
+| Tool       | Workflow         | When                              | What it is for                                                                                            |
+| ---------- | ---------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Semgrep    | `semgrep.yml`    | Every PR and push to `main`       | Fast pattern matching, seconds of feedback                                                                |
+| CodeQL     | `codeql.yml`     | Every PR, push to `main`, nightly | Semantic dataflow analysis over `javascript-typescript` and `actions`, with the `security-extended` suite |
+| Gitleaks   | `gitleaks.yml`   | Every PR and push to `main`       | Secrets in the diff and in history                                                                        |
+| Dependabot | `dependabot.yml` | Weekly                            | Dependency and action updates                                                                             |
+
+The split between Semgrep and CodeQL is deliberate: Semgrep gives quick
+feedback on every change, CodeQL adds the deeper analysis that catches flaws a
+pattern cannot see. CodeQL also runs **nightly** because its queries and
+bundled databases change independently of this repository — a scheduled run
+finds what a newly shipped query would flag in code nobody has touched.
+
+CodeQL uses **advanced setup** (a committed workflow), not GitHub's default
+setup. The two are mutually exclusive: enabling default setup in repository
+settings makes the committed workflow fail. Keep the workflow as the source of
+truth so the query suite, languages, and schedule are reviewable in the diff.
+
+Findings from both Semgrep and CodeQL surface as SARIF under
+**Security → Code scanning alerts**.
 
 ## Two review layers
 

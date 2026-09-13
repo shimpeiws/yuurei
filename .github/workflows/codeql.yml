@@ -1,0 +1,58 @@
+name: CodeQL
+
+# The deep layer of the two-layer scanning model (issue #45): Semgrep runs on
+# every PR for fast pattern feedback, CodeQL adds semantic dataflow analysis on
+# PRs, on merge, and nightly. Nightly matters because CodeQL's queries and the
+# bundled databases change independently of this repository — a scheduled run
+# finds what a new query would have flagged in code that has not been touched.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Nightly, off the hour: GitHub queues a large number of jobs scheduled on
+    # round times, which delays them.
+    - cron: '32 4 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Uploading the SARIF results is what needs this.
+      security-events: write
+      # CodeQL reads workflow run status to attribute alerts to runs.
+      actions: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # `actions` analyses the workflow files themselves, which the default
+        # setup also covered; dropping it here would quietly narrow coverage
+        # for a repository that pins every action by SHA.
+        language: [javascript-typescript, actions]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          languages: ${{ matrix.language }}
+          # Neither language needs a build; the analysis reads the source.
+          build-mode: none
+          # Wider than the `default` suite the default setup used. This tool
+          # bridges credentials into an environment where an agent executes, so
+          # the extra dataflow queries are worth the additional findings to
+          # triage.
+          queries: security-extended
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          category: /language:${{ matrix.language }}
