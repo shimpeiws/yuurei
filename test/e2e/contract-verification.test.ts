@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CLAUDE_SHIM,
   cleanupFixtures,
@@ -10,6 +10,11 @@ import {
   runCli,
   writeRunConfig,
 } from '../harness/cli-fixture.js';
+
+// These tests spawn several CLI subprocesses each, so they run well past the
+// 5s default once the suite is under load. The higher ceiling does not hide a
+// hang: a genuinely stuck run still fails, just later.
+vi.setConfig({ testTimeout: 30_000 });
 
 const CLAUDE = { runtime: 'claude-code', command: 'claude', shim: CLAUDE_SHIM };
 
