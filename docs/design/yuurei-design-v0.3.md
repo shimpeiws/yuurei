@@ -310,6 +310,20 @@ The trace distinguishes "a value that could not be observed" from "zero." It nev
 
 Both fields are **additive and optional**. Per §6.3's versioning intent, adding an optional field that older readers ignore (and that new readers tolerate as absent) does not change the on-disk contract, so `schema_version` stays `0.3`. This avoids breaking `yuurei trace show` on run directories written by an earlier build.
 
+`schema_version` is a **compatibility token, compared for equality**. It is not a
+range, carries no ordering, and must never be sorted or compared with `<` or `>`
+despite the dotted spelling. It identifies which compatibility class a trace
+belongs to; it says nothing about product stability, release maturity, or whether
+incompatibilities have occurred in the past. It is independent of the package
+version, so a 1.0 product may ship a schema labelled `0.3` — that is the intended
+result of versioning the two separately, not an oversight.
+
+What an optional addition preserves is narrow: **parsing** works in both
+directions. It does not preserve data — an older reader discards fields it does
+not know, so a trace read and re-emitted through one comes back without them —
+and it promises nothing about a feature that needs a new field, which simply sees
+nothing when the field is absent.
+
 ### 6.4 `CostModel`
 
 The boundary that converts usage into currency, compute resources, time, and the like.
