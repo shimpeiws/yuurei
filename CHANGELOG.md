@@ -6,6 +6,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-14
+
 ### Added
 
 - An experimental OpenCode runtime adapter (issue #106). It runs
@@ -106,5 +108,6 @@ First published release. It implements the v0.3 design scope: single-runtime
 - `trace.json` is written atomically and last, so it is a reliable completion
   marker and can never be read half-written.
 
-[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/shimpeiws/yuurei/releases/tag/v0.2.0
 [0.1.0]: https://github.com/shimpeiws/yuurei/releases/tag/v0.1.0
