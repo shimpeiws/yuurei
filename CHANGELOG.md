@@ -8,6 +8,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Two further records under `docs/adr/`: cell identity is what was _requested_,
+  not which build ran it (0011), and the version bump each kind of promise
+  requires, with the deprecation policy (0012).
 - `docs/adr/`, an append-only record of the design decisions behind the path to
   v1. Each record carries the context that forced the decision, what was decided,
   and the costs accepted. The directory's README fixes where each kind of
@@ -17,6 +20,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `docs/design/yuurei-design-v0.3.md` §7.3 redefines cell identity as **what was
+  requested of a cell**, and corrects two errors in the same formula. The
+  `yuurei` version is no longer part of it: hashing it meant every release — a
+  patch touching only documentation included — produced a different digest for
+  the same definition, while the runtime's own version was never hashed, so
+  upgrading the coding agent left identity unchanged. The version is now recorded
+  as an observed property instead, so equal digests mean the same thing was
+  _requested_, not that two runs executed identically — read the `yuurei`
+  version, the runtime version and the resolved model to see what actually ran.
+  The isolation strategy is added to the formula, which had omitted it although
+  the implementation always included it. The code still hashes the version; it
+  follows in the release that implements this.
 - `docs/design/yuurei-design-v0.3.md` §10.1 narrows two recording promises to
   what the trace actually carries, with the previous wording and the reasons kept
   in place. "Launch options" becomes the execution contracts that constitute cell
