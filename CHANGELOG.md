@@ -8,6 +8,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- A record under `docs/adr/` settling what the trace schema version is: a
+  compatibility token compared for equality, independent of the package version,
+  and staying at `0.3` because every pending field addition is optional (0014).
 - A record under `docs/adr/` for how a run's parameters resolve when the CLI and
   the run definition both supply one, and for the `definition` object the trace
   gains so a reader can tell which source won (0013).
@@ -23,6 +26,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `docs/design/yuurei-design-v0.3.md` §6.3 now states how `schema_version` is to
+  be compared: it is a compatibility token, matched for equality, never sorted or
+  range-compared despite the dotted spelling. It identifies which compatibility
+  class a trace belongs to and says nothing about product stability — a 1.0
+  product may ship a schema labelled `0.3`, which is the intended result of
+  versioning the two independently. The section also records how narrow an
+  optional addition's compatibility is: parsing works both ways, but an older
+  reader discards fields it does not know, and a feature needing a new field
+  simply sees nothing when it is absent.
 - `docs/design/yuurei-design-v0.3.md` §7.3 is now "Requested cell identity", and
   the digest it defines is `requested_cell_digest` — recorded as
   `requested_cell.digest`. The former name, `cell_digest`, promised the identity
