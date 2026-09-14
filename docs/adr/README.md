@@ -46,6 +46,7 @@ log is that the superseded reasoning stays readable.
 
 - **Status**: Proposed | Accepted | Superseded by [ADR-NNNN](./NNNN-....md)
 - **Date**: YYYY-MM-DD
+- **Amended by**: [ADR-NNNN](./NNNN-....md) — one line on what it changes (omit unless amended)
 
 ## Context
 
@@ -77,6 +78,19 @@ kebab-case title. Numbers are never reused, including for abandoned records.
 `Proposed` means the reasoning is written down but the decision is not settled.
 Do not implement against a `Proposed` record.
 
+A record is never edited to match a later decision. Two narrow edits are allowed,
+and only these:
+
+- **Adding a pointer** — a `Superseded by` or `Amended by` line, and nothing
+  else. Confine it to that line so the exception cannot spread.
+- **Correcting a statement that misdescribes the record's own decision** — an
+  error, not a revision. A record that says something its decision did not say is
+  wrong about itself, and leaving it wrong helps nobody.
+
+Neither covers adopting vocabulary introduced later. When a later record renames
+something, earlier records keep the older name; an append-only log is read with
+the understanding that older entries use the vocabulary of their time.
+
 ## Records
 
 | #                                                       | Title                                                                | Status   |
@@ -93,3 +107,4 @@ Do not implement against a `Proposed` record.
 | [0010](./0010-three-document-split.md)                  | Separate the design document, the contract and these records         | Accepted |
 | [0011](./0011-identify-a-cell-by-what-was-requested.md) | Identify a cell by what was requested, not by which build ran it     | Accepted |
 | [0012](./0012-versioning-and-deprecation-policy.md)     | State which version bump each kind of promise requires               | Accepted |
+| [0013](./0013-resolve-run-parameters-cli-first.md)      | Resolve run parameters CLI-first, and record what the CLI overrode   | Accepted |

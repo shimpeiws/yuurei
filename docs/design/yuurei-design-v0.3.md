@@ -388,12 +388,12 @@ runs:
     task: ./tasks/refactor.md
 ```
 
-### 7.3 Cell identity
+### 7.3 Requested cell identity
 
 A cell is identified by **what was requested of it**, digested as follows.
 
 ```text
-cell_digest = hash(
+requested_cell_digest = hash(
   runtime identity,
   requested model,
   resolved profile contents,
@@ -405,9 +405,17 @@ cell_digest = hash(
 
 The hash target is not a mere profile name, but its **resolved content**.
 
-An earlier revision of this formula listed the `yuurei` version and omitted the
-isolation strategy. Both are corrected above; the reasoning is in `docs/adr/`
-and summarized here so the change is not read as a slip.
+An earlier revision of this formula listed the `yuurei` version, omitted the
+isolation strategy, and called the result `cell_digest`. All three are corrected
+above; the reasoning is in `docs/adr/` and summarized here so the change is not
+read as a slip.
+
+**The digest is named for what it identifies.** `cell_digest` promised the
+identity of the cell that ran, while what is hashed is the identity of the cell
+that was _asked for_ — a name that claims more than it delivers is not repaired
+by a note saying so. It is `requested_cell_digest`, recorded as
+`requested_cell.digest`, which puts it in the same vocabulary as
+`model.requested`.
 
 **The `yuurei` version is no longer part of cell identity.** Hashing it meant
 that every release — including a patch touching only documentation — produced a
@@ -559,7 +567,8 @@ What is actually saved is configurable, and secrets or oversized files are not d
 - `yuurei` version
 - Runtime name and version
 - Requested model and the observed effective model
-- The cell digest (§7.3), with an identifier for the input set that produced it
+- The requested-cell digest (§7.3), with an identifier for the input set that
+  produced it
 - Digest of the profile content
 - Digest of the task content
 - The execution contracts that constitute cell identity — the timeout and the

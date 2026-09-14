@@ -8,6 +8,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- A record under `docs/adr/` for how a run's parameters resolve when the CLI and
+  the run definition both supply one, and for the `definition` object the trace
+  gains so a reader can tell which source won (0013).
 - Two further records under `docs/adr/`: cell identity is what was _requested_,
   not which build ran it (0011), and the version bump each kind of promise
   requires, with the deprecation policy (0012).
@@ -20,6 +23,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `docs/design/yuurei-design-v0.3.md` §7.3 is now "Requested cell identity", and
+  the digest it defines is `requested_cell_digest` — recorded as
+  `requested_cell.digest`. The former name, `cell_digest`, promised the identity
+  of the cell that ran while what it hashes is the cell that was _asked for_; a
+  name that claims more than it delivers is not repaired by a note saying so.
+  Nothing has ever persisted the value, so the rename costs nothing now and
+  would be a breaking schema change once it is recorded.
 - `docs/design/yuurei-design-v0.3.md` §7.3 redefines cell identity as **what was
   requested of a cell**, and corrects two errors in the same formula. The
   `yuurei` version is no longer part of it: hashing it meant every release — a

@@ -2,6 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-09-14
+- **Amended by**: [ADR-0013](./0013-resolve-run-parameters-cli-first.md) — the trace also records provenance
 
 ## Context
 
