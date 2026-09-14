@@ -8,6 +8,22 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- An experimental OpenCode runtime adapter (issue #106). It runs
+  `opencode run --format json --auto` inside the isolated cell, redirects every
+  OpenCode root (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`,
+  `XDG_CACHE_HOME`, `TMPDIR`) into the cell, disables project-config and
+  external-skill loading, and normalizes `step_finish` usage into the trace.
+  Minimum supported version: 1.18.0. Listed alongside Claude Code and Codex in
+  the user-facing docs as an experimental runtime, after implementation and the
+  required security review
+  (`docs/security/reviews/opencode-adapter-2026-09-14.md`).
+- `yuurei run --bridge-opencode-auth-file`: experimental, opt-in reuse of the
+  real `~/.local/share/opencode/auth.json` (off by default; the supported path
+  is forwarding a provider API key from the environment).
+- `trace.json` gains two additive, optional fields: `model.resolved_reason`
+  (`observed` / `unobserved` / `parse_failed`) and `diagnostics` (durable,
+  secret-free normalization notes). `schema_version` stays `0.3`; older traces
+  remain readable.
 - A root `SKILL.md`, so a coding agent can install yuurei as a skill
   (`npx skills add shimpeiws/yuurei`) and discover the shortest path, the output
   format, the exit codes, and the credential constraint on its own.
@@ -17,6 +33,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 
 - The README documents the exit-code table and the `npx skills add` command.
+
+### Security
+
+- The OpenCode adapter rejects any profile-supplied `{file:...}` config
+  reference that resolves outside the isolated cell — including the operator's
+  real credential store under level0 — before the runtime starts, and rejects a
+  literal provider `apiKey` (which would otherwise persist under `--keep`).
+  Path resolution fails closed on permission and symlink-loop errors and when
+  `HOME` is unset (so a `~` reference is never expanded to a path the runtime
+  would not actually read), and JSON config is inspected on decoded values so
+  string escapes cannot hide either shape.
+- OpenCode normalization persists only fixed-string `diagnostics`; runtime
+  output such as an error event's name or message is never written to the
+  trace.
 
 ## [0.1.0] - 2026-09-13
 

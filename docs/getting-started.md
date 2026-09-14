@@ -1,7 +1,8 @@
 # Getting started
 
 Create a minimal Claude Code profile, run a task, and read the saved trace
-and logs. Run the commands below in a POSIX shell.
+and logs. Run the commands below in a POSIX shell. The steps apply to Codex
+and OpenCode too — swap the runtime name and the credential described below.
 
 ## Prepare the CLI
 
@@ -81,6 +82,35 @@ the new state while the real file stays stale, and the valid rotated copy is
 then discarded on cleanup. Do not copy credentials into profile or task
 files.
 
+### OpenCode
+
+**Provider API key (default path):** export a provider API key that OpenCode
+recognizes, for example `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, or
+`OPENAI_API_KEY`:
+
+```sh
+export OPENROUTER_API_KEY='<api-key>'
+```
+
+Yuurei's adapter checks for OpenCode 1.18.0 or later. OpenCode can also run
+unauthenticated through its free default provider, so `yuurei doctor`
+reporting `authentication: required` for `opencode` means no allowlisted
+provider key was found — it is not a hard failure for a free-provider run.
+
+**Existing file-based login (experimental, opt-in):** if you signed in with
+`opencode auth login`, reuse the file-based credential store with
+`--bridge-opencode-auth-file`:
+
+```sh
+yuurei run <run-name> --bridge-opencode-auth-file
+```
+
+This is experimental and off by default, and behaves like the Codex bridge:
+yuurei copies exactly `~/.local/share/opencode/auth.json` into the isolated
+cell, runs with it, and scrubs the isolated copy afterward — even under
+`--keep`. The real file is never modified, and the same mid-run OAuth refresh
+limitation applies.
+
 ### Verify the environment
 
 Now verify the environment works:
@@ -113,6 +143,7 @@ Verify a credential variable is present without printing its value:
 ```sh
 [ -n "$ANTHROPIC_AUTH_TOKEN" ] && echo present || echo absent
 [ -n "$OPENAI_API_KEY" ] && echo present || echo absent
+[ -n "$OPENROUTER_API_KEY" ] && echo present || echo absent
 ```
 
 ## Scaffold the project
@@ -160,7 +191,9 @@ yuurei init ../other-project
 
 The default runtime is `claude-code`, the default profile name is
 `claude-basic`, and the default task and run name is `hello`. The scaffolded
-`yuurei.yaml` registers one profile and one named run. You can also create
+`yuurei.yaml` registers one profile and one named run. Pass
+`--runtime opencode --profile opencode-basic` (or `--runtime codex
+--profile codex-basic`) to scaffold for another runtime. You can also create
 and edit these files by hand for full customization; the format is described
 below.
 
@@ -206,6 +239,9 @@ runtime's isolated configuration directory, preserving relative paths:
   `$CLAUDE_CONFIG_DIR/settings.json`, and `config/skills/example/SKILL.md`
   becomes `$CLAUDE_CONFIG_DIR/skills/example/SKILL.md`.
 - For Codex, `config/config.toml` becomes `$CODEX_HOME/config.toml`.
+- For OpenCode, `config/opencode.json` becomes
+  `$XDG_CONFIG_HOME/opencode/opencode.json`, and `config/commands/deploy.md`
+  becomes `$XDG_CONFIG_HOME/opencode/commands/deploy.md`.
 
 These are runtime-native files. Yuurei copies them but does not interpret
 their settings or translate them between runtimes. The receiving CLI
@@ -218,6 +254,13 @@ For a Codex profile, use `runtime: codex` in both YAML files and export
 `--bridge-codex-auth-file` flag — see the authentication section above).
 Codex profile `config/auth.json` is reserved and rejected; do not put
 credentials there.
+
+For an OpenCode profile, use `runtime: opencode` in both YAML files and export
+an allowlisted provider key (or reuse a file-based login with the experimental
+`--bridge-opencode-auth-file` flag). A profile's `opencode.json` may not
+hardcode a provider `apiKey` and may not use a `{file:...}` reference that
+resolves outside the isolated cell; use `{env:...}` to reference a forwarded
+credential.
 
 ## Inspect and run
 

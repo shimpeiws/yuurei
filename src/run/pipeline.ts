@@ -254,7 +254,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       started_at: result.startedAt,
       finished_at: result.finishedAt,
       runtime: fragment.runtime,
-      model: { requested: cell.requestedModel, resolved: fragment.model.resolved },
+      model: {
+        requested: cell.requestedModel,
+        resolved: fragment.model.resolved,
+        // Only emitted when the adapter supplies a reason, so traces from
+        // adapters (and test runtimes) that do not report one are unchanged.
+        ...(fragment.model.resolvedReason !== undefined
+          ? { resolved_reason: fragment.model.resolvedReason }
+          : {}),
+      },
       profile: { name: cell.resolvedProfile.name, digest: cell.resolvedProfile.digest },
       task: { source: cell.resolvedTask.source, digest: cell.resolvedTask.digest },
       isolation: { strategy: context.strategy, verified: true },
@@ -272,6 +280,11 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       // The actual artifacts just collected — mirrors artifacts.json rather
       // than a placeholder empty list.
       artifacts: manifest.artifacts.map(({ path, kind }) => ({ path, kind })),
+      // Durable non-fatal notes. Omitted when empty so traces without
+      // diagnostics keep their previous shape.
+      ...(fragment.diagnostics && fragment.diagnostics.length > 0
+        ? { diagnostics: fragment.diagnostics }
+        : {}),
     };
 
     await writeTrace(layout.runDir, trace);

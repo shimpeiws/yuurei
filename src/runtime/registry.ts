@@ -1,6 +1,7 @@
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 import { ClaudeCodeRuntime } from './claude-code/index.js';
 import { CodexRuntime } from './codex/index.js';
+import { OpenCodeRuntime } from './opencode/index.js';
 import type { Runtime } from './types.js';
 
 /**
@@ -11,6 +12,7 @@ import type { Runtime } from './types.js';
 const RUNTIMES: Record<string, () => Runtime> = {
   'claude-code': () => new ClaudeCodeRuntime(),
   codex: () => new CodexRuntime(),
+  opencode: () => new OpenCodeRuntime(),
 };
 
 export function getRuntime(id: string): Runtime {

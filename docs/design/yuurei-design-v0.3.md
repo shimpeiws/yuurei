@@ -1,7 +1,7 @@
 # yuurei Design Document v0.3
 
 - **Status**: Implementation Ready
-- **Updated**: 2026-09-08
+- **Updated**: 2026-09-14
 - **Scope**: The `yuurei` lower-layer tool, and its boundary with a future ROI tracker
 - **Former working name**: `harnessenv`
 
@@ -223,6 +223,7 @@ Initial implementations:
 
 - `ClaudeCodeRuntime`
 - `CodexRuntime`
+- `OpenCodeRuntime` (experimental; issue #106 — see §20. Implemented and security-reviewed)
 
 Runtime-specific configuration paths and CLI arguments are confined inside each adapter. External specifications are expected to change, so fixed values must not leak into the core.
 
@@ -266,7 +267,8 @@ At minimum, it holds the following.
   },
   "model": {
     "requested": "...",
-    "resolved": "..."
+    "resolved": "...",
+    "resolved_reason": "observed"
   },
   "profile": {
     "name": "...",
@@ -288,7 +290,8 @@ At minimum, it holds the following.
   },
   "usage": {},
   "cost": null,
-  "artifacts": []
+  "artifacts": [],
+  "diagnostics": []
 }
 ```
 
@@ -300,6 +303,12 @@ is removed before exit); a signal delivered to the runtime child after the pipel
 execution produces a valid trace with `signal` set and `exit_code: null`.
 
 The trace distinguishes "a value that could not be observed" from "zero." It never fills in an unknown value by guessing.
+
+`model.resolved_reason` is a machine-readable reason for the value of `model.resolved`, so a consumer does not have to parse prose to tell "not observed" from "observation failed." Values are `observed` (the effective model was seen), `unobserved` (the runtime produced no model identity), and `parse_failed` (an expected source existed but could not be read). It is omitted when `resolved` is non-null.
+
+`diagnostics` is an array of non-fatal, secret-free notes produced while normalizing a run (for example, malformed runtime output lines or a usage metric that was unobserved). This is distinct from the adapter's `warnings`, which are surfaced to the operator via `onWarning` and are not persisted to the trace (§9.2); `diagnostics` is the durable record. Diagnostics must never contain credential values.
+
+Both fields are **additive and optional**. Per §6.3's versioning intent, adding an optional field that older readers ignore (and that new readers tolerate as absent) does not change the on-disk contract, so `schema_version` stays `0.3`. This avoids breaking `yuurei trace show` on run directories written by an earlier build.
 
 ### 6.4 `CostModel`
 
@@ -481,6 +490,7 @@ Credentials are handled separately from harness configuration.
 - The supported v0.3 credential mechanism is an explicitly-set, non-rotating API key forwarded into the isolated environment (`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` for Claude Code, `OPENAI_API_KEY` for Codex) — always on, since forwarding an env var writes nothing to disk and carries no rotation risk
 - Reusing an interactive ChatGPT login by copying `~/.codex/auth.json` is experimental and opt-in only (off by default): that file can carry a rotating OAuth access/refresh token pair, and yuurei's copy-run-discard lifecycle cannot safely reconcile a mid-run token refresh — the isolated copy may receive the rotated, valid state while the real file stays stale, and the rotated copy is then discarded on cleanup. Writing the rotated state back to the real file would fix this but is explicitly rejected: it would violate the "never modify the user's existing global configuration" guarantee (§2.3, §9.1). Any credential material this mechanism does write to disk is scrubbed on cleanup on a best-effort basis, including when `--keep` is set (`--keep` preserves config and logs for debugging, never credentials) — a failed deletion is surfaced to the operator as a warning naming the residual path rather than silently swallowed, but is not fail-closed: it does not abort the run. On `SIGINT`/`SIGTERM` the same cleanup runs via a signal handler (the process exits with the shell-convention code, 130/143); only an uncatchable `SIGKILL` or a hard crash can still bypass cleanup entirely, which is left to the orphan-recovery path (§15, tracked separately)
 - The runtime adapter's own CLI invocation forces the credential-storage backend at the highest-precedence layer available (e.g. Codex's `-c cli_auth_credentials_store="file"`), regardless of what a materialized profile's own config might request — a profile must not be able to redirect authentication to the operator's shared OS credential store (keychain) just by shipping a config file that asks for it
+- **OpenCode** (issue #106, contract in §20) stores credentials in a file (`<data>/opencode/auth.json`; no OS-keychain backend was observed), so the "no redirect to a shared keyring" clause is nearly vacuous — but OpenCode config supports `{file:path}` substitution that resolves `~`, absolute, and relative paths. A spike confirmed a profile-supplied `provider.*.options.apiKey: "{file:~/.local/share/opencode/auth.json}"` reads the operator's real credential store under Level 0. The adapter therefore must reject, at the profile-materialization boundary and before OpenCode starts, any `{file:...}` reference that resolves outside the cell (fail closed), not merely a reserved file name. It must also reject a literal `apiKey` value, which would otherwise be written into the cell's config and survive `--keep` as a profile-supplied credential (§20.5)
 
 ### 9.3 Isolation levels
 
@@ -494,6 +504,8 @@ Level 3: VM / remote isolation (Future)
 ```
 
 The initial implementation targets Level 0–1.
+
+OpenCode resolves its config, data, state, and cache roots from the four `XDG_*` variables and its scratch root from `TMPDIR`. Level 1 isolates these implicitly through the temporary `HOME`; Level 0 keeps the operator's real `HOME`, so the OpenCode adapter sets `XDG_CONFIG_HOME` / `XDG_DATA_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME` and `TMPDIR` to cell paths explicitly at the adapter layer — the OpenCode analog of `CLAUDE_CONFIG_DIR` / `CODEX_HOME` (§20). A spike confirmed that without the `XDG_*` overrides OpenCode reads the operator's real global config, and that without `TMPDIR` it writes to a fixed `/tmp/opencode` outside the cell.
 
 ---
 
@@ -588,6 +600,8 @@ What v0.3 does not protect against:
 - Network-based attacks
 - Complete process/filesystem isolation
 - Concurrent adversarial mutation of profile/task files during materialization: symlink checks (e.g. `isPathWithin`) are check-then-read, not atomic, so a filesystem actor racing the check is out of scope
+- **OpenCode admin-controlled configuration** (issue #106): OpenCode reads managed config from an absolute, non-redirectable location (`/Library/Application Support/opencode/` and the `ai.opencode.managed` preference domain on macOS; `/etc/opencode/` on Linux) and can fetch organizational defaults from a remote `.well-known/opencode` endpoint. These are treated as trusted, administrator-controlled inputs rather than "the operator's global configuration": a profile cannot write them, so they do not widen what a profile can reach. They are accepted risks because they are read from outside the cell and cannot be redirected by the adapter. The first OpenCode implementation must reconcile this explicitly against the "never read the operator's global configuration" goal rather than silently leaving it
+- **OpenCode provider-key environment variables**: the supported bridging path forwards explicitly-set provider API keys (e.g. `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) from the parent environment. Enumerating which keys are forwarded is adapter-owned (§20); keys outside the allowlist are not forwarded
 
 ### 12.2 Handling of failure
 
@@ -784,6 +798,7 @@ The following are not reopened during v0.3 implementation.
 - The lower-layer tool is named `yuurei`
 - Claude Code and Codex are the target runtimes
 - Both are treated as separate native cells
+- The OpenCode adapter (issue #106, contract in §20) is an explicitly tracked extension of this set. It is implemented under the same `Runtime` boundary, marked experimental, and is listed in the user-facing docs alongside Claude Code and Codex now that its implementation and required security review have landed
 - Cross-runtime porting is not implemented
 - Local LLMs are not a current premise
 - The four boundaries `Runtime` / `Isolation` / `TraceSchema` / `CostModel` are established
@@ -810,3 +825,164 @@ Minimum deliverables:
 7. A verification log showing that global configuration was not modified
 
 Once this vertical slice succeeds, profile management, multiple executions, and artifact collection can be expanded.
+
+---
+
+## 20. OpenCode Runtime Adapter — Contract (issue #106)
+
+This section locks the OpenCode adapter contract, verified by a read-only spike
+before implementation. Raw evidence and reproduction steps live in
+[`docs/design/spike/opencode-contract.md`](spike/opencode-contract.md) and
+[`scripts/spike/opencode-contract.sh`](../../scripts/spike/opencode-contract.sh).
+OpenCode is marked experimental and listed in the user-facing docs now that the
+adapter and its required security review
+(§`docs/security/review-policy.md`; record:
+`docs/security/reviews/opencode-adapter-2026-09-14.md`) have landed.
+
+### 20.1 Minimum supported version
+
+`>= 1.18.0`. The contract below was verified on both `1.18.0` and `1.18.30`.
+Version detection uses `opencode --version`, which prints a bare semver and is
+parsed by the existing `isVersionAtLeast` helper.
+
+### 20.2 Launch
+
+```
+opencode run --format json --auto [-m provider/model] <task>
+```
+
+- `--format json` emits newline-delimited JSON events.
+- `-m` takes `provider/model`; `cell.requestedModel` is passed through verbatim,
+  so a caller must supply the provider-qualified form.
+- `--auto` is required for a non-interactive coding run: without a TTY and
+  without this flag OpenCode auto-rejects permission requests.
+- The task is passed as a positional argument. `execCapture` spawns the child
+  with stdin at EOF, so OpenCode's stdin read returns empty rather than hanging.
+- The adapter does not set `--dir`; the pipeline already spawns with
+  `cwd = isolation.rootDir`.
+
+### 20.3 Environment the adapter sets
+
+In addition to `isolation.env`:
+
+- `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`,
+  `TMPDIR` — all directed into the cell. Required at both levels; Level 0 in
+  particular keeps the real `HOME`, and `TMPDIR` is otherwise fixed to
+  `/tmp/opencode` outside the cell.
+- `OPENCODE_DISABLE_AUTOUPDATE=1` — no self-update during a run.
+- `OPENCODE_DISABLE_PROJECT_CONFIG=1` — do not read an `opencode.json` found by
+  walking up from the cell's cwd.
+- `OPENCODE_DISABLE_EXTERNAL_SKILLS=1` — do not import the operator's
+  `~/.claude/skills` or `~/.agents/skills` (confirmed imported by default; this
+  matters under Level 0).
+
+### 20.4 Config materialization
+
+Profile `config/` files are written under `<XDG_CONFIG_HOME>/opencode/` (the
+OpenCode global config directory), and OpenCode's data/state/cache stay in their
+own cell directories. OpenCode may auto-create a minimal `opencode.jsonc` and
+`.gitignore` in that directory when none exists; the adapter must ensure this
+does not silently override or conflict with profile-supplied config.
+
+### 20.5 File-reference guard (fail closed)
+
+OpenCode config supports `{env:VAR}` and `{file:path}` substitution, where a
+`file` path may be relative to the declaring config, absolute, or `~`-rooted. A
+spike confirmed a profile config can read an arbitrary path, including the
+operator's real credential store under Level 0. At the profile-materialization
+boundary, before OpenCode starts, the adapter rejects any `{file:...}` reference
+that resolves — after relative/`~`/`..` normalization — outside the cell,
+including the operator's real `HOME`, each real `XDG_*` directory, `~/.claude`,
+`~/.codex`, and the managed-config paths. Symlinks and parent directories are
+resolved, and resolution is **strict**: only `ENOENT` falls back to the lexical
+path, so a permission or symlink-loop failure refuses the run rather than being
+treated as absent. `~` and `~/...` expand against the runtime HOME; other tilde
+forms (`~user`) are refused rather than mis-resolved, and if HOME is absent from
+the isolated environment (the runtime would then resolve `~` through the passwd
+entry, which the guard cannot see) every `~` reference is refused rather than
+expanded to a path that diverges from what the runtime will actually read.
+
+JSON and JSONC config files are parsed (comments and trailing commas tolerated)
+and inspected on **decoded** values, so a JSON string escape — `\u007e`,
+`\/`, or an escaped key such as `api\u004bey` — cannot hide a reference or a
+credential from the check. Line comments end at LF or CR; an unterminated block
+comment is treated as a parse failure. A JSON config that fails to parse, or a
+comment that never terminates, is refused (fail closed). Non-JSON config files
+are scanned as raw text as defense-in-depth.
+
+The adapter also rejects a **literal** `apiKey` value in profile config. A
+profile that hardcodes a provider key would have it materialized into the cell's
+config and — unlike the opt-in `auth.json` bridge, which is registered for
+scrubbing — left on disk under `--keep`. The value must be a single
+substitution (`{env:...}` or `{file:...}`) with nothing around it; an empty or
+whitespace value, a literal, or a substitution with a literal prefix/suffix is
+refused, and a `{file:...}` one is still containment-checked. This applies to
+any key named `apiKey`/`api_key` at any depth. This is the OpenCode equivalent
+of Codex's reserved `auth.json` rejection.
+
+### 20.6 Credential bridging
+
+- **Supported:** forward explicitly-set provider API keys from the parent
+  environment through a fixed, adapter-owned allowlist (documented in the
+  adapter); their values are added to `credentialValuesToRedact`. This is the
+  default path and writes nothing to disk.
+- **Experimental, opt-in, off by default:** copy the operator's real
+  `<real data dir>/opencode/auth.json` into the cell's data directory at mode
+  `0600`. The source path is adapter-fixed and cannot be chosen by a profile;
+  the destination is a fixed cell path. The path is registered for scrubbing
+  before the copy, is removed even under `--keep`, and failing to scrub is
+  warned about by path only (never by value). Because that file can carry a
+  rotating OAuth token pair, the same limitation as Codex's `auth.json` bridge
+  applies: a mid-run refresh updates only the isolated copy, the real file stays
+  stale, and the rotated copy is discarded.
+- **Deferred:** `OPENCODE_AUTH_CONTENT`. Its read semantics were observed but
+  not fully verified; it is not adopted until confirmed.
+
+Note that OpenCode can run with a free default provider without any credential
+(`authUsable` is not "credentials exist"), and that an auth failure surfaces as
+a non-zero exit code plus a stdout `error` event, not a clean stderr message.
+
+### 20.7 Output normalization
+
+- Usage and cost are summed across `step_finish` events, from
+  `part.tokens = {total,input,output,reasoning,cache:{read,write}}` and
+  `part.cost`. `cache.read` and `cache.write` are summed too.
+- Missing fields are recorded as unknown (`null`), never as zero.
+- A `null` metric carries its reason in `diagnostics`, distinguishing an absent
+  field from a wrong type, a non-finite value, and a negative value, with the
+  line number.
+- Malformed lines (JSON syntax errors, non-objects, and a `step_finish` event
+  whose payload is not a well-formed `step-finish` part) are counted with line
+  numbers in `diagnostics`.
+- Only fixed strings reach `diagnostics`; runtime-supplied text (for example an
+  `error` event's name or message) is never persisted, because it may carry an
+  arbitrary secret that pattern-based redaction does not guarantee to remove.
+- `model.resolved` cannot be observed from JSON output (OpenCode emits no model
+  identity event), so it is `null` with `model.resolved_reason = "unobserved"`.
+- The `error` event is normalized into a diagnostic; the exit code remains the
+  authoritative failure signal.
+- These notes go to `diagnostics` only. They are not mirrored into the
+  operator-facing `warnings` channel, preserving the §6.3 distinction.
+- OpenCode's per-step cost is retained as `usage.cost_usd` because v0.3's
+  `CostModel` is a no-op and `trace.cost` is always null. When `CostModel` gains
+  a real implementation, cost should move there and this usage key be retired.
+
+### 20.8 Test strategy for the adapter
+
+A deterministic fixture `opencode` CLI shim (like the existing fixture-runtime
+end-to-end test) covers detection, argument construction, config
+materialization, output normalization, auth failure, timeout, signal cleanup,
+redaction, path validation, the file-reference guard, and unsupported-version
+results. A real authenticated smoke test is run per supported auth path.
+
+### 20.9 Accepted risks carried by this contract
+
+- Admin-controlled OpenCode config (macOS managed preferences / managed config
+  directory, Linux `/etc/opencode/`, remote `.well-known/opencode`) is read from
+  outside the cell and cannot be redirected; treated as trusted (§12.1).
+- The relationship between the `credential` table in `opencode.db` and
+  `auth.json` is only partially mapped; the supported credential path is the
+  environment allowlist.
+- `--pure` / `OPENCODE_PURE` behavior was not demonstrated to differ from the
+  default in an empty cell; the adapter does not rely on it.
+- OAuth refresh write-through was not exercised in the spike.

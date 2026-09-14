@@ -37,6 +37,14 @@ export interface RunOptions {
    * is an explicitly-set OPENAI_API_KEY, forwarded unconditionally.
    */
   bridgeCodexAuthFile: boolean | undefined;
+  /**
+   * Opt-in, experimental: bridge the real OpenCode `auth.json` into the
+   * isolated data dir (ignored for other runtimes). Off by default because
+   * that file can carry a rotating OAuth token pair — see the OpenCode
+   * adapter's bridgeOpenCodeAuthFile doc comment. The supported path is an
+   * explicitly-set provider API key, forwarded from the environment.
+   */
+  bridgeOpenCodeAuthFile: boolean | undefined;
 }
 
 const YUUREI_VERSION = packageVersion;
@@ -117,7 +125,10 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     isolationStrategy,
     keep: options.keep ?? false,
     timeoutMs: options.timeoutMs ?? null,
-    executionOptions: { bridgeCodexAuthFile: options.bridgeCodexAuthFile ?? false },
+    executionOptions: {
+      bridgeCodexAuthFile: options.bridgeCodexAuthFile ?? false,
+      bridgeOpenCodeAuthFile: options.bridgeOpenCodeAuthFile ?? false,
+    },
     onWarning: (message) => logger.warn(message),
   });
 

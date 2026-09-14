@@ -21,5 +21,8 @@ export async function runTraceShow(cwd: string, runId: string, logger: Logger): 
     signal: trace.execution.signal,
     durationMs: trace.execution.duration_ms,
     timedOut: trace.execution.timed_out,
+    ...(trace.diagnostics && trace.diagnostics.length > 0
+      ? { diagnostics: trace.diagnostics }
+      : {}),
   });
 }
