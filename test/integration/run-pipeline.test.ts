@@ -955,7 +955,7 @@ describe('run pipeline', () => {
 
     expect(level0Result.cell.isolationStrategy).toBe('level0');
     expect(level1Result.cell.isolationStrategy).toBe('level1');
-    expect(level0Result.cell.cellDigest).not.toBe(level1Result.cell.cellDigest);
+    expect(level0Result.cell.requestedCellDigest).not.toBe(level1Result.cell.requestedCellDigest);
   });
 
   it('passes runtime, requested model, and observed usage to CostModel.estimate()', async () => {

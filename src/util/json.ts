@@ -13,10 +13,16 @@ function sortKeysDeep(value: unknown): unknown {
     return value.map(sortKeysDeep);
   }
   if (value !== null && typeof value === 'object') {
+    // Code-unit order, not `localeCompare`: the canonical form must not depend
+    // on the machine's locale, or two hosts would digest equal content
+    // differently.
     const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
-      a.localeCompare(b),
+      a < b ? -1 : a > b ? 1 : 0,
     );
-    const sorted: Record<string, unknown> = {};
+    // Null prototype so a literal `__proto__` key is stored as an own
+    // property. Assigning it onto `{}` invokes the prototype setter and drops
+    // it, which would make `{ __proto__: { x: 1 } }` digest like `{}`.
+    const sorted = Object.create(null) as Record<string, unknown>;
     for (const [key, entryValue] of entries) {
       sorted[key] = sortKeysDeep(entryValue);
     }

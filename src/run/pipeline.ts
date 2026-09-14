@@ -2,6 +2,7 @@ import { rm, writeFile } from 'node:fs/promises';
 import { NoopCostModel } from '../cost/noop.js';
 import { installSignalCleanup } from './signals.js';
 import { resolveCell, type CellResolutionInput } from '../cell/resolver.js';
+import { REQUESTED_CELL_INPUTS_VERSION } from '../cell/digest.js';
 import type { ResolvedCell } from '../cell/types.js';
 import {
   collectArtifacts,
@@ -15,7 +16,7 @@ import { getRuntime } from '../runtime/registry.js';
 import type { PreparedRun, Runtime } from '../runtime/types.js';
 import { writeTrace } from '../trace/writer.js';
 import { redactFile } from '../trace/redact.js';
-import type { Trace } from '../trace/schema.js';
+import type { RunDefinition, Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
 import { createUniqueRunLayout } from './layout.js';
 
@@ -23,8 +24,8 @@ export interface RunPipelineInput extends CellResolutionInput {
   yuureiDir: string;
   isolationStrategy: 'level0' | 'level1';
   keep: boolean;
-  /** null/undefined = no timeout is enforced (current default behaviour). */
-  timeoutMs?: number | null;
+  /** How the run was specified (ADR-0013); omitted by callers with no definition. */
+  definition?: RunDefinition;
   /** Maximum bytes retained for each saved log and artifact. */
   maxArtifactBytes?: number;
   /** Test seam only. Defaults to the real registry; production callers omit it. */
@@ -196,7 +197,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   try {
     const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
     prepared = await runtime.prepare(cell, context, (path) => registeredCredentialPaths.add(path));
-    const result = await runtime.execute(prepared, input.timeoutMs ?? null);
+    const result = await runtime.execute(prepared, cell.executionOptions.timeout_ms);
     const fragment = await runtime.normalize(result, { runtimeVersion: prepared.runtimeVersion });
     for (const w of fragment.warnings ?? []) warn(w);
 
@@ -250,6 +251,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
 
     const trace: Trace = {
       schema_version: TRACE_SCHEMA_VERSION,
+      yuurei_version: cell.yuureiVersion,
       run_id: runId,
       started_at: result.startedAt,
       finished_at: result.finishedAt,
@@ -265,7 +267,13 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       },
       profile: { name: cell.resolvedProfile.name, digest: cell.resolvedProfile.digest },
       task: { source: cell.resolvedTask.source, digest: cell.resolvedTask.digest },
+      requested_cell: {
+        digest: cell.requestedCellDigest,
+        inputs_version: REQUESTED_CELL_INPUTS_VERSION,
+      },
       isolation: { strategy: context.strategy, verified: true },
+      execution_options: cell.executionOptions,
+      ...(input.definition !== undefined ? { definition: input.definition } : {}),
       execution: {
         exit_code: fragment.execution.exitCode,
         signal: fragment.execution.signal,

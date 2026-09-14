@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 import { loadYuureiConfig } from './yuurei-config.js';
 
 describe('loadYuureiConfig', () => {
@@ -25,10 +26,34 @@ describe('loadYuureiConfig', () => {
     });
   });
 
-  it('rejects an invalid schema version', async () => {
+  it('rejects an invalid schema version as a configuration error', async () => {
     root = await mkdtemp(join(tmpdir(), 'yuurei-config-'));
     await writeFile(join(root, 'yuurei.yaml'), 'version: 2\nprofiles: {}\nruns: {}\n');
 
-    await expect(loadYuureiConfig(root)).rejects.toThrow();
+    await expect(loadYuureiConfig(root)).rejects.toBeInstanceOf(YuureiError);
+    await expect(loadYuureiConfig(root)).rejects.toMatchObject({
+      exitCode: EXIT_CODES.CONFIG_ERROR,
+    });
+  });
+
+  it('rejects a non-numeric run timeout as a configuration error', async () => {
+    root = await mkdtemp(join(tmpdir(), 'yuurei-config-'));
+    await writeFile(
+      join(root, 'yuurei.yaml'),
+      'version: 1\nprofiles: {}\nruns:\n  smoke:\n    profile: p\n    task: t.md\n    timeout: "5000"\n',
+    );
+
+    await expect(loadYuureiConfig(root)).rejects.toMatchObject({
+      exitCode: EXIT_CODES.CONFIG_ERROR,
+    });
+  });
+
+  it('rejects malformed YAML as a configuration error', async () => {
+    root = await mkdtemp(join(tmpdir(), 'yuurei-config-'));
+    await writeFile(join(root, 'yuurei.yaml'), 'version: 1\nprofiles: [\n');
+
+    await expect(loadYuureiConfig(root)).rejects.toMatchObject({
+      exitCode: EXIT_CODES.CONFIG_ERROR,
+    });
   });
 });

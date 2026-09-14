@@ -16,8 +16,22 @@ export const TRACE_SCHEMA_VERSION = '0.3';
 const MODEL_RESOLUTION_REASONS = ['observed', 'unobserved', 'parse_failed'] as const;
 export type ModelResolutionReason = (typeof MODEL_RESOLUTION_REASONS)[number];
 
+/**
+ * How a run was specified (ADR-0013): the named run, or null for the
+ * `--profile`/`--task` form, and which parameter fields the CLI took
+ * precedence on. Field names only, never values.
+ */
+const DefinitionSchema = z.object({
+  run: z.string().nullable(),
+  cli_overrides: z.array(z.string()),
+});
+export type RunDefinition = z.infer<typeof DefinitionSchema>;
+
 export const TraceSchema = z.object({
   schema_version: z.literal(TRACE_SCHEMA_VERSION),
+  // Observed property of the run, not a digest input (ADR-0011). Absent on
+  // traces written before v0.3.0; a reader treats absence as unknown.
+  yuurei_version: z.string().optional(),
   run_id: z.string(),
   started_at: z.string(),
   finished_at: z.string(),
@@ -40,10 +54,28 @@ export const TraceSchema = z.object({
     source: z.string(),
     digest: z.string(),
   }),
+  // The requested-cell digest and the input set that produced it (ADR-0009,
+  // ADR-0011). Absent on older traces; absence means unknown, never different.
+  requested_cell: z
+    .object({
+      digest: z.string(),
+      inputs_version: z.number().int(),
+    })
+    .optional(),
   isolation: z.object({
     strategy: z.string(),
     verified: z.boolean(),
   }),
+  // The execution contracts that constitute cell identity (ADR-0009): the core
+  // timeout, plus the adapter-owned generic record.
+  execution_options: z
+    .object({
+      timeout_ms: z.number().int().nullable(),
+      runtime: z.record(z.string(), z.unknown()),
+    })
+    .optional(),
+  // How the run was specified (ADR-0013). Absent on older traces.
+  definition: DefinitionSchema.optional(),
   execution: z.object({
     exit_code: z.number().nullable(),
     signal: z.string().nullable(),

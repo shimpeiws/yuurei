@@ -14,7 +14,7 @@ import type { ProfileContent } from '../../src/profile/types.js';
 
 function makeCell(
   configFiles: Record<string, { content: Buffer; mode: number }>,
-  executionOptions: Record<string, unknown> = {},
+  runtimeExecutionOptions: Record<string, unknown> = {},
 ): ResolvedCell {
   const content: ProfileContent = { profileYaml: { runtime: 'claude-code' }, configFiles };
   return {
@@ -23,9 +23,9 @@ function makeCell(
     resolvedProfile: { name: 'test', content, digest: 'sha256:test' },
     resolvedTask: { source: 'task.md', content: '# Task\n', digest: 'sha256:task' },
     yuureiVersion: '0.0.1',
-    executionOptions,
+    executionOptions: { timeout_ms: null, runtime: runtimeExecutionOptions },
     isolationStrategy: 'level1',
-    cellDigest: 'sha256:cell',
+    requestedCellDigest: 'sha256:cell',
   };
 }
 
@@ -181,7 +181,7 @@ describe('profile materialization', () => {
     await writeFile(join(realCodexDir, 'auth.json'), authJson, 'utf8');
 
     const cell: ResolvedCell = {
-      ...makeCell({}, { bridgeCodexAuthFile: true }),
+      ...makeCell({}, { bridge_codex_auth_file: true }),
       runtimeId: 'codex',
     };
     const isolation = new Level1Isolation();
@@ -222,7 +222,7 @@ describe('profile materialization', () => {
     await writeFile(join(realCodexDir, 'auth.json'), '{"token":"fake"}\n', 'utf8');
 
     const cell: ResolvedCell = {
-      ...makeCell({}, { bridgeCodexAuthFile: true }),
+      ...makeCell({}, { bridge_codex_auth_file: true }),
       runtimeId: 'codex',
     };
     const isolation = new Level1Isolation();
@@ -253,7 +253,7 @@ describe('profile materialization', () => {
   it('proceeds without a credential file when opted in but ~/.codex/auth.json does not exist', async () => {
     // workDir has no .codex/ at all — bridging must be a silent no-op, not a failure.
     const cell: ResolvedCell = {
-      ...makeCell({}, { bridgeCodexAuthFile: true }),
+      ...makeCell({}, { bridge_codex_auth_file: true }),
       runtimeId: 'codex',
     };
     const isolation = new Level1Isolation();

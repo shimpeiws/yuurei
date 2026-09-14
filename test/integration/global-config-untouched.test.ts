@@ -228,7 +228,7 @@ describe('global config untouched', () => {
       yuureiDir: workDir,
       isolationStrategy: 'level1',
       keep: false,
-      executionOptions: { bridgeCodexAuthFile: true },
+      executionOptions: { bridge_codex_auth_file: true },
       resolveRuntime: () => fake,
     });
 

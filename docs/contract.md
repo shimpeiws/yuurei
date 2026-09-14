@@ -56,7 +56,7 @@ the same kind and a flat list produces promises that cannot be kept.
 
 The credential-bridge flags are **not** here; they are in Section B.
 
-### Resolution of a run's parameters _(pending #136)_
+### Resolution of a run's parameters
 
 Per field, in this order: the CLI flag if given, then the run definition's entry,
 then the default. Per field and not per record — passing `--model` does not
@@ -93,7 +93,7 @@ lines go to stderr, the rest to stdout. Adding a field is an additive change.
 
 `.yuurei/yuurei.yaml` — `version: 1`, a `profiles` map (`runtime`, `source`), and
 a `runs` map (`profile`, `task`). From v0.3.0 a `runs` entry also accepts
-`model`, `timeout` and `isolation` _(pending #136)_.
+`model`, `timeout` and `isolation`.
 
 `profile.yaml` — `runtime`, and an optional `description`.
 
@@ -119,14 +119,17 @@ absent.
 A reader must treat an **absent** field as _unknown_, never as _different_.
 
 Fields landing in v0.3.0: `requested_cell` (`digest`, `inputs_version`),
-`yuurei_version`, `execution_options`, `definition` (`run`, `cli_overrides`)
-_(pending #136, #137)_.
+`yuurei_version`, `execution_options`, `definition` (`run`, `cli_overrides`).
 
 ### The requested-cell digest
 
 `requested_cell.digest` identifies **what was requested of a cell**: the runtime
 id, the requested model, the resolved profile content, the task content, the
 isolation strategy, and the identity-forming execution contracts.
+
+A profile's **name** and a task's **path** are provenance, recorded in the trace
+but not part of the digest. Renaming a profile or moving a task file without
+changing its content does not change the digest.
 
 **Equal digests do not mean two runs executed under identical conditions.** They
 mean the same thing was requested. To see what actually ran, read the observed

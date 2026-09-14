@@ -4,10 +4,11 @@ const require = createRequire(import.meta.url);
 
 /**
  * The published yuurei package version (`package.json` `version`). This is the
- * single source of the version for both the CLI (`cli.version()`) and cell
- * identity (`RunPipelineInput.yuureiVersion`, which the digest hashes) — a
- * package bump must update both, or cells silently carry a stale version in
- * their identity (#113).
+ * single source of the version for the CLI (`cli.version()`) and for the
+ * `yuurei_version` the trace records as an observed property of the run. It is
+ * **not** part of `requested_cell.digest` (ADR-0011): hashing it made every
+ * release, documentation-only patches included, produce a different digest for
+ * the same definition.
  *
  * `createRequire(import.meta.url)` resolves `../package.json` relative to the
  * compiled module (`dist/version.js`), so it reaches the manifest both from a
@@ -16,8 +17,7 @@ const require = createRequire(import.meta.url);
  *
  * Distinct concepts, intentionally separate sources:
  * - **package version** (`packageVersion`, here): the npm release number;
- *   part of the cell digest, so identical work against a different release is
- *   a different cell.
+ *   recorded as `yuurei_version`, not hashed into cell identity.
  * - **design version** (docs/design, v0.3): which design revision the current
  *   implementation tracks; independent of package releases.
  * - **trace schema version** (`TRACE_SCHEMA_VERSION` in `src/trace/schema.ts`):

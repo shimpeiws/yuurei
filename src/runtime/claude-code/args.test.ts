@@ -13,9 +13,9 @@ function makeCell(requestedModel: string): ResolvedCell {
     },
     resolvedTask: { source: 'task.md', content: 'do the thing', digest: 'sha256:task' },
     yuureiVersion: '0.0.1',
-    executionOptions: {},
+    executionOptions: { timeout_ms: null, runtime: {} },
     isolationStrategy: 'level1',
-    cellDigest: 'sha256:cell',
+    requestedCellDigest: 'sha256:cell',
   };
 }
 

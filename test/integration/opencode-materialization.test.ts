@@ -17,7 +17,7 @@ import type { PreparedRun, Runtime, RuntimeResult } from '../../src/runtime/type
 
 function makeCell(
   configFiles: Record<string, { content: Buffer; mode: number }> = {},
-  executionOptions: Record<string, unknown> = {},
+  runtimeExecutionOptions: Record<string, unknown> = {},
 ): ResolvedCell {
   const content: ProfileContent = { profileYaml: { runtime: 'opencode' }, configFiles };
   return {
@@ -26,9 +26,9 @@ function makeCell(
     resolvedProfile: { name: 'test', content, digest: 'sha256:test' },
     resolvedTask: { source: 'task.md', content: '# Task\n', digest: 'sha256:task' },
     yuureiVersion: '0.0.1',
-    executionOptions,
+    executionOptions: { timeout_ms: null, runtime: runtimeExecutionOptions },
     isolationStrategy: 'level1',
-    cellDigest: 'sha256:cell',
+    requestedCellDigest: 'sha256:cell',
   };
 }
 
@@ -169,7 +169,7 @@ describe('OpenCode profile materialization', () => {
     await mkdir(realDir, { recursive: true });
     await writeFile(join(realDir, 'auth.json'), '{"p":{"type":"api","key":"BRIDGED"}}\n', 'utf8');
 
-    const cell = makeCell({}, { bridgeOpenCodeAuthFile: true });
+    const cell = makeCell({}, { bridge_opencode_auth_file: true });
     const isolation = new Level1Isolation();
     const context = await createVerifiedIsolation(isolation, cell);
     const registered: string[] = [];
@@ -245,7 +245,7 @@ describe('OpenCode profile materialization', () => {
       yuureiDir: workDir,
       isolationStrategy: 'level1',
       keep: true,
-      executionOptions: { bridgeOpenCodeAuthFile: true },
+      executionOptions: { bridge_opencode_auth_file: true },
       resolveRuntime: () => runtime,
       createIsolation: () => wrapped,
     });

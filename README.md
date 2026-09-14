@@ -230,8 +230,9 @@ cat ".yuurei/runs/$RUN_ID/stderr.log"
 cat ".yuurei/runs/$RUN_ID/artifacts.json"
 ```
 
-The trace records the runtime, exit status, timeout status, profile and task
-digests, and isolation result. Yuurei does not copy your project source into
+The trace records the runtime, exit status, timeout status, the requested-cell
+digest that identifies the cell, profile and task digests, and isolation result.
+Yuurei does not copy your project source into
 the temporary execution cell, and it does not import your global runtime
 configuration automatically.
 
