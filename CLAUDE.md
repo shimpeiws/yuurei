@@ -45,6 +45,10 @@ That makes the boundary sharper than for a typical CLI:
 These are guarantees the implementation is expected to uphold. A change that
 breaks one is a defect, not a tradeoff.
 
+This list is a summary for working in the repository. The normative wording is
+Section C of [`docs/contract.md`](docs/contract.md); when the two differ, that
+document is right.
+
 - Never rename, move, or delete the user's real global config
   (`~/.claude`, `~/.codex`) (§9.1, §2.3).
 - Never copy credentials into a profile; never record secrets in the trace

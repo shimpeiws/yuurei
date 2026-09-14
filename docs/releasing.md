@@ -76,6 +76,10 @@ package version.
    npm version.
 
 Shipped versions are `Semantic Versioning` (https://semver.org/) compatible.
+What that covers — which surfaces are promised, which are experimental, and
+which release a given change requires — is stated in
+[the public contract](contract.md). Before 1.0 the freeze is an intention rather
+than a promise; that document says what it means.
 
 ## What the publish workflow does
 
