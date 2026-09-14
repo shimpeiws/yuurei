@@ -534,14 +534,38 @@ What is actually saved is configurable, and secrets or oversized files are not d
 - `yuurei` version
 - Runtime name and version
 - Requested model and the observed effective model
+- The cell digest (§7.3), with an identifier for the input set that produced it
 - Digest of the profile content
 - Digest of the task content
-- Launch options
+- The execution contracts that constitute cell identity — the timeout and the
+  adapter-owned options that feed the cell digest
 - Isolation strategy and its verification result
 - Execution duration
 - Exit code
 - Observable usage
-- List of artifacts and their digests
+- The artifacts the run produced, and where they are
+
+Two entries above were narrowed from an earlier, broader wording; the reasoning
+is recorded in `docs/adr/` and summarized here so this section is not read as the
+promise it used to make.
+
+**Execution contracts, not every launch option.** An earlier revision said
+"Launch options", which reads as a promise to record every flag. Most launch
+options are in fact recorded, but under their own names rather than a single
+heading: `--profile` and `--task` appear as the profile and task entries above,
+`--model` as the requested model, `--isolation` as the isolation strategy. The
+residue is `--keep`, which is deliberately **not** recorded. Retention is outside
+the trace's responsibility: `--keep` preserves the temporary cell for debugging
+and changes nothing about which cell ran or how it ended, and the run directory
+persists either way. See ADR-0008 and ADR-0009.
+
+**Artifacts are named here; their content is attested in `artifacts.json`.** An
+earlier revision said "artifacts and their digests", which reads as a promise that
+the trace carries the digests. It does not, by design: the trace names what the
+run produced and where it is, and `artifacts.json` is authoritative for every
+property of the stored bytes — the digest, and whether they were truncated. Note
+that such a digest covers the bytes **as stored** — after redaction (§10.2) and
+any truncation — not the bytes the runtime originally emitted. See ADR-0008.
 
 ### 10.2 What is not recorded, in principle
 
