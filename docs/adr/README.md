@@ -16,10 +16,6 @@ one place. Writing the same thing in two of them is how they drift apart.
 | `docs/contract.md`                  | What does the project promise right now? | Current                 |
 | `docs/adr/`                         | Why was it decided this way?             | Historical, append-only |
 
-`docs/contract.md` does not exist yet; it is the deliverable of issue #133.
-Until it lands, the guarantees described in these records have no authoritative
-home, which is one reason that issue blocks the rest of the milestone.
-
 So a guarantee's wording lives in the contract document, not here. What lives
 here is the reasoning that produced it, including the alternatives that were
 rejected and why.

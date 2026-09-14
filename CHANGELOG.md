@@ -3,11 +3,21 @@
 All notable changes to this project are documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
 ### Added
 
+- `docs/contract.md`, the normative statement of what the project promises. It
+  sorts every entry by the kind of promise it is — a stable surface covered by
+  semantic versioning, an experimental surface deliberately outside it, security
+  invariants a major release does not license weakening, and best-effort
+  behaviour documented so the expectation is accurate — then states which release
+  a change to each requires, and how a removal is announced. `CHANGELOG.md`,
+  `docs/releasing.md` and `CLAUDE.md` now point at it rather than restating
+  guarantees of their own. It takes effect at v0.3.0, and entries describing
+  behaviour that lands in that release name the issue implementing them.
 - A record under `docs/adr/` settling what the trace schema version is: a
   compatibility token compared for equality, independent of the package version,
   and staying at `0.3` because every pending field addition is optional (0014).
