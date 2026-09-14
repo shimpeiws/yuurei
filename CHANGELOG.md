@@ -6,6 +6,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `docs/adr/`, an append-only record of the design decisions behind the path to
+  v1. Each record carries the context that forced the decision, what was decided,
+  and the costs accepted. The directory's README fixes where each kind of
+  statement belongs: the design document says how the system works, the contract
+  document says what is promised, and these records say why — normative wording
+  lives in exactly one of them.
+
+### Changed
+
+- `docs/design/yuurei-design-v0.3.md` §10.1 narrows two recording promises to
+  what the trace actually carries, with the previous wording and the reasons kept
+  in place. "Launch options" becomes the execution contracts that constitute cell
+  identity: most launch options were already recorded under their own names, and
+  the residue — `--keep` — is deliberately not recorded, because retention is
+  outside the trace's responsibility. "List of artifacts and their digests"
+  becomes the artifacts a run produced and where they are; `artifacts.json`
+  stays authoritative for the digest, which covers the bytes **as stored**, after
+  redaction and any truncation, rather than what the runtime originally emitted.
+  §10.1 also now lists the cell digest, which §7.3 defines but §10.1 omitted.
+
 ## [0.2.0] - 2026-09-14
 
 ### Added

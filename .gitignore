@@ -15,7 +15,9 @@ examples/*/.yuurei/runs/
 .claude/settings.local.json
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
-/graft/
+# Unanchored: the indexer writes a `graft/` next to whatever directory it is
+# invoked from, not only at the repository root.
+graft/
 
 # graft per-developer wiring (optional tool; each developer runs `graft init` locally).
 .claude/settings.json
