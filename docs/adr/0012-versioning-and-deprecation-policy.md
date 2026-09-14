@@ -30,8 +30,11 @@ Promising absolute stability from v0.3.0 would leave no room for the one outcome
 that verification exists to produce — the discovery that the contract itself is
 wrong. Correcting it then, while still on 0.x, is what 0.x is for.
 
-**1.0 is where the intention becomes a promise**, because by then the contract
-has been exercised rather than merely written.
+**1.0 is where the project starts making the promise.** Not because exercising a
+contract guarantees future compatibility — it cannot — but because committing to
+keep a contract that has never been tested against a real runtime would be a
+commitment made blind. Verification does not produce the guarantee; it is what
+makes offering one defensible.
 
 ### Bump per kind of promise, after 1.0
 
@@ -73,7 +76,16 @@ Notice is given in two places, and the second is the one that reaches people:
   `loggerForFlags` renders a structured line under `--json`, so this costs little
   per deprecation.
 
-(B) needs only the changelog entry: nothing there was promised.
+(B) needs only the changelog entry: nothing there was promised, and no
+deprecation period is owed.
+
+**One exception, and it is deliberate.**
+[ADR-0005](./0005-keep-credential-bridge-flags.md) commits to deprecating the
+credential-bridge flags in the minor before removing them, even though they sit
+in (B). That commitment was the price of keeping flags with known-unsound
+behaviour in a 1.0 product: their CLI shape carries no promise, but users have no
+alternative path, so removing one without warning would strand them. The
+exception is theirs alone; it does not generalise to (B).
 
 No deprecation obligation applies before 1.0, consistent with the freeze being an
 intention until then.
@@ -119,3 +131,8 @@ does not hold: a package major implies nothing about the schema.
 - `CHANGELOG.md` and `docs/releasing.md` currently assert SemVer compliance
   without pointing anywhere. Both should reference the contract document once it
   exists (#133), or the policy stays invisible to the people it is written for.
+- The pre-1.0 wording has to appear in `docs/contract.md` and the release
+  documentation in as many words — "during 0.x, compatibility is an intention
+  and not a guarantee". Recording it only in the consequences of a decision
+  record leaves it where no user will look, and the version number alone implies
+  the opposite to anyone reading 0.4.0 as settled.

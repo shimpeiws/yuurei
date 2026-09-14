@@ -23,8 +23,9 @@ Two further facts decide the shape of the fix.
 
 Once [ADR-0009](./0009-record-cell-identity-in-the-trace.md) lands, **every
 digest input is also recorded as its own field** — `runtime.id`,
-`model.requested`, `profile.digest`, `task.digest`, `isolation.strategy`,
-`execution_options`, and the yuurei version. The digest is therefore a
+`model.requested`, `profile.digest`, `task.digest`, `isolation.strategy` and
+`execution_options` — and the yuurei version is recorded beside them as an
+observed field rather than an input. The digest is therefore a
 convenience key, not the only way to express equivalence: a consumer can compose
 any equivalence they need from the fields.
 
@@ -45,6 +46,25 @@ from requests.
   runtime that was asked for.
 - Cell identity is: runtime id, requested model, resolved profile content, task
   content, isolation strategy, and the identity-forming execution contracts.
+- **Rename it to match what it now means.** `cell_digest` and the heading "cell
+  identity" promise the identity of the cell that ran; what is hashed is the
+  identity of the cell that was _asked for_. Saying "equal digests do not mean
+  identical conditions" does not fix a name that claims otherwise. The digest
+  becomes **`requested_cell`** in the trace (`requested_cell.digest`,
+  `requested_cell.inputs_version`), `requestedCellDigest` in code, and §7.3
+  becomes "Requested cell identity". The vocabulary then matches the axis this
+  decision rests on: a reader who understands `model.requested` understands
+  `requested_cell` without being told.
+
+  Renaming is free exactly once. The digest has never been persisted — it is
+  computed and discarded — so there is no stored field to migrate today, and
+  after ADR-0009 starts recording it the same rename would be a breaking schema
+  change.
+
+  **Records 0001–0010 and 0012 keep the earlier name `cell_digest`.** They are
+  not rewritten: an append-only log is read with the understanding that older
+  entries use the vocabulary of their time.
+
 - **Equal digests do not mean the two runs executed under identical
   conditions.** The contract document must say so, and point at the observed
   fields — `yuurei_version`, `runtime.version`, `model.resolved` — as the way to
@@ -72,10 +92,14 @@ the design document itself, carrying the previous wording and the reason.
   the previous design bought a sense of safety it did not deliver; making the
   boundary explicit and pointing at the observed fields is more honest than a
   key that is conservative about one input and blind to a larger one.
-- `inputs_version` is unaffected. It versions the input _set_ — which fields are
-  hashed — which is orthogonal to which build did the hashing. The two were
-  briefly thought to overlap; they do not.
-- Anyone wanting the old strictness composes `(cell_digest, yuurei_version)`.
+- `inputs_version` stays at `1`, but **not** because it is unrelated to this
+  change. It versions the input _set_, and this change alters that set, so the
+  two are directly related. It stays at `1` because no digest has ever been
+  persisted: the first recipe anyone will ever observe is the one defined here,
+  so `1` describes a set that never included the yuurei version. Had a digest
+  already shipped, this change would have required `2`.
+- Anyone wanting the old strictness composes
+  `(requested_cell.digest, yuurei_version)`.
   The looser default can be narrowed by a consumer; a stricter default could not
   have been widened.
 - This changes the digest input set, which is precisely what the v0.3.0

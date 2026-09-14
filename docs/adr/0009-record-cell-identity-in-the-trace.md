@@ -2,6 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-09-14
+- **Amended by**: [ADR-0011](./0011-identify-a-cell-by-what-was-requested.md) — the trace field is `requested_cell`, not `cell`
 
 ## Context
 
