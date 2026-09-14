@@ -15,6 +15,9 @@ export const YuureiConfigSchema = z.object({
     z.object({
       profile: z.string(),
       task: z.string(),
+      model: z.string().optional(),
+      timeout: z.number().int().optional(),
+      isolation: z.string().optional(),
     }),
   ),
 });

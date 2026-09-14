@@ -2,6 +2,7 @@ import { chmod, copyFile, readFile, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { EXIT_CODES, YuureiError } from '../../cli/exit-codes.js';
+import type { ExecutionOptions } from '../../cell/types.js';
 import { pathExists } from '../../util/fs.js';
 import { isRealPathWithin } from './path-safety.js';
 import { realOpenCodeDataDir } from './paths.js';
@@ -38,8 +39,8 @@ export function bridgeOpenCodeApiKeys(env: Record<string, string>): string[] {
   return forwardedValues;
 }
 
-export function wantsOpenCodeAuthFileBridge(executionOptions: Record<string, unknown>): boolean {
-  return executionOptions['bridgeOpenCodeAuthFile'] === true;
+export function wantsOpenCodeAuthFileBridge(executionOptions: ExecutionOptions): boolean {
+  return executionOptions.runtime['bridge_opencode_auth_file'] === true;
 }
 
 /**

@@ -21,6 +21,10 @@ export async function runTraceShow(cwd: string, runId: string, logger: Logger): 
     signal: trace.execution.signal,
     durationMs: trace.execution.duration_ms,
     timedOut: trace.execution.timed_out,
+    // A trace written before v0.3.0 carries neither field; absence is reported
+    // as null rather than filled in with a digest the trace never held.
+    requestedCell: trace.requested_cell ?? null,
+    yuureiVersion: trace.yuurei_version ?? null,
     ...(trace.diagnostics && trace.diagnostics.length > 0
       ? { diagnostics: trace.diagnostics }
       : {}),

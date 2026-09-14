@@ -69,7 +69,11 @@ describe('task path trust boundary', () => {
       'utf8',
     );
 
-    const run = runRun(workDir, baseOptions({ runName: 'escape' }), noopLogger);
+    const run = runRun(
+      workDir,
+      baseOptions({ runName: 'escape', profile: undefined, task: undefined }),
+      noopLogger,
+    );
 
     await expect(run).rejects.toBeInstanceOf(YuureiError);
     await expect(run).rejects.toMatchObject({ exitCode: EXIT_CODES.CONFIG_ERROR });
@@ -98,7 +102,11 @@ describe('task path trust boundary', () => {
       'utf8',
     );
 
-    const run = runRun(workDir, baseOptions({ runName: 'ok' }), noopLogger);
+    const run = runRun(
+      workDir,
+      baseOptions({ runName: 'ok', profile: undefined, task: undefined }),
+      noopLogger,
+    );
 
     // Passes containment check and fails later at profile lookup — confirming
     // containment is not over-broad.

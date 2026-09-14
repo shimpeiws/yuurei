@@ -39,12 +39,12 @@ describe('yuurei run --isolation', () => {
     await rm(workDir, { recursive: true, force: true });
   });
 
-  it('rejects an unrecognized value before profile/task resolution', async () => {
+  it('rejects an unrecognized value before the profile lookup', async () => {
     const run = runRun(workDir, baseOptions({ isolation: 'banana' }), noopLogger);
 
     await expect(run).rejects.toBeInstanceOf(YuureiError);
     await expect(run).rejects.toMatchObject({ exitCode: EXIT_CODES.CONFIG_ERROR });
-    await expect(run).rejects.toThrow(/--isolation must be one of: level0, level1/);
+    await expect(run).rejects.toThrow(/isolation must be one of: level0, level1/);
   });
 
   it('accepts "level0" and proceeds past validation to the (later) unknown-profile error', async () => {

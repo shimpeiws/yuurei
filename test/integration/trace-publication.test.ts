@@ -129,6 +129,78 @@ describe('trace publication', () => {
     expect(trace.artifacts).toContainEqual({ path: 'stdout.log', kind: 'log' });
   });
 
+  it('records the yuurei version as observed, without hashing it into the digest', async () => {
+    const profile = makeProfile('fake-version-runtime');
+    const base = {
+      runtimeId: profile.runtime,
+      requestedModel: '',
+      profile,
+      taskPath,
+      yuureiDir: workDir,
+      isolationStrategy: 'level1' as const,
+      keep: false,
+      resolveRuntime: () => makeTrivialRuntime('fake-version-runtime'),
+    };
+
+    const first = await runPipeline({ ...base, yuureiVersion: '0.0.1' });
+    const second = await runPipeline({ ...base, yuureiVersion: '9.9.9' });
+
+    expect(first.trace.yuurei_version).toBe('0.0.1');
+    expect(second.trace.yuurei_version).toBe('9.9.9');
+    // ADR-0011: the version is an observation, not a digest input.
+    expect(second.trace.requested_cell?.digest).toBe(first.trace.requested_cell?.digest);
+  });
+
+  it('records the execution contracts and the digest input-set version', async () => {
+    const profile = makeProfile('fake-contracts-runtime');
+    const result = await runPipeline({
+      runtimeId: profile.runtime,
+      requestedModel: 'sonnet',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      timeoutMs: 5000,
+      executionOptions: { bridge_codex_auth_file: false },
+      definition: { run: 'smoke', cli_overrides: [] },
+      resolveRuntime: () => makeTrivialRuntime('fake-contracts-runtime'),
+    });
+
+    expect(result.trace.execution_options).toEqual({
+      timeout_ms: 5000,
+      runtime: { bridge_codex_auth_file: false },
+    });
+    expect(result.trace.definition).toEqual({ run: 'smoke', cli_overrides: [] });
+    expect(result.trace.requested_cell).toEqual({
+      digest: result.cell.requestedCellDigest,
+      inputs_version: 1,
+    });
+  });
+
+  it('normalizes an unspecified timeout and an explicit null to one digest', async () => {
+    const profile = makeProfile('fake-normalize-runtime');
+    const base = {
+      runtimeId: profile.runtime,
+      requestedModel: '',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1' as const,
+      keep: false,
+      resolveRuntime: () => makeTrivialRuntime('fake-normalize-runtime'),
+    };
+
+    const unspecified = await runPipeline({ ...base, timeoutMs: undefined });
+    const explicitNull = await runPipeline({ ...base, timeoutMs: null });
+
+    expect(unspecified.trace.requested_cell?.digest).toBe(
+      explicitNull.trace.requested_cell?.digest,
+    );
+  });
+
   it.each([
     ['the resolved-profile write', 'resolved-profile.json'],
     ['a durable log write', join('runs', '')],

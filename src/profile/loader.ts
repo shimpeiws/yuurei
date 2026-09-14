@@ -1,10 +1,10 @@
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { parse } from 'yaml';
 import { canonicalJsonStringify } from '../util/json.js';
 import { sha256Digest } from '../util/hash.js';
 import { isPathWithin, pathExists } from '../util/fs.js';
 import { ProfileYamlSchema } from '../config/schema.js';
+import { loadYamlConfig } from '../config/load-yaml.js';
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 import type { Profile, ResolvedProfile, ProfileContent } from './types.js';
 
@@ -15,11 +15,27 @@ import type { Profile, ResolvedProfile, ProfileContent } from './types.js';
  * but different config never collide (design doc §7.3).
  */
 export async function loadProfile(profile: Profile): Promise<ResolvedProfile> {
-  const profileYamlRaw = await readFile(join(profile.sourceDir, 'profile.yaml'), 'utf8');
-  const profileYaml = ProfileYamlSchema.parse(parse(profileYamlRaw));
+  const profileYaml = await loadYamlConfig(
+    join(profile.sourceDir, 'profile.yaml'),
+    ProfileYamlSchema,
+  );
 
   const configDir = join(profile.sourceDir, 'config');
-  const rawConfigFiles = (await pathExists(configDir)) ? await readAllFiles(configDir) : {};
+  let rawConfigFiles: Record<string, { content: Buffer; mode: number }>;
+  try {
+    rawConfigFiles = (await pathExists(configDir)) ? await readAllFiles(configDir) : {};
+  } catch (error) {
+    // Symlink/cycle faults already carry a configuration exit code; any other
+    // I/O failure (ENOTDIR, EACCES, ENOENT) is likewise configuration, not a
+    // runtime failure, so it exits 2 rather than 5.
+    if (error instanceof YuureiError) throw error;
+    throw new YuureiError(
+      `cannot read profile config for '${profile.name}': ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      EXIT_CODES.CONFIG_ERROR,
+    );
+  }
 
   const content: ProfileContent = { profileYaml, configFiles: rawConfigFiles };
 

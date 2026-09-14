@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { IsolationContext } from '../../isolation/types.js';
 import { configRootOf } from '../../isolation/config-root.js';
-import type { ResolvedCell } from '../../cell/types.js';
+import type { ExecutionOptions, ResolvedCell } from '../../cell/types.js';
 import { EXIT_CODES, YuureiError } from '../../cli/exit-codes.js';
 import { detectViaVersionFlag, isVersionAtLeast } from '../detect.js';
 import { execCapture } from '../exec.js';
@@ -58,8 +58,8 @@ function bridgeCodexApiKey(env: Record<string, string>): string[] {
   return [value];
 }
 
-function wantsCodexAuthFileBridge(executionOptions: Record<string, unknown>): boolean {
-  return executionOptions['bridgeCodexAuthFile'] === true;
+function wantsCodexAuthFileBridge(executionOptions: ExecutionOptions): boolean {
+  return executionOptions.runtime['bridge_codex_auth_file'] === true;
 }
 
 /**

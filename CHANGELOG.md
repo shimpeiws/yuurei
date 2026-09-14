@@ -9,6 +9,17 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ### Added
 
+- `trace.json` records the requested-cell digest and the input set that
+  produced it as `requested_cell` (`digest`, `inputs_version`), the observed
+  `yuurei_version`, the identity-forming execution contracts as
+  `execution_options` (`timeout_ms`, plus an adapter-owned `runtime` record),
+  and how the run was specified as `definition` (`run`, `cli_overrides`). All
+  four are optional, so older traces still parse and `schema_version` stays
+  `0.3` (ADR-0009, ADR-0011, ADR-0013, ADR-0014).
+- `runs` entries in `yuurei.yaml` accept `model`, `timeout` and `isolation`.
+  The CLI flag overrides the definition per field, and giving a named run
+  together with `--profile` or `--task` is now a configuration error rather
+  than a silently discarded flag (#136).
 - `docs/contract.md`, the normative statement of what the project promises. It
   sorts every entry by the kind of promise it is — a stable surface covered by
   semantic versioning, an experimental surface deliberately outside it, security
@@ -36,6 +47,14 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ### Changed
 
+- Cell identity is renamed to match what it identifies. The digest is
+  `requested_cell.digest` (`computeRequestedCellDigest` in code), the `yuurei`
+  version is removed from its input set, and the timeout now joins it, so equal
+  digests mean the same thing was _requested_ rather than that two runs
+  executed under identical conditions (ADR-0011). The profile name and the task
+  path are excluded too, so renaming a profile or moving a task file without
+  changing its content no longer changes the digest (ADR-0013). No stored digest
+  is invalidated: none was ever persisted.
 - `docs/design/yuurei-design-v0.3.md` §6.3 now states how `schema_version` is to
   be compared: it is a compatibility token, matched for equality, never sorted or
   range-compared despite the dotted spelling. It identifies which compatibility
@@ -74,6 +93,19 @@ What that covers is stated in [the public contract](docs/contract.md).
   stays authoritative for the digest, which covers the bytes **as stored**, after
   redaction and any truncation, rather than what the runtime originally emitted.
   §10.1 also now lists the cell digest, which §7.3 defines but §10.1 omitted.
+
+### Fixed
+
+- An unreadable, malformed or schema-invalid `.yuurei/yuurei.yaml`, `profile.yaml`
+  or task file now exits `2` (configuration error) instead of `5`, so a bad
+  config file is not reported as a runtime failure.
+- An execution option whose value is not a JSON value (`undefined`, `NaN`,
+  `-0`, a function, a `Map`/`Set`/`Date`/`Buffer`, a class with `toJSON`, or a
+  cycle) is rejected as a configuration error rather than letting two distinct
+  execution contracts collapse to one digest.
+- Digest canonicalization orders object keys by code unit rather than with a
+  locale-sensitive comparison, and keeps a literal `__proto__` key, so a digest
+  can no longer depend on the machine's locale or collide with an empty object.
 
 ## [0.2.0] - 2026-09-14
 

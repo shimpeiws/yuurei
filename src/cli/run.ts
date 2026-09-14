@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { findYuureiDir } from '../config/discovery.js';
 import { loadYuureiConfig } from '../config/yuurei-config.js';
+import type { YuureiConfig } from '../config/schema.js';
 import { loadProfile } from '../profile/loader.js';
 import { runPipeline } from '../run/pipeline.js';
 import { MAX_TIMEOUT_MS } from '../runtime/exec.js';
@@ -9,6 +10,7 @@ import { isPathWithin } from '../util/fs.js';
 import { YuureiError, EXIT_CODES } from './exit-codes.js';
 import { exitCodeForSignal } from '../run/signals.js';
 import { packageVersion } from '../version.js';
+import type { RunDefinition } from '../trace/schema.js';
 import type { Logger } from '../util/logger.js';
 import type { IsolationStrategy } from '../isolation/types.js';
 
@@ -57,13 +59,20 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
 
   const config = await loadYuureiConfig(yuureiDir);
 
+  let runEntry: YuureiConfig['runs'][string] | undefined;
   let profileName = options.profile;
   let taskPath = options.task;
 
   if (options.runName) {
-    const runEntry = config.runs[options.runName];
+    runEntry = config.runs[options.runName];
     if (!runEntry) {
       throw new YuureiError(`unknown run: ${options.runName}`, EXIT_CODES.CONFIG_ERROR);
+    }
+    if (options.profile !== undefined || options.task !== undefined) {
+      throw new YuureiError(
+        `run '${options.runName}' names its own profile and task; --profile/--task cannot be combined with a run name`,
+        EXIT_CODES.CONFIG_ERROR,
+      );
     }
     profileName = runEntry.profile;
     taskPath = join(yuureiDir, runEntry.task);
@@ -82,27 +91,36 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     );
   }
 
+  // Per field, CLI first: the flag if given, else the run definition's entry,
+  // else the default (ADR-0013). `cli_overrides` records which parameter
+  // fields the CLI supplied, so one trace answers "was anything supplied
+  // outside the definition?" — field names only, never values.
+  const cliOverrides: string[] = [];
+
+  const requestedModel = options.model ?? runEntry?.model ?? '';
+  if (options.model !== undefined) cliOverrides.push('model');
+
+  const timeoutMs = options.timeoutMs ?? runEntry?.timeout ?? null;
+  if (options.timeoutMs !== undefined) cliOverrides.push('timeout');
   if (
-    options.timeoutMs !== undefined &&
-    !(
-      Number.isFinite(options.timeoutMs) &&
-      options.timeoutMs > 0 &&
-      options.timeoutMs <= MAX_TIMEOUT_MS
-    )
+    timeoutMs !== null &&
+    !(Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs <= MAX_TIMEOUT_MS)
   ) {
     throw new YuureiError(
-      `--timeout must be a finite number of milliseconds between 1 and ${MAX_TIMEOUT_MS}`,
+      `timeout must be a finite number of milliseconds between 1 and ${MAX_TIMEOUT_MS}`,
       EXIT_CODES.CONFIG_ERROR,
     );
   }
 
-  if (options.isolation !== undefined && !isIsolationStrategy(options.isolation)) {
+  const isolationRaw = options.isolation ?? runEntry?.isolation ?? DEFAULT_ISOLATION_STRATEGY;
+  if (options.isolation !== undefined) cliOverrides.push('isolation');
+  if (!isIsolationStrategy(isolationRaw)) {
     throw new YuureiError(
-      `--isolation must be one of: ${ISOLATION_STRATEGIES.join(', ')}`,
+      `isolation must be one of: ${ISOLATION_STRATEGIES.join(', ')}`,
       EXIT_CODES.CONFIG_ERROR,
     );
   }
-  const isolationStrategy = options.isolation ?? DEFAULT_ISOLATION_STRATEGY;
+  const isolationStrategy = isolationRaw;
 
   const profileEntry = config.profiles[profileName];
   if (!profileEntry) {
@@ -115,20 +133,26 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     sourceDir: join(yuureiDir, profileEntry.source),
   });
 
+  const definition: RunDefinition = {
+    run: options.runName ?? null,
+    cli_overrides: cliOverrides,
+  };
+
   const result = await runPipeline({
     runtimeId: profile.runtime,
-    requestedModel: options.model ?? '',
+    requestedModel,
     profile,
     taskPath,
     yuureiVersion: YUUREI_VERSION,
     yuureiDir,
     isolationStrategy,
     keep: options.keep ?? false,
-    timeoutMs: options.timeoutMs ?? null,
+    timeoutMs,
     executionOptions: {
-      bridgeCodexAuthFile: options.bridgeCodexAuthFile ?? false,
-      bridgeOpenCodeAuthFile: options.bridgeOpenCodeAuthFile ?? false,
+      bridge_codex_auth_file: options.bridgeCodexAuthFile ?? false,
+      bridge_opencode_auth_file: options.bridgeOpenCodeAuthFile ?? false,
     },
+    definition,
     onWarning: (message) => logger.warn(message),
   });
 

@@ -258,6 +258,7 @@ At minimum, it holds the following.
 ```json
 {
   "schema_version": "0.3",
+  "yuurei_version": "...",
   "run_id": "...",
   "started_at": "...",
   "finished_at": "...",
@@ -278,9 +279,23 @@ At minimum, it holds the following.
     "source": "...",
     "digest": "sha256:..."
   },
+  "requested_cell": {
+    "digest": "sha256:...",
+    "inputs_version": 1
+  },
   "isolation": {
     "strategy": "...",
     "verified": true
+  },
+  "execution_options": {
+    "timeout_ms": null,
+    "runtime": {
+      "bridge_codex_auth_file": false
+    }
+  },
+  "definition": {
+    "run": "...",
+    "cli_overrides": []
   },
   "execution": {
     "exit_code": 0,

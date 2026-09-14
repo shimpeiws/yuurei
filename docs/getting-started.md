@@ -299,6 +299,11 @@ isolation strategy, add `--isolation level0` or `--isolation level1`
 runtime's config-root arguments/env vars — see the design document's
 §9.3 for the difference).
 
+A named run can carry `model`, `timeout` and `isolation` in `yuurei.yaml`
+instead of passing them every time. A flag given on the command line
+overrides the definition for that field only, so `--model` does not discard a
+`timeout` the definition set.
+
 After execution, yuurei prints `run <run-id> finished` with `exitCode`
 and `runDir`. The agent's response is in the saved logs.
 

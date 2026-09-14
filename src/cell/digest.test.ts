@@ -1,29 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { computeCellDigest } from './digest.js';
-import type { CellIdentityInput } from './types.js';
+import { computeRequestedCellDigest } from './digest.js';
+import type { RequestedCellInput } from './types.js';
 
-const base: CellIdentityInput = {
+const base: RequestedCellInput = {
   runtimeId: 'claude-code',
   requestedModel: 'sonnet',
-  resolvedProfile: {
-    name: 'default',
-    content: { profileYaml: { runtime: 'claude-code' }, configFiles: {} },
-    digest: 'sha256:profile',
-  },
-  resolvedTask: { source: 'task.md', content: '# Task\n', digest: 'sha256:task' },
-  yuureiVersion: '0.0.1',
-  executionOptions: {},
   isolationStrategy: 'level1',
+  executionOptions: { timeout_ms: null, runtime: {} },
+  profileContentDigest: 'sha256:profile',
+  taskContentDigest: 'sha256:task',
 };
 
-describe('computeCellDigest', () => {
+describe('computeRequestedCellDigest', () => {
   it('is stable for equivalent input', () => {
-    expect(computeCellDigest(base)).toBe(computeCellDigest({ ...base }));
+    expect(computeRequestedCellDigest(base)).toBe(computeRequestedCellDigest({ ...base }));
   });
 
   it('changes when a cell identity field changes', () => {
-    expect(computeCellDigest({ ...base, requestedModel: 'opus' })).not.toBe(
-      computeCellDigest(base),
+    expect(computeRequestedCellDigest({ ...base, requestedModel: 'opus' })).not.toBe(
+      computeRequestedCellDigest(base),
+    );
+  });
+
+  it('changes when the resolved profile or task content changes', () => {
+    expect(computeRequestedCellDigest({ ...base, profileContentDigest: 'sha256:other' })).not.toBe(
+      computeRequestedCellDigest(base),
+    );
+    expect(computeRequestedCellDigest({ ...base, taskContentDigest: 'sha256:other' })).not.toBe(
+      computeRequestedCellDigest(base),
     );
   });
 
@@ -32,17 +36,31 @@ describe('computeCellDigest', () => {
     // (design doc §9.3) — an otherwise-identical run must not collapse to
     // the same cell identity just because isolationStrategy is a pipeline
     // concern rather than profile/task content.
-    expect(computeCellDigest({ ...base, isolationStrategy: 'level0' })).not.toBe(
-      computeCellDigest({ ...base, isolationStrategy: 'level1' }),
+    expect(computeRequestedCellDigest({ ...base, isolationStrategy: 'level0' })).not.toBe(
+      computeRequestedCellDigest({ ...base, isolationStrategy: 'level1' }),
     );
   });
 
-  it('changes when the yuurei version changes', () => {
-    // A cell is identified by the yuurei release that built it: identical
-    // profile/task work against a different release is a different cell
-    // (#113). Guards against a stale version feeding the digest after a bump.
-    expect(computeCellDigest({ ...base, yuureiVersion: '0.0.2' })).not.toBe(
-      computeCellDigest(base),
-    );
+  it('changes when the timeout execution contract changes', () => {
+    // The timeout changes the run's termination condition, so it is part of
+    // cell identity (ADR-0011, ADR-0009).
+    expect(
+      computeRequestedCellDigest({
+        ...base,
+        executionOptions: { ...base.executionOptions, timeout_ms: 5000 },
+      }),
+    ).not.toBe(computeRequestedCellDigest(base));
+  });
+
+  it('changes when an adapter-owned execution contract changes', () => {
+    expect(
+      computeRequestedCellDigest({
+        ...base,
+        executionOptions: {
+          ...base.executionOptions,
+          runtime: { bridge_codex_auth_file: true },
+        },
+      }),
+    ).not.toBe(computeRequestedCellDigest(base));
   });
 });
