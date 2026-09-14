@@ -1,6 +1,6 @@
 {
   "name": "yuurei",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Isolated, reproducible runtime environments for coding agents (Claude Code, Codex, OpenCode).",
   "keywords": [
     "agent",
