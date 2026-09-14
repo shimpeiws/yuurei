@@ -6,6 +6,16 @@ import { z } from 'zod';
  */
 export const TRACE_SCHEMA_VERSION = '0.3';
 
+/**
+ * Why `model.resolved` has its value. `observed` = the effective model was
+ * seen; `unobserved` = the runtime produced no model identity; `parse_failed`
+ * = an expected source existed but could not be read. Lets a consumer tell
+ * "not observed" from "observation failed" without parsing prose, and keeps
+ * an unknown distinct from zero (§6.3).
+ */
+const MODEL_RESOLUTION_REASONS = ['observed', 'unobserved', 'parse_failed'] as const;
+export type ModelResolutionReason = (typeof MODEL_RESOLUTION_REASONS)[number];
+
 export const TraceSchema = z.object({
   schema_version: z.literal(TRACE_SCHEMA_VERSION),
   run_id: z.string(),
@@ -18,6 +28,9 @@ export const TraceSchema = z.object({
   model: z.object({
     requested: z.string(),
     resolved: z.string().nullable(),
+    // Additive and optional: omitted when resolved is non-null, and older
+    // traces (written before this field existed) still parse.
+    resolved_reason: z.enum(MODEL_RESOLUTION_REASONS).optional(),
   }),
   profile: z.object({
     name: z.string(),
@@ -53,6 +66,10 @@ export const TraceSchema = z.object({
       kind: z.string(),
     }),
   ),
+  // Durable, secret-free non-fatal notes (e.g. malformed runtime output). The
+  // adapter's `warnings` remain operator-only and are not persisted (§6.3);
+  // this is the durable record. Additive and optional.
+  diagnostics: z.array(z.string()).optional(),
 });
 
 export type Trace = z.infer<typeof TraceSchema>;

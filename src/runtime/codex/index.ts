@@ -325,7 +325,7 @@ export class CodexRuntime implements Runtime {
 
     return {
       runtime: { id: RUNTIME_ID, version: context.runtimeVersion },
-      model: { requested: '', resolved: null },
+      model: { requested: '', resolved: null, resolvedReason: 'unobserved' },
       execution: { exitCode: result.exitCode, signal: result.signal, durationMs },
       usage,
       ...(warnings.length > 0 ? { warnings } : {}),

@@ -5,8 +5,8 @@ as running against a real installed runtime. Each section states what it
 verifies and provides exact copy-paste commands with expected outcomes.
 
 > **Runtime requirement:** sections marked _(requires runtime)_ need
-> `claude` or `codex` installed and authenticated. Sections that exercise
-> rejection paths require no runtime.
+> `claude`, `codex`, or `opencode` installed and authenticated. Sections that
+> exercise rejection paths require no runtime.
 
 ---
 
@@ -105,6 +105,149 @@ cleanup. Writing the rotated state back would violate the "never modify the
 user's existing global configuration" guarantee, so this is documented rather
 than "fixed". Credentials are never recorded into profiles, tasks, traces,
 artifacts, or logs.
+
+## OpenCode end-to-end run
+
+This section verifies a real OpenCode run from an isolated project. It checks
+the runtime launch, the saved trace, the durable logs, and cleanup of the
+isolated credential copy.
+
+### 1. Build the CLI
+
+Run these commands from the repository root:
+
+```sh
+pnpm install
+pnpm run build
+export YUUREI_CLI="$PWD/dist/index.js"
+yuurei() { node "$YUUREI_CLI" "$@"; }
+```
+
+Check that the runtime is available:
+
+```sh
+opencode --version
+yuurei doctor
+```
+
+Expected results:
+
+- `opencode --version` prints `1.18.0` or later.
+- `yuurei doctor` reports `opencode` as installed and supported.
+- With an allowlisted provider key set (for example `OPENROUTER_API_KEY`),
+  `yuurei doctor` reports `authentication: ready`.
+- With no credential, `yuurei doctor` reports `authentication: required` for
+  `opencode`; that is not a hard failure, because OpenCode can run through its
+  free default provider.
+
+### 2. Create an OpenCode project
+
+Create the test project outside the repository:
+
+```sh
+TEST_ROOT="$(mktemp -d /tmp/yuurei-opencode-check.XXXXXX)"
+yuurei init "$TEST_ROOT" --runtime opencode --profile opencode-basic --task hello --run opencode-check
+cd "$TEST_ROOT"
+```
+
+Inspect the resolved profile before running:
+
+```sh
+yuurei profile list
+yuurei inspect opencode-basic
+```
+
+Expected results:
+
+- The project contains `.yuurei/yuurei.yaml`, an OpenCode profile, and `tasks/hello.md`.
+- `yuurei profile list` lists `opencode-basic` with runtime `opencode`.
+- `yuurei inspect opencode-basic` succeeds without starting OpenCode.
+
+### 3. Run OpenCode with a provider API key
+
+Use this path when a provider key is available:
+
+```sh
+test -n "${OPENROUTER_API_KEY:-}" || echo "OPENROUTER_API_KEY is not set; the free-provider path may still run"
+yuurei run opencode-check
+```
+
+Expected results:
+
+- The command exits successfully (or, without a credential, still succeeds via
+  the free default provider).
+- The output reports `run <run-id> finished` with `exitCode: 0` and `signal: null`.
+- `.yuurei/runs/<run-id>/trace.json` records runtime `opencode`, with
+  `model.resolved: null` and `model.resolved_reason: "unobserved"`.
+- `usage` carries the `step_finish` token counts and `cost_usd` when reported.
+- `artifacts.json`, `stdout.log`, and `stderr.log` exist.
+- The run does not create or modify `~/.local/share/opencode/auth.json`.
+
+Save the run ID from the output, then inspect the trace:
+
+```sh
+yuurei trace show <run-id>
+```
+
+### 4. Run OpenCode with the file-based login bridge
+
+Use this path when `~/.local/share/opencode/auth.json` exists:
+
+```sh
+test -f "$HOME/.local/share/opencode/auth.json" || echo "OpenCode auth.json is not present; skip the bridge run"
+if [ -f "$HOME/.local/share/opencode/auth.json" ]; then
+  SOURCE_AUTH="$HOME/.local/share/opencode/auth.json"
+  SOURCE_SHA256="$(shasum -a 256 "$SOURCE_AUTH" | awk '{print $1}')"
+  yuurei run opencode-check --bridge-opencode-auth-file
+  RESULT=$?
+  AFTER_SHA256="$(shasum -a 256 "$SOURCE_AUTH" | awk '{print $1}')"
+  test "$SOURCE_SHA256" = "$AFTER_SHA256"
+  echo "source auth.json unchanged"
+  test "$RESULT" -eq 0
+fi
+```
+
+Expected results:
+
+- The run uses a copy of the real `auth.json` under the isolated data directory
+  at mode `0600`.
+- The source file's checksum is unchanged.
+- The isolated copy is removed after the run.
+- The trace and logs contain no API key, access token, or refresh token.
+
+### 5. Verify `--keep` cleanup
+
+```sh
+if [ -f "$HOME/.local/share/opencode/auth.json" ]; then
+  yuurei run opencode-check --bridge-opencode-auth-file --keep
+fi
+```
+
+Expected results:
+
+- The isolated configuration and logs remain for debugging.
+- The isolated `auth.json` does not remain under the kept isolation directory.
+- The source auth file remains unchanged.
+
+### 6. Verify the config guard (no runtime needed)
+
+A profile whose `opencode.json` reaches outside the cell, or hardcodes a
+provider key, is rejected before OpenCode starts. From the test project:
+
+```sh
+PROFILE_CFG=".yuurei/profiles/opencode-basic/config/opencode.json"
+printf '%s\n' '{"provider":{"p":{"options":{"apiKey":"{file:/etc/hosts}"}}}}' > "$PROFILE_CFG"
+yuurei run opencode-check; echo "exit=$?"
+printf '%s\n' '{"provider":{"p":{"options":{"apiKey":"sk-literal-secret"}}}}' > "$PROFILE_CFG"
+yuurei run opencode-check; echo "exit=$?"
+```
+
+Expected results:
+
+- Both runs exit with code `2` (CONFIG_ERROR).
+- The error names the profile config and the offending reference.
+- No run directory is created for either attempt.
+- No OpenCode process is started.
 
 ---
 

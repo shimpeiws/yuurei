@@ -1,5 +1,6 @@
 import type { ResolvedCell } from '../cell/types.js';
 import type { IsolationContext } from '../isolation/types.js';
+import type { ModelResolutionReason } from '../trace/schema.js';
 
 export interface RuntimeDetection {
   installed: boolean;
@@ -63,7 +64,12 @@ export interface NormalizationContext {
 
 export interface NormalizedTraceFragment {
   runtime: { id: string; version: string | null };
-  model: { requested: string; resolved: string | null };
+  model: {
+    requested: string;
+    resolved: string | null;
+    /** Why `resolved` has its value; omitted when `resolved` is non-null. */
+    resolvedReason?: ModelResolutionReason;
+  };
   execution: { exitCode: number | null; signal: string | null; durationMs: number | null };
   /** null = usage metric was not observed; never default to 0. */
   usage: Record<string, number | null>;
@@ -73,6 +79,13 @@ export interface NormalizedTraceFragment {
    * each entry via onWarning and does not write them to trace.json.
    */
   warnings?: string[];
+  /**
+   * Non-fatal notes that should be persisted into trace.json's `diagnostics`
+   * (e.g. malformed runtime output). Must be secret-free by construction. The
+   * pipeline copies these into the trace verbatim; empty array and absent are
+   * equivalent.
+   */
+  diagnostics?: string[];
 }
 
 /**

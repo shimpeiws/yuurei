@@ -4,8 +4,8 @@
 
 ![Yuurei ghost DJ operating a mixing console](docs/assets/yuurei-top.jpg)
 
-`yuurei` isolates coding-agent runtime environments (Claude Code, Codex)
-from your normal global configuration, so different harness profiles
+`yuurei` isolates coding-agent runtime environments (Claude Code, Codex,
+OpenCode) from your normal global configuration, so different harness profiles
 (skills, instructions, settings, hooks) can be swapped and run
 reproducibly without touching or breaking your everyday setup.
 
@@ -89,6 +89,40 @@ new state while the real file stays stale, and the valid rotated copy is then
 discarded on cleanup. Do not copy credentials into profiles, tasks, traces,
 artifacts, or logs.
 
+#### OpenCode
+
+**Provider API key (default path):** export a provider API key that OpenCode
+recognizes, for example `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, or
+`OPENAI_API_KEY`:
+
+```sh
+export OPENROUTER_API_KEY='<api-key>'
+```
+
+OpenCode's adapter requires OpenCode 1.18.0 or later. OpenCode can also run
+unauthenticated through its free default provider, so `yuurei doctor` reporting
+`authentication: required` means no allowlisted provider key was found — it is
+not a hard failure for a free-provider run.
+
+**Existing file-based login (experimental, opt-in):** if you signed in with
+`opencode auth login`, you can reuse the file-based credential store with
+`--bridge-opencode-auth-file`:
+
+```sh
+yuurei run <run-name> --bridge-opencode-auth-file
+```
+
+Like the Codex bridge, this is experimental and off by default: yuurei copies
+exactly `~/.local/share/opencode/auth.json` into the isolated cell, runs with
+it, and scrubs the isolated copy afterward — even under `--keep`. The real file
+is never modified. The flag is an explicit opt-in because that file can carry a
+rotating OAuth token pair, with the same mid-run refresh limitation as Codex.
+
+OpenCode materializes profile config under the isolated config directory and
+disables project-config, external-skill, and auto-update loading. A profile's
+`opencode.json` may not hardcode a provider `apiKey` or use a `{file:...}`
+reference that escapes the cell.
+
 #### Verify the environment
 
 Check that the environment is ready:
@@ -125,6 +159,7 @@ credential variable is present without printing its value:
 ```sh
 [ -n "$ANTHROPIC_AUTH_TOKEN" ] && echo present || echo absent
 [ -n "$OPENAI_API_KEY" ] && echo present || echo absent
+[ -n "$OPENROUTER_API_KEY" ] && echo present || echo absent
 ```
 
 Orphaned temp directories are listed with a prominent count and the
@@ -161,7 +196,8 @@ yuurei init --runtime codex --profile codex-basic --task hello --run first-run
 yuurei init ../other-project
 ```
 
-The default profile is `claude-basic` and the default task is `hello`.
+The default profile is `claude-basic` and the default task is `hello`. Pass
+`--runtime opencode` or `--runtime codex` to scaffold for another runtime.
 The named run resolves `profile` and `task` from `.yuurei/yuurei.yaml`:
 
 ```sh
@@ -211,6 +247,7 @@ yuurei run <run-name>
 yuurei run --profile <profile> --task <path/to/task.md>
 yuurei run <run-name> --keep
 yuurei run <run-name> --bridge-codex-auth-file
+yuurei run <run-name> --bridge-opencode-auth-file
 yuurei trace show <run-id>
 yuurei clean
 ```
@@ -218,8 +255,9 @@ yuurei clean
 ## Status
 
 v0.3 scope: single-runtime "native cell" execution (Pattern A) for Claude
-Code and Codex, treated as independent runtime × model × harness × task
-combinations. Not yet in scope: cross-runtime harness portability, local
+Code, Codex, and OpenCode, treated as independent runtime × model × harness
+× task combinations. The OpenCode adapter is newer and marked experimental
+(issue #106). Not yet in scope: cross-runtime harness portability, local
 LLM support, output quality auto-scoring, cost/ROI dashboards, OS-level
 sandboxing, or team auth.
 

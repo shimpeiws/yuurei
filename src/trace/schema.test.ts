@@ -25,4 +25,27 @@ describe('TraceSchema', () => {
   it('rejects a trace with the wrong schema version', () => {
     expect(() => TraceSchema.parse({ ...validTrace, schema_version: '0.2' })).toThrow();
   });
+
+  it('accepts the additive resolved_reason and diagnostics fields', () => {
+    const withOptional = {
+      ...validTrace,
+      model: { requested: '', resolved: null, resolved_reason: 'unobserved' },
+      diagnostics: ['opencode: 1 unparseable JSONL line(s) skipped (lines 2)'],
+    };
+    expect(TraceSchema.parse(withOptional)).toEqual(withOptional);
+  });
+
+  it('still parses a trace written before the additive fields existed', () => {
+    // validTrace has neither field; it must remain readable.
+    expect(() => TraceSchema.parse(validTrace)).not.toThrow();
+  });
+
+  it('rejects an unknown resolved_reason', () => {
+    expect(() =>
+      TraceSchema.parse({
+        ...validTrace,
+        model: { requested: '', resolved: null, resolved_reason: 'guessed' },
+      }),
+    ).toThrow();
+  });
 });

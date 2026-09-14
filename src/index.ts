@@ -123,6 +123,10 @@ cli
     '--bridge-codex-auth-file',
     'Experimental: bridge the real ~/.codex/auth.json into the isolated run (Codex only, off by default)',
   )
+  .option(
+    '--bridge-opencode-auth-file',
+    'Experimental: bridge the real OpenCode auth.json into the isolated run (OpenCode only, off by default)',
+  )
   .option('--json', 'Output as JSON')
   .action(
     withErrorHandling(
@@ -136,6 +140,7 @@ cli
           timeout?: string;
           isolation?: string;
           bridgeCodexAuthFile?: boolean;
+          bridgeOpenCodeAuthFile?: boolean;
           json?: boolean;
         },
       ) => {
@@ -150,6 +155,7 @@ cli
             timeoutMs: flags.timeout !== undefined ? Number(flags.timeout) : undefined,
             isolation: flags.isolation,
             bridgeCodexAuthFile: flags.bridgeCodexAuthFile,
+            bridgeOpenCodeAuthFile: flags.bridgeOpenCodeAuthFile,
           },
           loggerForFlags(flags),
         );
