@@ -390,7 +390,7 @@ runs:
 
 ### 7.3 Cell identity
 
-Each execution cell is identified by, at minimum, the following digest.
+A cell is identified by **what was requested of it**, digested as follows.
 
 ```text
 cell_digest = hash(
@@ -398,12 +398,37 @@ cell_digest = hash(
   requested model,
   resolved profile contents,
   task contents,
-  yuurei version,
-  relevant execution options
+  isolation strategy,
+  identity-forming execution contracts
 )
 ```
 
 The hash target is not a mere profile name, but its **resolved content**.
+
+An earlier revision of this formula listed the `yuurei` version and omitted the
+isolation strategy. Both are corrected above; the reasoning is in `docs/adr/`
+and summarized here so the change is not read as a slip.
+
+**The `yuurei` version is no longer part of cell identity.** Hashing it meant
+that every release — including a patch touching only documentation — produced a
+different digest for the same definition, while the runtime's own version was
+never hashed at all, so upgrading the coding agent left identity unchanged. A
+key that is strict about the orchestrator and silent about the agent is not the
+conservative key it appears to be. The version is instead recorded as an
+observed property of the run, alongside the runtime version and the resolved
+model.
+
+It follows that **equal digests do not mean two runs executed under identical
+conditions.** They mean the same thing was requested. To see what actually ran,
+read the observed fields: the `yuurei` version, the runtime version, and the
+resolved model. A consumer that wants the stricter grouping composes the digest
+with those fields; the reverse — widening a key that already has them baked in —
+is not available.
+
+**The isolation strategy has always been part of cell identity** in the
+implementation, since level0 and level1 give the runtime materially different
+`HOME` and configuration semantics (§9.3). The formula omitted it; the code did
+not.
 
 ---
 

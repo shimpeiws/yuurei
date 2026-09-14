@@ -33,7 +33,9 @@ Record in `trace.json`:
   because nothing was ever recorded.
 - **`yuurei_version`** — top level, beside `schema_version`, so the
   independence asserted in [ADR-0003](./0003-independent-trace-schema-version.md)
-  is visible rather than merely documented.
+  is visible rather than merely documented. It is an **observed** property of the
+  run, not a digest input — see
+  [ADR-0011](./0011-identify-a-cell-by-what-was-requested.md).
 - **`execution_options`** — the execution contracts that constitute cell
   identity, split by who owns them:
 
