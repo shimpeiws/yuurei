@@ -311,5 +311,7 @@ sandboxing, or team auth.
 
 See the
 [design document](https://github.com/shimpeiws/yuurei/blob/main/docs/design/yuurei-design-v0.3.md)
-for the full design, and the
-[release process](https://github.com/shimpeiws/yuurei/blob/main/docs/releasing.md).
+for the full design, the
+[release process](https://github.com/shimpeiws/yuurei/blob/main/docs/releasing.md),
+and — when moving from 0.x —
+[the 0.x to 1.0 migration guide](https://github.com/shimpeiws/yuurei/blob/main/docs/migration-0.x-to-1.0.md).
