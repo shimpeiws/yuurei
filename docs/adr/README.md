@@ -110,3 +110,4 @@ the understanding that older entries use the vocabulary of their time.
 | [0017](./0017-separate-nightly-from-the-release-candidate.md) | Separate nightly real-runtime checks from the release-candidate gate    | Accepted |
 | [0018](./0018-pre-register-the-opencode-criterion.md)         | Pre-register the criterion for dropping OpenCode's experimental marking | Accepted |
 | [0019](./0019-authenticate-codex-exec-from-an-api-key.md)     | Authenticate `codex exec` from an API key, not a subscription token     | Accepted |
+| [0020](./0020-soak-a-release-candidate-before-1-0.md)         | Soak a release candidate before 1.0                                     | Accepted |

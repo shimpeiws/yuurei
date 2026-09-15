@@ -86,6 +86,25 @@ which release a given change requires — is stated in
 [the public contract](contract.md). Before 1.0 the freeze is an intention rather
 than a promise; that document says what it means.
 
+## Release candidates and the soak
+
+Before 1.0, a release candidate soaks for one week before the final tag
+(ADR-0020). A candidate is cut like a release, with a prerelease version:
+
+1. Set `package.json` to `X.Y.Z-rc.N`, promote the CHANGELOG's `[Unreleased]`
+   section, and open the release PR as usual. Run the release-candidate
+   real-runtime check on it (step 4 above) and confirm it is green.
+2. Create a GitHub Release with tag `vX.Y.Z-rc.N`, marked **pre-release**. The
+   publish workflow publishes it to the npm `next` dist-tag, never `latest`.
+3. Install it with `npm install yuurei@next` and use it for real work for one
+   week. The period is fixed before the candidate is published; it is not
+   shortened because the candidate looks fine.
+4. During the soak, `docs/contract.md` is **frozen**. A change to any contract
+   entry restarts the one-week period and is cut as `rc.N+1`, so the soaked
+   artifact always matches the frozen document.
+5. When the week is complete and no contract entry changed, tag `X.Y.Z` as a
+   normal release. `latest` moves then.
+
 ## What the publish workflow does
 
 `.github/workflows/publish.yml`:
@@ -98,6 +117,9 @@ than a promise; that document says what it means.
 - Installs npm 11 before publishing. Trusted publishing requires npm
   `>=11.5.1` and Node `>=22.14.0`; the npm bundled with Node 22 is 10.9.x and
   fails with `ENEEDAUTH` because it cannot perform the OIDC exchange.
+- Derives the npm dist-tag from the version — a prerelease goes to `next`, a
+  clean version to `latest` — and publishes with it, so a prerelease can never
+  become the default install (ADR-0020).
 - Publishes with `npm publish --provenance`. The OIDC credential is held by
   GitHub, so the workflow needs no real credentials.
 
@@ -108,8 +130,8 @@ always matches a released tag.
 
 - `package.json` `version` is the single source of truth.
 - `src/version.ts` reads the version at runtime via `node:module` and is the
-  single source for both the CLI and cell identity (#113); the CLI
-  `--version` output comes from `package.json`.
+  single source for both the CLI and the `yuurei_version` the trace records; the
+  CLI `--version` output comes from `package.json`.
 - The npm and GitHub release versions are equal because of the tag match
   check above.
 

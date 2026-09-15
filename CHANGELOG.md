@@ -7,6 +7,14 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+### Added
+
+- A record under `docs/adr/` and a "Release candidates and the soak" section in
+  `docs/releasing.md` settle the 1.0 soak: a candidate is published under the npm
+  `next` dist-tag and soaked for one week with `docs/contract.md` frozen, and the
+  publish workflow derives the dist-tag from the version so a prerelease can
+  never become `latest` (0020).
+
 ## [0.5.0] - 2026-09-15
 
 ### Added
