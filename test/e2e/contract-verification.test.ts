@@ -174,6 +174,50 @@ describe('contract verification: an older trace stays readable', () => {
   });
 });
 
+describe('contract verification: run index', () => {
+  afterEach(cleanupFixtures);
+
+  it('(140) enumerates every run through the CLI with --json', async () => {
+    const project = await createFixtureProject(CLAUDE);
+    const first = await runCli(['run', 'smoke'], project.env, project.root);
+    const firstId = first.stdout.match(/run ([^ ]+) finished/)?.[1];
+    const second = await runCli(['run', 'smoke'], project.env, project.root);
+    const secondId = second.stdout.match(/run ([^ ]+) finished/)?.[1];
+    if (!firstId || !secondId) {
+      throw new Error(`run ids missing: ${first.stdout} / ${second.stdout}`);
+    }
+
+    const listed = await runCli(['runs', '--json'], project.env, project.root);
+    expect(listed.code).toBe(0);
+
+    const rows = listed.stdout
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const ids = rows.map((row) => row['run_id']) as string[];
+
+    // Both runs appear, in ascending run_id order.
+    expect(ids).toEqual(expect.arrayContaining([firstId, secondId]));
+    expect(ids).toEqual([...ids].sort());
+
+    const row = rows.find((candidate) => candidate['run_id'] === firstId);
+    expect(row).toMatchObject({
+      run_id: firstId,
+      runtime: { id: 'claude-code' },
+      model: { requested: '' },
+      profile: { name: 'fixture' },
+      isolation: { strategy: 'level1' },
+      execution: { exit_code: 0, timed_out: false },
+      requested_cell: expect.objectContaining({ inputs_version: 1 }) as unknown,
+    });
+    const task = row?.['task'] as { source: string } | undefined;
+    expect(task?.source).toContain('smoke.md');
+    // The projection is closed: a trace field outside the listed set is absent.
+    expect(row).not.toHaveProperty('runtime.version');
+    expect(row).not.toHaveProperty('diagnostics');
+  });
+});
+
 describe('contract verification: configuration errors', () => {
   afterEach(cleanupFixtures);
 

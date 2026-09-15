@@ -258,7 +258,7 @@ Given a trace written under an older `schema_version` it reads it **read-only** 
 never rewriting it, never recomputing an old digest. Given a run id with no trace
 it exits 2.
 
-### Run index _(pending #140)_
+### Run index
 
 `yuurei runs` lists the runs under the current project's `.yuurei/runs/`. With
 `--json` it emits one object per run, one per line; rows are the `info` lines
