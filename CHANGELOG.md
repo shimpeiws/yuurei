@@ -7,6 +7,21 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-16
+
+The release where the freeze becomes a promise. The stable surface — the
+commands, flags, per-field parameter resolution, exit codes, `--json` shape,
+configuration schemas, `trace.json` and the requested-cell digest, the run
+directory, `patch.diff` and `workspace/`, `artifacts.json`,
+`resolved-profile.json`, `trace show`, the run index, runtime detection, and the
+supported platforms — is now frozen by [the public contract](docs/contract.md):
+a breaking change to any of it requires a major version. The credential-bridge
+flags stay experimental (Section B). Moving from 0.x is described in
+[docs/migration-0.x-to-1.0.md](docs/migration-0.x-to-1.0.md).
+
+This is `1.0.0-rc.1` with the version changed and nothing else, so the entries
+under `1.0.0-rc.1` below are the entries for this release.
+
 ## [1.0.0-rc.1] - 2026-09-16
 
 ### Added
@@ -326,7 +341,8 @@ First published release. It implements the v0.3 design scope: single-runtime
 - `trace.json` is written atomically and last, so it is a reliable completion
   marker and can never be read half-written.
 
-[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/shimpeiws/yuurei/releases/tag/v1.0.0
 [1.0.0-rc.1]: https://github.com/shimpeiws/yuurei/releases/tag/v1.0.0-rc.1
 [0.5.0]: https://github.com/shimpeiws/yuurei/releases/tag/v0.5.0
 [0.4.0]: https://github.com/shimpeiws/yuurei/releases/tag/v0.4.0

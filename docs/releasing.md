@@ -83,13 +83,18 @@ package version.
 Shipped versions are `Semantic Versioning` (https://semver.org/) compatible.
 What that covers — which surfaces are promised, which are experimental, and
 which release a given change requires — is stated in
-[the public contract](contract.md). Before 1.0 the freeze is an intention rather
-than a promise; that document says what it means.
+[the public contract](contract.md). From 1.0 that document is binding: a breaking
+change to a stable surface requires a major version.
 
 ## Release candidates and the soak
 
-Before 1.0, a release candidate soaks for one week before the final tag
-(ADR-0020). A candidate is cut like a release, with a prerelease version:
+ADR-0020 introduced a one-week soak for a release candidate before the 1.0 tag.
+The 1.0.0 candidate was released **without the full week**, by an explicit
+maintainer decision recorded in ADR-0020 and on issue #149: the project had no
+users, so the soak's real-world signal could not exist yet, and nothing in
+`docs/contract.md` changed between the candidate and the release. The mechanics a
+soak uses are below. A candidate is cut like a release, with a prerelease
+version:
 
 1. Set `package.json` to `X.Y.Z-rc.N`, promote the CHANGELOG's `[Unreleased]`
    section, and open the release PR as usual. Run the release-candidate
@@ -98,7 +103,9 @@ Before 1.0, a release candidate soaks for one week before the final tag
    publish workflow publishes it to the npm `next` dist-tag, never `latest`.
 3. Install it with `npm install yuurei@next` and use it for real work for one
    week. The period is fixed before the candidate is published; it is not
-   shortened because the candidate looks fine.
+   shortened because the candidate looks fine. The 1.0.0 waiver above is the one
+   exception, and it is a recorded maintainer decision, not a judgement made
+   once the candidate looked good.
 4. During the soak, `docs/contract.md` is **frozen**. A change to any contract
    entry restarts the one-week period and is cut as `rc.N+1`, so the soaked
    artifact always matches the frozen document.

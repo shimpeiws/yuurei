@@ -299,7 +299,7 @@ before the process exits.
 
 ## Status
 
-v0.3 scope: single-runtime "native cell" execution (Pattern A) for Claude
+Scope: single-runtime "native cell" execution (Pattern A) for Claude
 Code, Codex, and OpenCode, treated as independent runtime × model × harness
 × task combinations. The OpenCode adapter was added later (issue #106) and,
 like the others, is exercised against the real runtime in CI. Not yet in scope:
