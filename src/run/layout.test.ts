@@ -53,4 +53,21 @@ describe('createUniqueRunLayout', () => {
     const runIds = results.map((r) => r.runId);
     expect(new Set(runIds).size).toBe(runIds.length);
   });
+
+  it('claims the run directory atomically when two runs generate the same id', async () => {
+    // Both invocations get the same first id, so the loser must see the
+    // directory already claimed and retry. A non-atomic claim (e.g. mkdir with
+    // `recursive: true`) would let both succeed on one directory and make the
+    // run ids equal, so this test fails if the atomic `mkdir` is removed.
+    let calls = 0;
+    const generate = () => (calls++ < 2 ? 'same' : `fresh-${calls}`);
+
+    const [a, b] = await Promise.all([
+      createUniqueRunLayout(dir, generate),
+      createUniqueRunLayout(dir, generate),
+    ]);
+
+    expect(new Set([a.runId, b.runId]).size).toBe(2);
+    expect(a.layout.runDir).not.toBe(b.layout.runDir);
+  });
 });
