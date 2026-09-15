@@ -250,9 +250,13 @@ the materialized config. Profile content is never written here.
 
 ### `trace show`
 
-On success it prints the trace. Given a trace written under an older
-`schema_version` it reads it **read-only** — never rewriting it, never
-recomputing an old digest. Given a run id with no trace it exits 2.
+On success it prints the trace. With `--json` the printed line carries the whole
+trace: every field of `trace.json` is present at the top level, beside `level`
+and `message`, so a consumer does not read the file to obtain a field. Without
+`--json` the output is a human-readable summary and its shape is not a promise.
+Given a trace written under an older `schema_version` it reads it **read-only** —
+never rewriting it, never recomputing an old digest. Given a run id with no trace
+it exits 2.
 
 ### Run index _(pending #140)_
 

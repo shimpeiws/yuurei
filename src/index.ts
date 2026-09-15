@@ -171,7 +171,7 @@ cli
       if (action !== 'show') {
         throw new YuureiError(`unknown trace action: ${action}`, EXIT_CODES.CONFIG_ERROR);
       }
-      await runTraceShow(process.cwd(), runId, loggerForFlags(flags));
+      await runTraceShow(process.cwd(), runId, loggerForFlags(flags), flags.json ?? false);
     }),
   );
 

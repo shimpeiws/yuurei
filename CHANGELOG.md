@@ -9,6 +9,9 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ### Added
 
+- `yuurei trace show --json` prints the complete trace, with `level` and
+  `message` the only fields beside it, so a consumer does not have to read
+  `trace.json` to obtain a field (#141).
 - Two records under `docs/adr/`: runs are enumerated through a new `yuurei runs`
   command rather than by walking `.yuurei/runs/`, and each cell runs in its run
   workspace with the result recorded as `patch.diff` (0015, 0016).
@@ -17,6 +20,11 @@ What that covers is stated in [the public contract](docs/contract.md).
   and empty-diff behaviour and the accepted risk that a secret the agent writes
   to the workspace is recorded. Both land in the implementation that follows
   _(pending #139, #140)_.
+
+### Changed
+
+- The contract states the artifact size cap's default (1 MiB), and the
+  concurrent run-directory guarantee is pinned by a regression test (#142).
 
 ## [0.3.0] - 2026-09-15
 
