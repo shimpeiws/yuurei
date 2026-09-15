@@ -14,7 +14,7 @@ import { realOpenCodeDataDir } from './paths.js';
  * mechanism. Kept as a fixed, adapter-owned allowlist: a key outside this set
  * is not forwarded. Document this list when the adapter ships.
  */
-const OPENCODE_CREDENTIAL_ENV_KEYS = [
+export const OPENCODE_CREDENTIAL_ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'OPENAI_API_KEY',
   'OPENROUTER_API_KEY',

@@ -2,10 +2,18 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { bridgeOpenCodeApiKeys, bridgeOpenCodeAuthFile } from './auth.js';
+import {
+  bridgeOpenCodeApiKeys,
+  bridgeOpenCodeAuthFile,
+  OPENCODE_CREDENTIAL_ENV_KEYS,
+} from './auth.js';
 
 describe('bridgeOpenCodeApiKeys', () => {
-  const keys = ['ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'UNRELATED_SECRET'];
+  // Clear every key the adapter forwards, not just the two this test sets: the
+  // suite runs with the real provider secrets in the environment (the
+  // real-runtime workflows), and an ambient allowlisted key would otherwise
+  // leak into the forwarded record.
+  const keys = [...OPENCODE_CREDENTIAL_ENV_KEYS, 'UNRELATED_SECRET'];
   let saved: Record<string, string | undefined>;
 
   beforeEach(() => {

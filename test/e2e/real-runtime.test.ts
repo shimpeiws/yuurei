@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   cleanupFixtures,
   createFixtureProject,
@@ -6,6 +6,10 @@ import {
   runAndReadTrace,
   writeRunConfig,
 } from '../harness/cli-fixture.js';
+
+// A real model call takes far longer than the 5s default; give each case room
+// for a cold-start CLI plus a short completion.
+vi.setConfig({ testTimeout: 180_000, hookTimeout: 60_000 });
 
 /**
  * The real-runtime connector. It drives the same harness as the fixture suite
