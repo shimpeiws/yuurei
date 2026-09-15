@@ -23,9 +23,9 @@ describe('copyWorkspace', () => {
     await writeFile(join(src, 'a.txt'), 'a', 'utf8');
     await writeFile(join(src, 'sub', 'b.txt'), 'b', 'utf8');
 
-    const diagnostics = await copyWorkspace(src, dest);
+    const result = await copyWorkspace(src, dest);
 
-    expect(diagnostics).toEqual([]);
+    expect(result).toEqual({ diagnostics: [], complete: true });
     expect(await readFile(join(dest, 'a.txt'), 'utf8')).toBe('a');
     expect(await readFile(join(dest, 'sub', 'b.txt'), 'utf8')).toBe('b');
   });
@@ -34,11 +34,26 @@ describe('copyWorkspace', () => {
     await writeFile(join(src, 'real.txt'), 'real', 'utf8');
     await symlink(join(src, 'real.txt'), join(src, 'link.txt'));
 
-    const diagnostics = await copyWorkspace(src, dest);
+    const result = await copyWorkspace(src, dest);
 
-    expect(diagnostics).toEqual(['workspace: 1 symlink(s) skipped']);
+    expect(result).toEqual({
+      diagnostics: ['workspace: 1 symlink(s) skipped'],
+      complete: true,
+    });
     await expect(lstat(join(dest, 'link.txt'))).rejects.toThrow();
     expect(await readFile(join(dest, 'real.txt'), 'utf8')).toBe('real');
+  });
+
+  it('reports an incomplete copy when the source cannot be walked', async () => {
+    const notADirectory = join(src, 'file');
+    await writeFile(notADirectory, 'x', 'utf8');
+
+    const result = await copyWorkspace(notADirectory, dest);
+
+    expect(result.complete).toBe(false);
+    expect(result.diagnostics).toEqual([
+      'workspace: copy failed; durable workspace may be incomplete',
+    ]);
   });
 });
 
@@ -96,6 +111,24 @@ describe('buildPatch', () => {
 
     expect(diff).toBe('');
     expect(diagnostics).toEqual(['patch: 1 binary file(s) omitted']);
+  });
+
+  it('omits invalid UTF-8 as binary', async () => {
+    await writeFile(join(dir, 'bad.txt'), Buffer.from([0xff, 0xfe]));
+
+    const { diff, diagnostics } = await buildPatch(dir, 1024 * 1024);
+
+    expect(diff).toBe('');
+    expect(diagnostics).toEqual(['patch: 1 binary file(s) omitted']);
+  });
+
+  it('keeps a valid U+FFFD character rather than treating the file as binary', async () => {
+    await writeFile(join(dir, 'replacement.txt'), 'a\uFFFD\n', 'utf8');
+
+    const { diff, diagnostics } = await buildPatch(dir, 1024 * 1024);
+
+    expect(diagnostics).toEqual([]);
+    expect(diff).toBe('--- /dev/null\n+++ replacement.txt\n@@ -0,0 +1,1 @@\n+a\uFFFD\n');
   });
 
   it('omits an oversized file and counts it', async () => {

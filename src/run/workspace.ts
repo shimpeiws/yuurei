@@ -8,13 +8,19 @@ function hasForbiddenNameChar(component: string): boolean {
   return FORBIDDEN_NAME_CHARS.some((char) => component.includes(char));
 }
 
+export interface CopyResult {
+  diagnostics: string[];
+  /** False when an I/O error leaves the copy possibly incomplete. */
+  complete: boolean;
+}
+
 /**
  * Copies the cell workspace into the durable run workspace (ADR-0016). Only
  * regular files are copied; a symlink entry is skipped and never followed, and
  * directories are recreated. Every skip and a failed copy are reported as fixed
  * strings; the count is the only variable and no path is included.
  */
-export async function copyWorkspace(sourceDir: string, destDir: string): Promise<string[]> {
+export async function copyWorkspace(sourceDir: string, destDir: string): Promise<CopyResult> {
   const diagnostics: string[] = [];
   let symlinks = 0;
   let special = 0;
@@ -61,7 +67,7 @@ export async function copyWorkspace(sourceDir: string, destDir: string): Promise
   if (symlinks > 0) diagnostics.push(`workspace: ${symlinks} symlink(s) skipped`);
   if (special > 0) diagnostics.push(`workspace: ${special} special file(s) skipped`);
   if (failed) diagnostics.push('workspace: copy failed; durable workspace may be incomplete');
-  return diagnostics;
+  return { diagnostics, complete: !failed };
 }
 
 export interface PatchResult {
@@ -125,9 +131,12 @@ export async function buildPatch(workspaceDir: string, maxBytes: number): Promis
       binary += 1;
       continue;
     }
-    const text = content.toString('utf8');
-    // Invalid UTF-8 decodes to the replacement character.
-    if (text.includes('\uFFFD')) {
+    let text: string;
+    try {
+      // `fatal` throws only on invalid UTF-8. A valid file may legitimately
+      // contain U+FFFD, so decoding must not treat that character as binary.
+      text = new TextDecoder('utf-8', { fatal: true }).decode(content);
+    } catch {
       binary += 1;
       continue;
     }
