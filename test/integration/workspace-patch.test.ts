@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -126,4 +126,32 @@ describe('run pipeline workspace and patch', () => {
       expect.objectContaining({ path: 'patch.diff', kind: 'patch' }),
     );
   });
+
+  // A root process can still read a 0o000 file, so the copy would not fail.
+  it.skipIf(process.getuid?.() === 0)(
+    'records no patch when the workspace copy is incomplete',
+    async () => {
+      const runtime = makeWorkspaceRuntime('fake-partial-ws', { 'keep.txt': 'ok\n' });
+      const original = runtime.execute;
+      runtime.execute = async (run, timeoutMs) => {
+        const result = await original(run, timeoutMs);
+        // An unreadable file makes the copy fail partway, so the patch must not
+        // be generated from the partial tree.
+        const unreadable = join(run.isolation.workspaceDir, 'unreadable.txt');
+        await writeFile(unreadable, 'secret\n', 'utf8');
+        await chmod(unreadable, 0o000);
+        return result;
+      };
+
+      const result = await run(runtime);
+
+      await expect(readFile(join(result.runDir, 'patch.diff'), 'utf8')).rejects.toThrow();
+      expect(result.trace.diagnostics).toEqual(
+        expect.arrayContaining([
+          'workspace: copy failed; durable workspace may be incomplete',
+          'patch: generation failed; patch.diff not recorded',
+        ]),
+      );
+    },
+  );
 });

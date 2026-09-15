@@ -1,4 +1,4 @@
-import { rm, writeFile } from 'node:fs/promises';
+import { rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { NoopCostModel } from '../cost/noop.js';
@@ -232,32 +232,47 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
 
     // Copy the cell workspace into the run and record it as a patch (ADR-0016).
     // Both are best-effort: a failure leaves the patch absent and is recorded as
-    // a fixed diagnostic, without failing the run.
-    let workspaceDiagnostics: string[];
+    // a fixed diagnostic, without failing the run. A partial copy yields no
+    // patch, because a patch of a partial tree is a wrong record rather than a
+    // partial one.
+    let workspaceDiagnostics: string[] = [];
+    let workspaceComplete = false;
     try {
-      workspaceDiagnostics = await copyWorkspace(context.workspaceDir, layout.workspaceDir);
+      const copy = await copyWorkspace(context.workspaceDir, layout.workspaceDir);
+      workspaceDiagnostics = copy.diagnostics;
+      workspaceComplete = copy.complete;
     } catch {
       workspaceDiagnostics = ['workspace: copy failed; durable workspace may be incomplete'];
     }
     let patchDiagnostics: string[] = [];
     let patchTruncated = false;
-    try {
-      const patch = await buildPatch(layout.workspaceDir, maxArtifactBytes);
-      patchDiagnostics = patch.diagnostics;
-      const tempPatchPath = join(layout.runDir, `.patch.diff.tmp-${randomUUID()}`);
+    if (workspaceComplete) {
+      // Redact to a temp file, then publish atomically, so a failed write never
+      // leaves a partial or unredacted patch.diff in place.
+      const tempInput = join(layout.runDir, `.patch.in.tmp-${randomUUID()}`);
+      const tempOutput = join(layout.runDir, `.patch.out.tmp-${randomUUID()}`);
       try {
-        await writeFile(tempPatchPath, patch.diff, 'utf8');
+        const patch = await buildPatch(layout.workspaceDir, maxArtifactBytes);
+        patchDiagnostics = patch.diagnostics;
+        await writeFile(tempInput, patch.diff, 'utf8');
         patchTruncated = await redactFile(
-          tempPatchPath,
-          layout.patchPath,
+          tempInput,
+          tempOutput,
           knownCredentialValues,
           maxArtifactBytes,
         );
+        await rename(tempOutput, layout.patchPath);
+      } catch {
+        // Reached only before the rename, so patch.diff was not published and
+        // the "generation failed" note is accurate.
+        patchDiagnostics.push('patch: generation failed; patch.diff not recorded');
       } finally {
-        // Never leave an unredacted temp copy behind, even when redaction fails.
-        await rm(tempPatchPath, { force: true });
+        // Both removals run regardless of one another; neither can change
+        // whether the patch was published. A stranded temp file shares the run
+        // directory, whose contents the agent already produced (ADR-0016).
+        await Promise.allSettled([rm(tempInput, { force: true }), rm(tempOutput, { force: true })]);
       }
-    } catch {
+    } else {
       patchDiagnostics.push('patch: generation failed; patch.diff not recorded');
     }
     const diagnostics = [
