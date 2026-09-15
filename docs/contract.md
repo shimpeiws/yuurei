@@ -438,5 +438,5 @@ Notice is given twice, and the second is the one that reaches people:
 
 Section B needs only the changelog entry, with the one exception named there.
 
-No deprecation obligation applies before 1.0, consistent with the freeze being an
+No deprecation obligation applied before 1.0, consistent with the freeze being an
 intention until then.

@@ -78,3 +78,22 @@ soaks an untested claim, which is exactly what 1.0 is supposed to stop doing.
 - The freeze is a discipline, not an enforced constraint. Nothing prevents an
   edit to `docs/contract.md`; the rule is that an edit restarts the soak, and the
   restart is what makes the rule real.
+
+## Addendum: the 1.0.0 soak was waived
+
+- **Date**: 2026-09-16
+
+`1.0.0` was cut from `1.0.0-rc.1` without the full week, by maintainer decision.
+It is recorded here and on issue #149 rather than done quietly.
+
+The soak's value is real-world signal, and at the first release there was no user
+base to produce any: the candidate's only users were the maintainer and CI, and
+CI had already run the real-runtime release-candidate check before the tag.
+Nothing in `docs/contract.md` changed between the candidate and the release, so
+the artifact that ships is the artifact published as `1.0.0-rc.1` — only the
+version and two tense fixes in documents differ.
+
+The rule above is unchanged for a release that has users to draw signal from.
+This waiver is specific to the first release, where the condition the rule exists
+to satisfy — a candidate used by people other than its author — could not yet be
+met.
