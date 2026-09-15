@@ -333,12 +333,15 @@ leave no trace, so also read the CLI error output.
 
 The run directory also contains `resolved-profile.json`, which records
 the resolved profile contents, and `artifacts.json`, which lists the
-saved logs and their digests. The current pipeline does not collect
-project changes into a patch.
+saved logs and their digests. `workspace/` holds the files the agent
+produced, and `patch.diff` is an all-additions unified diff of them
+against an empty base: yuurei runs the agent in a fresh workspace, so the
+patch shows what the agent created, not changes to your project tree.
 
 Trace and log files remain after normal cleanup. To retain the temporary
-execution directory for debugging, run `yuurei run hello --keep`.
-This directory is separate from `.yuurei/runs/<run-id>/workspace/`.
+execution directory for debugging, run `yuurei run hello --keep`; that
+directory is separate from `.yuurei/runs/<run-id>/workspace/`, which is
+kept regardless.
 
 ## Explore more profiles
 

@@ -12,6 +12,7 @@ class AlwaysFailsIsolation implements Isolation {
     return {
       strategy: 'level0',
       rootDir: '/tmp/does-not-matter',
+      workspaceDir: '/tmp/does-not-matter/workspace',
       homeDir: null,
       env: {},
       keep: false,

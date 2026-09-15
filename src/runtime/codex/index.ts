@@ -225,7 +225,7 @@ export class CodexRuntime implements Runtime {
       command: COMMAND,
       args: buildCodexArgs(cell),
       env,
-      cwd: isolation.rootDir,
+      cwd: isolation.workspaceDir,
       isolation,
       cell,
       runtimeVersion: detection.version,

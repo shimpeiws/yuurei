@@ -1,3 +1,5 @@
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { ResolvedCell } from '../cell/types.js';
 import { buildRestrictedEnv } from './env.js';
 import { createTempDir, removeTempDir } from './tempdir.js';
@@ -19,10 +21,13 @@ import { pathExists } from '../util/fs.js';
 export class Level0Isolation implements Isolation {
   async create(_cell: ResolvedCell): Promise<IsolationContext> {
     const rootDir = await createTempDir();
+    const workspaceDir = join(rootDir, 'workspace');
+    await mkdir(workspaceDir, { recursive: true, mode: 0o700 });
     const realHome = process.env['HOME'];
     return {
       strategy: 'level0',
       rootDir,
+      workspaceDir,
       homeDir: null,
       env: buildRestrictedEnv(process.env, realHome !== undefined ? { HOME: realHome } : {}),
       keep: false,

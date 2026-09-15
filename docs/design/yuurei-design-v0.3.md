@@ -591,6 +591,8 @@ Execution results are saved as follows.
 
 What is actually saved is configurable, and secrets or oversized files are not duplicated without limit.
 
+The runtime executes in a fresh `workspace/` inside the temporary cell, and after the run the pipeline copies its regular files (no-follow, symlinks skipped) into the run's `workspace/`. `patch.diff` is an all-additions unified diff of that copy against the empty base: it records what the agent produced, not changes to a supplied project, because none is copied in. Copy and patch are best-effort; on failure `patch.diff` is absent and the reason is a fixed-string entry in the trace's `diagnostics`. ADR-0016 and the contract state the scope, format, caps and accepted risks.
+
 `stdout.log`/`stderr.log` are not a byte-for-byte copy of what the runtime produced: known bridged credential values and generic secret-shaped patterns are redacted before persisting (§9.2, §10.2), so a run that printed a credential to its own output will not have that value recoverable from the durable run directory — but this is a best-effort text pass over whatever the runtime happened to emit, not a content-aware guarantee.
 
 ### 10.1 What is recorded
@@ -949,7 +951,7 @@ opencode run --format json --auto [-m provider/model] <task>
 - The task is passed as a positional argument. `execCapture` spawns the child
   with stdin at EOF, so OpenCode's stdin read returns empty rather than hanging.
 - The adapter does not set `--dir`; the pipeline already spawns with
-  `cwd = isolation.rootDir`.
+  `cwd = isolation.workspaceDir`.
 
 ### 20.3 Environment the adapter sets
 

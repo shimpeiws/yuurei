@@ -16,14 +16,18 @@ What that covers is stated in [the public contract](docs/contract.md).
 - `yuurei trace show --json` prints the complete trace, with `level` and
   `message` the only fields beside it, so a consumer does not have to read
   `trace.json` to obtain a field (#141).
+- Each run executes in a fresh workspace inside the temporary cell. After the
+  run it is copied (no-follow) into `.yuurei/runs/<id>/workspace/`, and
+  `patch.diff` records it as an all-additions unified diff. Copy and patch are
+  best-effort, and the trace's `diagnostics` name any skipped file with a fixed
+  string and a count, never a path (#139).
 - Two records under `docs/adr/`: runs are enumerated through a new `yuurei runs`
   command rather than by walking `.yuurei/runs/`, and each cell runs in its run
   workspace with the result recorded as `patch.diff` (0015, 0016).
 - `docs/contract.md` now records the run index as a stable surface and
   `patch.diff`/`workspace/` as stable artifacts, naming the base, scope, failure
   and empty-diff behaviour and the accepted risk that a secret the agent writes
-  to the workspace is recorded. The patch and workspace land in the
-  implementation that follows _(pending #139)_.
+  to the workspace is recorded.
 
 ### Changed
 

@@ -6,6 +6,8 @@ export interface IsolationContext {
   strategy: IsolationStrategy;
   /** Absolute path to the temporary root created for this run. */
   rootDir: string;
+  /** Absolute path to the fresh working directory the runtime runs in (ADR-0016). */
+  workspaceDir: string;
   /** Temporary HOME directory. Set for level1, null for level0 (arg/config-root swap only). */
   homeDir: string | null;
   env: Record<string, string>;

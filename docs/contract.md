@@ -148,8 +148,7 @@ is a no.
 ### The run directory
 
 `.yuurei/runs/<run-id>/` contains `trace.json`, `resolved-profile.json`,
-`stdout.log`, `stderr.log`, `artifacts.json`, and `patch.diff` and `workspace/`
-_(pending #139)_.
+`stdout.log`, `stderr.log`, `artifacts.json`, `patch.diff` and `workspace/`.
 
 `trace.json` is written atomically and last, so its presence means the run
 reached its end and the identity-and-outcome record is complete. The **required**
@@ -165,7 +164,7 @@ one does not) say so.
 Two concurrent `yuurei run` invocations never share a run directory: the
 directory is claimed atomically and the run id regenerated on collision.
 
-### `patch.diff` and `workspace/` _(pending #139)_
+### `patch.diff` and `workspace/`
 
 The runtime executes in a fresh workspace **inside the temporary cell**. After
 the run, the pipeline copies its regular files into `workspace/` in the run
