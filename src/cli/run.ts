@@ -36,7 +36,8 @@ export interface RunOptions {
    * isolated CODEX_HOME (ignored for other runtimes). Off by default because
    * that file can carry a rotating OAuth token pair — see the Codex
    * adapter's bridgeCodexAuthFile doc comment. The supported v0.3 auth path
-   * is an explicitly-set OPENAI_API_KEY, forwarded unconditionally.
+   * is an explicitly-set CODEX_API_KEY or OPENAI_API_KEY, forwarded
+   * unconditionally.
    */
   bridgeCodexAuthFile: boolean | undefined;
   /**

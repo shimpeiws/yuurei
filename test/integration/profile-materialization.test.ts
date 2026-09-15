@@ -276,8 +276,10 @@ describe('profile materialization', () => {
     }
   });
 
-  it('forwards OPENAI_API_KEY into the isolated env by default (no file written)', async () => {
+  it('forwards OPENAI_API_KEY under both names into the isolated env (no file written)', async () => {
     const realApiKey = process.env['OPENAI_API_KEY'];
+    const realCodexKey = process.env['CODEX_API_KEY'];
+    delete process.env['CODEX_API_KEY'];
     process.env['OPENAI_API_KEY'] = 'sk-test-forwarded';
     try {
       const cell: ResolvedCell = { ...makeCell({}), runtimeId: 'codex' };
@@ -288,6 +290,9 @@ describe('profile materialization', () => {
         const prepared = await new CodexRuntime().prepare(cell, context, (path) =>
           registeredPaths.push(path),
         );
+        // `codex exec` reads CODEX_API_KEY; OPENAI_API_KEY is kept for the
+        // login flow and older releases.
+        expect(prepared.env['CODEX_API_KEY']).toBe('sk-test-forwarded');
         expect(prepared.env['OPENAI_API_KEY']).toBe('sk-test-forwarded');
         expect(registeredPaths).toEqual([]);
       } finally {
@@ -296,6 +301,58 @@ describe('profile materialization', () => {
     } finally {
       if (realApiKey === undefined) delete process.env['OPENAI_API_KEY'];
       else process.env['OPENAI_API_KEY'] = realApiKey;
+      if (realCodexKey === undefined) delete process.env['CODEX_API_KEY'];
+      else process.env['CODEX_API_KEY'] = realCodexKey;
+    }
+  });
+
+  it('forwards CODEX_API_KEY alone as well', async () => {
+    const realApiKey = process.env['OPENAI_API_KEY'];
+    const realCodexKey = process.env['CODEX_API_KEY'];
+    delete process.env['OPENAI_API_KEY'];
+    process.env['CODEX_API_KEY'] = 'sk-codex-only';
+    try {
+      const cell: ResolvedCell = { ...makeCell({}), runtimeId: 'codex' };
+      const isolation = new Level1Isolation();
+      const context = await createVerifiedIsolation(isolation, cell);
+      try {
+        const prepared = await new CodexRuntime().prepare(cell, context, () => {});
+        expect(prepared.env['CODEX_API_KEY']).toBe('sk-codex-only');
+        expect(prepared.env['OPENAI_API_KEY']).toBe('sk-codex-only');
+      } finally {
+        await isolation.dispose(context);
+      }
+    } finally {
+      if (realApiKey === undefined) delete process.env['OPENAI_API_KEY'];
+      else process.env['OPENAI_API_KEY'] = realApiKey;
+      if (realCodexKey === undefined) delete process.env['CODEX_API_KEY'];
+      else process.env['CODEX_API_KEY'] = realCodexKey;
+    }
+  });
+
+  it('falls back to OPENAI_API_KEY when CODEX_API_KEY is present but empty', async () => {
+    const realApiKey = process.env['OPENAI_API_KEY'];
+    const realCodexKey = process.env['CODEX_API_KEY'];
+    // A CI env table often defines the variable with an unset secret, so an
+    // empty CODEX_API_KEY must not mask a valid OPENAI_API_KEY.
+    process.env['CODEX_API_KEY'] = '';
+    process.env['OPENAI_API_KEY'] = 'sk-from-openai';
+    try {
+      const cell: ResolvedCell = { ...makeCell({}), runtimeId: 'codex' };
+      const isolation = new Level1Isolation();
+      const context = await createVerifiedIsolation(isolation, cell);
+      try {
+        const prepared = await new CodexRuntime().prepare(cell, context, () => {});
+        expect(prepared.env['CODEX_API_KEY']).toBe('sk-from-openai');
+        expect(prepared.env['OPENAI_API_KEY']).toBe('sk-from-openai');
+      } finally {
+        await isolation.dispose(context);
+      }
+    } finally {
+      if (realApiKey === undefined) delete process.env['OPENAI_API_KEY'];
+      else process.env['OPENAI_API_KEY'] = realApiKey;
+      if (realCodexKey === undefined) delete process.env['CODEX_API_KEY'];
+      else process.env['CODEX_API_KEY'] = realCodexKey;
     }
   });
 
