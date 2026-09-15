@@ -43,17 +43,21 @@ export function stripCodexStdinNotice(stderr: string): string {
 
 /**
  * Supported v0.3 method (design doc §9.2) for Codex: forward an explicitly-set
- * API key from the parent environment, exactly mirroring how the Claude Code
- * adapter forwards ANTHROPIC_API_KEY. Verified against the real `codex` CLI:
- * `codex exec` authenticates from OPENAI_API_KEY in the environment with no
- * ~/.codex/auth.json present at all, so this needs no file on disk and carries
- * no rotation risk — an API key doesn't rotate mid-run the way an OAuth
- * access/refresh token pair can. Returns the forwarded value (if any) so the
- * pipeline can redact it from persisted logs.
+ * API key from the parent environment. Returns the forwarded value (if any) so
+ * the pipeline can redact it from persisted logs.
+ *
+ * `codex exec` authenticates from `CODEX_API_KEY`; `OPENAI_API_KEY` is used only
+ * by the interactive login flow (and by releases before v0.36). Forward both, so
+ * an operator who set either works, and the non-interactive run authenticates on
+ * current releases. Verified against the real CLI: without a credential, `codex
+ * exec` opens the Responses transport unauthenticated and retries 401s.
  */
 function bridgeCodexApiKey(env: Record<string, string>): string[] {
-  const value = process.env['OPENAI_API_KEY'];
+  // `||`, not `??`: a present-but-empty CODEX_API_KEY (a CI env table with an
+  // unset secret) must fall through to OPENAI_API_KEY, not mask it.
+  const value = process.env['CODEX_API_KEY'] || process.env['OPENAI_API_KEY'];
   if (!value) return [];
+  env['CODEX_API_KEY'] = value;
   env['OPENAI_API_KEY'] = value;
   return [value];
 }
@@ -168,7 +172,11 @@ export class CodexRuntime implements Runtime {
 
   async detect(): Promise<RuntimeDetection> {
     const detection = await detectViaVersionFlag(COMMAND);
-    const authUsable = detection.installed && Boolean(process.env['OPENAI_API_KEY']);
+    // `codex exec` reads CODEX_API_KEY; the adapter also accepts OPENAI_API_KEY
+    // and forwards it under both names. `||` so an empty CODEX_API_KEY falls
+    // through.
+    const apiKey = process.env['CODEX_API_KEY'] || process.env['OPENAI_API_KEY'];
+    const authUsable = detection.installed && Boolean(apiKey);
     return {
       ...detection,
       versionSupported: isVersionAtLeast(detection.version, MIN_SUPPORTED_VERSION),
@@ -176,9 +184,9 @@ export class CodexRuntime implements Runtime {
       ...(detection.installed && authUsable === false
         ? {
             authGuidance:
-              'Export OPENAI_API_KEY in this shell and re-run `yuurei doctor`. ' +
+              'Export CODEX_API_KEY (or OPENAI_API_KEY) in this shell and re-run `yuurei doctor`. ' +
               'A shell export applies only to that shell and its child processes; do not persist the key in a profile, task, or committed file. ' +
-              'Verify the variable is set without printing its value: [ -n "$OPENAI_API_KEY" ] && echo present || echo absent',
+              'Verify the variable is set without printing its value: { [ -n "$CODEX_API_KEY" ] || [ -n "$OPENAI_API_KEY" ]; } && echo present || echo absent',
           }
         : {}),
     };

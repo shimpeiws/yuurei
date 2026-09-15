@@ -160,7 +160,8 @@ reports `authentication: required`, `yuurei doctor` prints safe,
 runtime-specific next steps. Note that the check reflects an explicit
 environment credential, not whether an interactive login exists: Codex can
 report `authentication: required` even when a `~/.codex/auth.json` is available
-for explicit bridging, because the check detects `OPENAI_API_KEY` only. Verify a
+for explicit bridging, because the check detects `CODEX_API_KEY` or
+`OPENAI_API_KEY`. Verify a
 credential variable is present without printing its value:
 
 ```sh
