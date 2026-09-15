@@ -372,7 +372,9 @@ Documented so the expectation is accurate. None of it is a guarantee.
   agent produced them and are not scrubbed; only `patch.diff` receives the
   best-effort text redaction. See Section A.
 - **Artifact size cap and log truncation.** Stored artifacts and logs are capped;
-  beyond the cap the stored bytes are cut and `truncated` is set.
+  the cap defaults to 1 MiB (`DEFAULT_ARTIFACT_MAX_BYTES`). Beyond the cap the
+  stored bytes are cut and `truncated` is set, so the digest covers a truncated
+  record rather than everything the runtime emitted.
 
 ---
 
