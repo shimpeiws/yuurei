@@ -28,6 +28,16 @@ What that covers is stated in [the public contract](docs/contract.md).
   required run output exits 6 (trace or artifact save failed) instead of 5,
   matching the contract's exit-code table (#149).
 
+### Security
+
+- A repo-wide security re-audit for v1.0.0
+  (`docs/security/audit-v1-release-candidate.md`). No HIGH findings; every
+  Section C invariant holds, the OpenCode adapter was verified against its §20
+  contract, and all confirmed fixes from the previous audit remain in place. The
+  one MEDIUM item — the Claude Code adapter does not filter `settings.json`
+  auth-steering keys — is recorded as an accepted risk under the profile trust
+  boundary, not demonstrated exploitable on the supported version (#147).
+
 ## [0.5.0] - 2026-09-15
 
 ### Added
