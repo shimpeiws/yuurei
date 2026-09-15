@@ -1,5 +1,4 @@
-import { constants } from 'node:fs';
-import { mkdir, open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /** Characters in a path component that cannot be represented in a diff header. */
@@ -11,10 +10,9 @@ function hasForbiddenNameChar(component: string): boolean {
 
 /**
  * Copies the cell workspace into the durable run workspace (ADR-0016). Only
- * regular files are copied, and the final component is opened `O_NOFOLLOW`, so
- * a symlink is never followed and never copied; directories are recreated. Every
- * skip and a failed copy are reported as fixed strings; the count is the only
- * variable and no path is included.
+ * regular files are copied; a symlink entry is skipped and never followed, and
+ * directories are recreated. Every skip and a failed copy are reported as fixed
+ * strings; the count is the only variable and no path is included.
  */
 export async function copyWorkspace(sourceDir: string, destDir: string): Promise<string[]> {
   const diagnostics: string[] = [];
@@ -42,19 +40,13 @@ export async function copyWorkspace(sourceDir: string, destDir: string): Promise
         await walk(rel);
       } else if (entry.isFile()) {
         try {
-          const handle = await open(
-            join(sourceDir, rel),
-            constants.O_RDONLY | constants.O_NOFOLLOW,
-          );
-          try {
-            await writeFile(join(destDir, rel), await handle.readFile());
-          } finally {
-            await handle.close();
-          }
-        } catch (error) {
-          // O_NOFOLLOW reports a symlink swapped in after the dirent read as ELOOP.
-          if ((error as NodeJS.ErrnoException).code === 'ELOOP') symlinks += 1;
-          else failed = true;
+          // `isFile()` is false for a symlink, so this reads only entries the
+          // walk saw as regular files. A filesystem actor that swaps one for a
+          // symlink between the check and the read is out of scope (§12.1), the
+          // same check-then-read race profile materialization already accepts.
+          await writeFile(join(destDir, rel), await readFile(join(sourceDir, rel)));
+        } catch {
+          failed = true;
         }
       } else if (entry.isSymbolicLink()) {
         symlinks += 1;
