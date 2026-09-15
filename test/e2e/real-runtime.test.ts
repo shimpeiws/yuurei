@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   cleanupFixtures,
@@ -6,6 +8,7 @@ import {
   runAndReadTrace,
   writeRunConfig,
 } from '../harness/cli-fixture.js';
+import type { FixtureProject, TraceRecord } from '../harness/cli-fixture.js';
 
 // A real model call takes far longer than the 5s default; give each case room
 // for a cold-start CLI plus a short completion.
@@ -50,6 +53,29 @@ const RUNTIMES: RuntimeCase[] = [
   },
 ];
 
+/**
+ * Runs a real runtime and returns its trace, failing with the run's stderr,
+ * resolved model and diagnostics when the runtime exited non-zero. Without
+ * this, a failing real run only shows `exit_code: 1` and the cause (in the
+ * run's stderr.log, which cleanup removes) is lost.
+ */
+async function runReal(project: FixtureProject, runtime: RuntimeCase): Promise<TraceRecord> {
+  const trace = await runAndReadTrace(project);
+  const execution = trace['execution'] as { exit_code?: number | null } | undefined;
+  if (execution?.exit_code !== 0) {
+    const stderr = await readFile(
+      join(project.root, '.yuurei', 'runs', String(trace['run_id']), 'stderr.log'),
+      'utf8',
+    ).catch(() => '(no stderr.log)');
+    throw new Error(
+      `${runtime.runtime} exited ${String(execution?.exit_code)}; ` +
+        `model=${JSON.stringify(trace['model'])}; ` +
+        `diagnostics=${JSON.stringify(trace['diagnostics'])}; stderr:\n${stderr}`,
+    );
+  }
+  return trace;
+}
+
 describe.skipIf(!enabled)('contract verification: real runtimes', () => {
   afterEach(cleanupFixtures);
 
@@ -57,10 +83,9 @@ describe.skipIf(!enabled)('contract verification: real runtimes', () => {
     const project = await createFixtureProject(runtime);
     if (runtime.model) await writeRunConfig(project.root, runtime, { model: runtime.model });
 
-    const trace = await runAndReadTrace(project);
+    const trace = await runReal(project, runtime);
 
     expect(trace['runtime']).toMatchObject({ id: runtime.runtime });
-    expect(trace['execution']).toMatchObject({ exit_code: 0, timed_out: false });
     expect(trace['requested_cell']).toMatchObject({ inputs_version: 1 });
     expect(digestOf(trace)).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(trace['schema_version']).toBe('0.3');
