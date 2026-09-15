@@ -282,8 +282,9 @@ before the process exits.
 
 v0.3 scope: single-runtime "native cell" execution (Pattern A) for Claude
 Code, Codex, and OpenCode, treated as independent runtime × model × harness
-× task combinations. The OpenCode adapter is newer and marked experimental
-(issue #106). Not yet in scope: cross-runtime harness portability, local
+× task combinations. The OpenCode adapter was added later (issue #106) and,
+like the others, is exercised against the real runtime in CI. Not yet in scope:
+cross-runtime harness portability, local
 LLM support, output quality auto-scoring, cost/ROI dashboards, OS-level
 sandboxing, or team auth.
 
