@@ -1,11 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { OPENCODE_CREDENTIAL_ENV_KEYS } from '../../src/runtime/opencode/auth.js';
 import {
   cleanupFixtures,
   createFixtureProject,
   digestOf,
   runAndReadTrace,
+  runCli,
   writeRunConfig,
 } from '../harness/cli-fixture.js';
 import type { FixtureProject, TraceRecord } from '../harness/cli-fixture.js';
@@ -103,5 +105,30 @@ describe.skipIf(!enabled)('contract verification: real runtimes', () => {
     expect(trace['artifacts']).toEqual(
       expect.arrayContaining([expect.objectContaining({ path: 'patch.diff', kind: 'patch' })]),
     );
+  });
+
+  // ADR-0018's third scenario: a run with no usable credential is recorded as a
+  // failure, never a hang and never a reported success.
+  it('records an OpenCode run with no usable credential as a failure', async () => {
+    const runtime = RUNTIMES.find((candidate) => candidate.runtime === 'opencode');
+    if (!runtime) throw new Error('opencode runtime case missing');
+    const project = await createFixtureProject(runtime);
+    // A provider that needs a key, with every credential the adapter would
+    // forward removed.
+    await writeRunConfig(project.root, runtime, { model: 'openai/gpt-5.4-mini' });
+    const env = { ...project.env };
+    for (const key of [...OPENCODE_CREDENTIAL_ENV_KEYS, 'ANTHROPIC_AUTH_TOKEN']) delete env[key];
+
+    const result = await runCli(['run', 'smoke'], env, project.root);
+    const runId = result.stdout.match(/run ([^ ]+) finished/)?.[1];
+    if (!runId) throw new Error(`run id missing: ${result.stdout}`);
+    const trace = JSON.parse(
+      await readFile(join(project.root, '.yuurei', 'runs', runId, 'trace.json'), 'utf8'),
+    ) as TraceRecord;
+    const execution = trace['execution'] as { exit_code: number | null; signal: string | null };
+
+    // yuurei itself completed; the runtime's failure is recorded rather than
+    // reported as success. A hang fails the test's timeout instead.
+    expect(execution.exit_code === 0 && execution.signal === null).toBe(false);
   });
 });

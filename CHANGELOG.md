@@ -27,13 +27,18 @@ What that covers is stated in [the public contract](docs/contract.md).
   `OPENAI_API_KEY`, because `codex exec` on current releases authenticates only
   from the former and otherwise opens the Responses transport unauthenticated.
   Setting `OPENAI_API_KEY` still works (the adapter maps it), and an empty
-  `CODEX_API_KEY` falls back to it (#143).
+  `CODEX_API_KEY` falls back to it (#143, ADR-0019).
 - Two records under `docs/adr/`: the real-runtime end-to-end check is separated
   into a nightly run (a signal to revisit the supported-version boundary) and a
   release-candidate gate (required before the tag), and the criterion for
   dropping OpenCode's experimental marking is fixed before the suite runs
   (0017, 0018). `docs/releasing.md` states that the release-candidate check must
   pass before a release is tagged.
+- A record under `docs/adr/` settles the Codex credential path: the supported
+  automation credential is an API key forwarded as `CODEX_API_KEY` (with
+  `OPENAI_API_KEY` mapped to it), and a ChatGPT access token is deliberately not
+  adopted because it rotates, reintroducing the auth-file bridge's mid-run
+  refresh problem (0019).
 
 ## [0.4.0] - 2026-09-15
 
