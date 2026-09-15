@@ -324,9 +324,9 @@ login stale, requiring a fresh login. See Section D.
 
 ### OpenCode's experimental marking
 
-The OpenCode adapter is marked experimental. Whether the marking is removed
-depends on the end-to-end suite, against a criterion fixed before the suite runs
-_(pending #146)_.
+The OpenCode adapter is marked experimental. The criterion for removing the
+marking is fixed in [ADR-0018](adr/0018-pre-register-the-opencode-criterion.md);
+applying it is _(pending #146)_.
 
 ---
 

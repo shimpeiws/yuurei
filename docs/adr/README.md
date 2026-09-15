@@ -89,21 +89,23 @@ the understanding that older entries use the vocabulary of their time.
 
 ## Records
 
-| #                                                             | Title                                                                | Status   |
-| ------------------------------------------------------------- | -------------------------------------------------------------------- | -------- |
-| [0001](./0001-v1-means-a-frozen-contract.md)                  | v1 means a frozen public contract, not feature completeness          | Accepted |
-| [0002](./0002-four-kinds-of-promise.md)                       | Split the public contract into four kinds of promise                 | Accepted |
-| [0003](./0003-independent-trace-schema-version.md)            | Version the trace schema independently of the package                | Accepted |
-| [0004](./0004-no-repetition-or-comparison.md)                 | Keep repetition, comparison and scoring out of yuurei                | Accepted |
-| [0005](./0005-keep-credential-bridge-flags.md)                | Keep the credential-bridge flags, with a split guarantee             | Accepted |
-| [0006](./0006-level-0-1-isolation-only.md)                    | Ship v1 with Level 0–1 isolation only                                | Accepted |
-| [0007](./0007-macos-and-linux-only.md)                        | Support macOS and Linux only                                         | Accepted |
-| [0008](./0008-trace-records-identity-and-outcome.md)          | The trace records identity and outcome; the manifest records content | Accepted |
-| [0009](./0009-record-cell-identity-in-the-trace.md)           | Record cell identity and the digest-input options in the trace       | Accepted |
-| [0010](./0010-three-document-split.md)                        | Separate the design document, the contract and these records         | Accepted |
-| [0011](./0011-identify-a-cell-by-what-was-requested.md)       | Identify a cell by what was requested, not by which build ran it     | Accepted |
-| [0012](./0012-versioning-and-deprecation-policy.md)           | State which version bump each kind of promise requires               | Accepted |
-| [0013](./0013-resolve-run-parameters-cli-first.md)            | Resolve run parameters CLI-first, and record what the CLI overrode   | Accepted |
-| [0014](./0014-the-schema-version-is-a-compatibility-token.md) | Treat the trace schema version as a compatibility token              | Accepted |
-| [0015](./0015-enumerate-runs-through-the-cli.md)              | Enumerate runs through the CLI, not the run directory                | Accepted |
-| [0016](./0016-run-in-the-workspace-and-record-a-patch.md)     | Run each cell in its workspace, and record the result as a patch     | Accepted |
+| #                                                             | Title                                                                   | Status   |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------- | -------- |
+| [0001](./0001-v1-means-a-frozen-contract.md)                  | v1 means a frozen public contract, not feature completeness             | Accepted |
+| [0002](./0002-four-kinds-of-promise.md)                       | Split the public contract into four kinds of promise                    | Accepted |
+| [0003](./0003-independent-trace-schema-version.md)            | Version the trace schema independently of the package                   | Accepted |
+| [0004](./0004-no-repetition-or-comparison.md)                 | Keep repetition, comparison and scoring out of yuurei                   | Accepted |
+| [0005](./0005-keep-credential-bridge-flags.md)                | Keep the credential-bridge flags, with a split guarantee                | Accepted |
+| [0006](./0006-level-0-1-isolation-only.md)                    | Ship v1 with Level 0–1 isolation only                                   | Accepted |
+| [0007](./0007-macos-and-linux-only.md)                        | Support macOS and Linux only                                            | Accepted |
+| [0008](./0008-trace-records-identity-and-outcome.md)          | The trace records identity and outcome; the manifest records content    | Accepted |
+| [0009](./0009-record-cell-identity-in-the-trace.md)           | Record cell identity and the digest-input options in the trace          | Accepted |
+| [0010](./0010-three-document-split.md)                        | Separate the design document, the contract and these records            | Accepted |
+| [0011](./0011-identify-a-cell-by-what-was-requested.md)       | Identify a cell by what was requested, not by which build ran it        | Accepted |
+| [0012](./0012-versioning-and-deprecation-policy.md)           | State which version bump each kind of promise requires                  | Accepted |
+| [0013](./0013-resolve-run-parameters-cli-first.md)            | Resolve run parameters CLI-first, and record what the CLI overrode      | Accepted |
+| [0014](./0014-the-schema-version-is-a-compatibility-token.md) | Treat the trace schema version as a compatibility token                 | Accepted |
+| [0015](./0015-enumerate-runs-through-the-cli.md)              | Enumerate runs through the CLI, not the run directory                   | Accepted |
+| [0016](./0016-run-in-the-workspace-and-record-a-patch.md)     | Run each cell in its workspace, and record the result as a patch        | Accepted |
+| [0017](./0017-separate-nightly-from-the-release-candidate.md) | Separate nightly real-runtime checks from the release-candidate gate    | Accepted |
+| [0018](./0018-pre-register-the-opencode-criterion.md)         | Pre-register the criterion for dropping OpenCode's experimental marking | Accepted |
