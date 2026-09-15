@@ -79,8 +79,11 @@ the isolated copy afterward. The real global file is never modified. It is an
 explicit opt-in because that file can carry a rotating OAuth access/refresh
 token pair: if the token refreshes mid-run, only the isolated copy receives
 the new state while the real file stays stale, and the valid rotated copy is
-then discarded on cleanup. Do not copy credentials into profile or task
-files.
+then discarded on cleanup. The guarantees — the real `~/.codex/auth.json` is
+never modified, and the isolated copy is scrubbed on normal exit and on
+catchable signals (`SIGINT`, `SIGTERM`) even under `--keep` — are the
+[contract's](contract.md); the flag's name and shape may change or be removed
+in a minor release. Do not copy credentials into profile or task files.
 
 ### OpenCode
 
@@ -109,7 +112,8 @@ This is experimental and off by default, and behaves like the Codex bridge:
 yuurei copies exactly `~/.local/share/opencode/auth.json` into the isolated
 cell, runs with it, and scrubs the isolated copy afterward — even under
 `--keep`. The real file is never modified, and the same mid-run OAuth refresh
-limitation applies.
+limitation applies. The guarantees are the [contract's](contract.md), and the
+flag's name and shape may change or be removed in a minor release.
 
 ### Verify the environment
 
@@ -175,6 +179,11 @@ commands. Yuurei sends the task file's text to the runtime as the prompt.
 The runtime starts in a temporary directory with an isolated home. Yuurei
 does not copy this project's source files into that directory, so this
 first task needs no project files.
+
+Isolation here is **configuration and environment separation**, not a
+container or an OS sandbox: it keeps the run away from your global runtime
+config, but the code the agent runs can reach anything your user account can.
+The [public contract](contract.md) states exactly what is guaranteed.
 
 `init` never overwrites existing files: re-run it on an untouched scaffold
 and it reports that the project is already initialized; if a generated file
