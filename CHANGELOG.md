@@ -7,6 +7,17 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+### Added
+
+- Two records under `docs/adr/`: runs are enumerated through a new `yuurei runs`
+  command rather than by walking `.yuurei/runs/`, and each cell runs in its run
+  workspace with the result recorded as `patch.diff` (0015, 0016).
+- `docs/contract.md` now records the run index as a stable surface and
+  `patch.diff`/`workspace/` as stable artifacts, naming the base, scope, failure
+  and empty-diff behaviour and the accepted risk that a secret the agent writes
+  to the workspace is recorded. Both land in the implementation that follows
+  _(pending #139, #140)_.
+
 ## [0.3.0] - 2026-09-15
 
 ### Added

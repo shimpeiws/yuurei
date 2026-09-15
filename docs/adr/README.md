@@ -105,3 +105,5 @@ the understanding that older entries use the vocabulary of their time.
 | [0012](./0012-versioning-and-deprecation-policy.md)           | State which version bump each kind of promise requires               | Accepted |
 | [0013](./0013-resolve-run-parameters-cli-first.md)            | Resolve run parameters CLI-first, and record what the CLI overrode   | Accepted |
 | [0014](./0014-the-schema-version-is-a-compatibility-token.md) | Treat the trace schema version as a compatibility token              | Accepted |
+| [0015](./0015-enumerate-runs-through-the-cli.md)              | Enumerate runs through the CLI, not the run directory                | Accepted |
+| [0016](./0016-run-in-the-workspace-and-record-a-patch.md)     | Run each cell in its workspace, and record the result as a patch     | Accepted |
