@@ -7,6 +7,8 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-15
+
 ### Added
 
 - `yuurei runs` lists the runs under `.yuurei/runs/`, with `--json` emitting one
@@ -238,7 +240,8 @@ First published release. It implements the v0.3 design scope: single-runtime
 - `trace.json` is written atomically and last, so it is a reliable completion
   marker and can never be read half-written.
 
-[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/shimpeiws/yuurei/releases/tag/v0.4.0
 [0.3.0]: https://github.com/shimpeiws/yuurei/releases/tag/v0.3.0
 [0.2.0]: https://github.com/shimpeiws/yuurei/releases/tag/v0.2.0
 [0.1.0]: https://github.com/shimpeiws/yuurei/releases/tag/v0.1.0
