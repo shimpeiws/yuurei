@@ -1,6 +1,7 @@
 import { rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 import { NoopCostModel } from '../cost/noop.js';
 import { installSignalCleanup } from './signals.js';
 import { resolveCell, type CellResolutionInput } from '../cell/resolver.js';
@@ -65,6 +66,21 @@ export interface RunPipelineResult {
  */
 export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineResult> {
   const cell = await resolveCell(input);
+  // A runtime that is not installed, or is below its declared minimum, is a
+  // configuration error, not an execution failure (contract, Exit codes: 3).
+  // Checked before any run directory or temp cell is created.
+  const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
+  const detection = await runtime.detect();
+  if (!detection.installed) {
+    throw new YuureiError(`runtime not found: ${cell.runtimeId}`, EXIT_CODES.RUNTIME_UNSUPPORTED);
+  }
+  if (detection.versionSupported === false) {
+    throw new YuureiError(
+      `runtime ${cell.runtimeId} version ${detection.version ?? 'unknown'} is below the supported minimum`,
+      EXIT_CODES.RUNTIME_UNSUPPORTED,
+    );
+  }
+
   const { runId, layout } = await createUniqueRunLayout(input.yuureiDir);
 
   const isolation = (input.createIsolation ?? createIsolation)(input.isolationStrategy);
@@ -198,7 +214,6 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   const signalCleanup = installSignalCleanup({ cleanup });
   let primaryError: unknown;
   try {
-    const runtime = (input.resolveRuntime ?? getRuntime)(cell.runtimeId);
     prepared = await runtime.prepare(cell, context, (path) => registeredCredentialPaths.add(path));
     const result = await runtime.execute(prepared, cell.executionOptions.timeout_ms);
     const fragment = await runtime.normalize(result, { runtimeVersion: prepared.runtimeVersion });
@@ -214,6 +229,21 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
 
     const knownCredentialValues = prepared.credentialValuesToRedact;
     const maxArtifactBytes = input.maxArtifactBytes ?? DEFAULT_ARTIFACT_MAX_BYTES;
+    // A failure to persist a required output is a trace/artifact save failure
+    // (exit 6), not a runtime execution failure — the runtime already ran
+    // (contract, Exit codes). The best-effort workspace copy and patch are
+    // handled separately and do not reach here.
+    const save = async <T>(operation: () => Promise<T>): Promise<T> => {
+      try {
+        return await operation();
+      } catch (error) {
+        if (error instanceof YuureiError) throw error;
+        throw new YuureiError(
+          `failed to save the run outputs: ${error instanceof Error ? error.message : String(error)}`,
+          EXIT_CODES.TRACE_OR_ARTIFACT_SAVE_FAILED,
+        );
+      }
+    };
     const redactLog = async (inputPath: string, outputPath: string): Promise<boolean> => {
       try {
         return await redactFile(inputPath, outputPath, knownCredentialValues, maxArtifactBytes);
@@ -226,8 +256,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       }
     };
     const [stdoutTruncated, stderrTruncated] = await Promise.all([
-      redactLog(result.stdoutPath, layout.stdoutPath),
-      redactLog(result.stderrPath, layout.stderrPath),
+      save(() => redactLog(result.stdoutPath, layout.stdoutPath)),
+      save(() => redactLog(result.stderrPath, layout.stderrPath)),
     ]);
 
     // Copy the cell workspace into the run and record it as a patch (ADR-0016).
@@ -287,25 +317,25 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // which cleanup removes and `yuurei trace show` cannot consume. The
     // artifact list in the trace is derived from the manifest, so the two can
     // never disagree (#111).
-    const manifest = await collectArtifacts(
-      layout.runDir,
-      ['stdout.log', 'stderr.log', 'patch.diff'],
-      {
+    const manifest = await save(() =>
+      collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log', 'patch.diff'], {
         maxBytes: maxArtifactBytes,
         truncatedPaths: [
           ...(stdoutTruncated ? ['stdout.log'] : []),
           ...(stderrTruncated ? ['stderr.log'] : []),
           ...(patchTruncated ? ['patch.diff'] : []),
         ],
-      },
+      }),
     );
-    await writeArtifactManifest(layout.runDir, manifest);
+    await save(() => writeArtifactManifest(layout.runDir, manifest));
     // Identity, not content: §10.1 records a digest of the profile content,
     // and §10.2 keeps a profile's own secrets out of the durable run dir.
-    await writeFile(
-      layout.resolvedProfilePath,
-      JSON.stringify(toProfileManifest(cell.resolvedProfile), null, 2),
-      'utf8',
+    await save(() =>
+      writeFile(
+        layout.resolvedProfilePath,
+        JSON.stringify(toProfileManifest(cell.resolvedProfile), null, 2),
+        'utf8',
+      ),
     );
 
     const trace: Trace = {
@@ -352,7 +382,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       ...(diagnostics.length > 0 ? { diagnostics } : {}),
     };
 
-    await writeTrace(layout.runDir, trace);
+    await save(() => writeTrace(layout.runDir, trace));
     traceWritten = true;
 
     return { runId, runDir: layout.runDir, cell, trace };

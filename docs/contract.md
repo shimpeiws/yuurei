@@ -7,6 +7,8 @@ when the two disagree this one is right.
 - **How the system works** is `docs/design/yuurei-design-v0.3.md`.
 - **Why a promise is drawn where it is** is `docs/adr/`, an append-only log of
   the decisions. A record there explains reasoning; it never defines a promise.
+- **What demonstrates each entry** is `docs/contract-verification.md`: a test or
+  a document for every entry, required before the v1.0.0 release candidate.
 
 ## Scope
 
@@ -82,6 +84,13 @@ changed; `--timeout 2147483647` is the practical maximum; and
 |    6 | Trace or artifact save failed              |
 |  130 | Interrupted by `SIGINT` (shell convention) |
 |  143 | Terminated by `SIGTERM` (shell convention) |
+
+Code 3 is a runtime that is not installed, or is below its declared supported
+minimum: the run does not start and no run directory is created. Code 5 is the
+CLI's mapping for a failure that is none of configuration (2), runtime support
+(3), isolation (4), or a save failure (6). A runtime that **runs** and exits
+non-zero is not a `yuurei` failure: it is recorded in `execution.exit_code` and
+`yuurei` exits 0 (design §12.2).
 
 ### `--json` output
 

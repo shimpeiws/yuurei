@@ -1265,3 +1265,79 @@ describe('run pipeline', () => {
     await rm(createdRootDir, { recursive: true, force: true });
   });
 });
+
+describe('run pipeline runtime gate', () => {
+  let workDir: string;
+  let taskPath: string;
+
+  beforeEach(async () => {
+    workDir = await mkdtemp(join(tmpdir(), 'yuurei-pipeline-gate-'));
+    taskPath = join(workDir, 'task.md');
+    await writeFile(taskPath, '# Task\n', 'utf8');
+  });
+
+  afterEach(async () => {
+    await rm(workDir, { recursive: true, force: true });
+  });
+
+  function profileFor(runtime: string): ResolvedProfile {
+    return {
+      name: 'gate',
+      runtime,
+      content: { profileYaml: { runtime }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+  }
+
+  function runWith(runtime: Runtime): ReturnType<typeof runPipeline> {
+    const profile = profileFor(runtime.id());
+    return runPipeline({
+      runtimeId: profile.runtime,
+      requestedModel: '',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      resolveRuntime: () => runtime,
+    });
+  }
+
+  it('refuses a run when the runtime is not installed, and leaves no run directory', async () => {
+    const fake: Runtime = {
+      ...makeTrivialRuntime('missing-runtime'),
+      detect: async () => ({
+        installed: false,
+        version: null,
+        versionSupported: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+    };
+
+    await expect(runWith(fake)).rejects.toMatchObject({
+      exitCode: EXIT_CODES.RUNTIME_UNSUPPORTED,
+    });
+
+    const entries = await readdir(join(workDir, 'runs')).catch(() => []);
+    expect(entries).toHaveLength(0);
+  });
+
+  it('refuses a run when the runtime version is below the supported minimum', async () => {
+    const fake: Runtime = {
+      ...makeTrivialRuntime('old-runtime'),
+      detect: async () => ({
+        installed: true,
+        version: '0.0.1',
+        versionSupported: false,
+        executablePath: 'old-runtime',
+        authUsable: null,
+      }),
+    };
+
+    await expect(runWith(fake)).rejects.toMatchObject({
+      exitCode: EXIT_CODES.RUNTIME_UNSUPPORTED,
+    });
+  });
+});

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runPipeline } from '../../src/run/pipeline.js';
 import { readTrace } from '../../src/trace/reader.js';
+import { EXIT_CODES } from '../../src/cli/exit-codes.js';
 import type { ArtifactManifest } from '../../src/artifact/types.js';
 import type { ResolvedProfile } from '../../src/profile/types.js';
 import type { IsolationContext } from '../../src/isolation/types.js';
@@ -222,6 +223,19 @@ describe('trace publication', () => {
         resolveRuntime: () => makeTrivialRuntime('fake-fail-runtime'),
       }),
     ).rejects.toThrow(/injected writeFile failure/);
+    await expect(
+      runPipeline({
+        runtimeId: profile.runtime,
+        requestedModel: '',
+        profile,
+        taskPath,
+        yuureiVersion: '0.0.1',
+        yuureiDir: workDir,
+        isolationStrategy: 'level1',
+        keep: false,
+        resolveRuntime: () => makeTrivialRuntime(profile.runtime),
+      }),
+    ).rejects.toMatchObject({ exitCode: EXIT_CODES.TRACE_OR_ARTIFACT_SAVE_FAILED });
 
     // trace.json is the completion marker and is written last; a failure in
     // any earlier persistence step must not leave a run that `trace show`
@@ -248,6 +262,19 @@ describe('trace publication', () => {
         resolveRuntime: () => makeTrivialRuntime('fake-trace-fail-runtime'),
       }),
     ).rejects.toThrow(/injected writeFile failure/);
+    await expect(
+      runPipeline({
+        runtimeId: profile.runtime,
+        requestedModel: '',
+        profile,
+        taskPath,
+        yuureiVersion: '0.0.1',
+        yuureiDir: workDir,
+        isolationStrategy: 'level1',
+        keep: false,
+        resolveRuntime: () => makeTrivialRuntime(profile.runtime),
+      }),
+    ).rejects.toMatchObject({ exitCode: EXIT_CODES.TRACE_OR_ARTIFACT_SAVE_FAILED });
 
     const runsDir = join(workDir, 'runs');
     const entries = await readdir(runsDir).catch(() => []);
