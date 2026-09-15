@@ -34,6 +34,10 @@ What that covers is stated in [the public contract](docs/contract.md).
   separates configuration and environment variables — it is not a container or
   an OS sandbox, and does not confine the code the agent runs — and point at the
   contract for the auth-bridge guarantees instead of restating them (#148).
+- `docs/migration-0.x-to-1.0.md` collects what 1.0 changes for a 0.x user: the
+  surfaces that are now frozen, the user-visible changes shipped across 0.3–0.5,
+  the rules for consuming `trace.json`, and the credential-bridge flags that stay
+  experimental (#150).
 
 ### Security
 
