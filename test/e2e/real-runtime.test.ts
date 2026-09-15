@@ -37,12 +37,12 @@ const RUNTIMES: RuntimeCase[] = [
   {
     runtime: 'codex',
     command: 'codex',
-    model: process.env['YUUREI_E2E_CODEX_MODEL'] ?? 'gpt-5-mini',
+    model: process.env['YUUREI_E2E_CODEX_MODEL'] ?? 'gpt-5.4-mini',
   },
   {
     runtime: 'opencode',
     command: 'opencode',
-    model: process.env['YUUREI_E2E_OPENCODE_MODEL'] ?? 'openai/gpt-5-mini',
+    model: process.env['YUUREI_E2E_OPENCODE_MODEL'] ?? 'openai/gpt-5.4-mini',
   },
 ];
 
