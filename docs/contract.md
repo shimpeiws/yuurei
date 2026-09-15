@@ -291,8 +291,7 @@ runtime version will work.
 
 ### Supported platforms
 
-macOS and Linux, both exercised in CI _(the macOS matrix is pending #144)_.
-Windows is not supported.
+macOS and Linux, both exercised in CI. Windows is not supported.
 
 ---
 

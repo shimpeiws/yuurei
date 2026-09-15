@@ -9,6 +9,10 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ### Added
 
+- CI runs the suite on macOS as well as Linux, so the declared platform support
+  and the tested one agree, and each runtime adapter's minimum supported version
+  is pinned by a test that fails when the boundary changes without the declared
+  value changing with it (#144).
 - Two records under `docs/adr/`: the real-runtime end-to-end check is separated
   into a nightly run (a signal to revisit the supported-version boundary) and a
   release-candidate gate (required before the tag), and the criterion for

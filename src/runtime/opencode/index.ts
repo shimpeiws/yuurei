@@ -27,7 +27,7 @@ import { openCodeConfigDir, openCodeDataDir, openCodeEnv, realOpenCodeDataDir } 
 
 const RUNTIME_ID = 'opencode';
 const COMMAND = 'opencode';
-const MIN_SUPPORTED_VERSION: [number, number, number] = [1, 18, 0];
+export const MIN_SUPPORTED_VERSION: [number, number, number] = [1, 18, 0];
 
 const OPENCODE_PROVIDER_ENV_KEYS = [
   'ANTHROPIC_API_KEY',
