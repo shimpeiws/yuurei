@@ -20,14 +20,6 @@ What that covers is stated in [the public contract](docs/contract.md).
   and the tested one agree, and each runtime adapter's minimum supported version
   is pinned by a test that fails when the boundary changes without the declared
   value changing with it (#144).
-
-### Fixed
-
-- The Codex adapter forwards an API key under `CODEX_API_KEY` as well as
-  `OPENAI_API_KEY`, because `codex exec` on current releases authenticates only
-  from the former and otherwise opens the Responses transport unauthenticated.
-  Setting `OPENAI_API_KEY` still works (the adapter maps it), and an empty
-  `CODEX_API_KEY` falls back to it (#143, ADR-0019).
 - Two records under `docs/adr/`: the real-runtime end-to-end check is separated
   into a nightly run (a signal to revisit the supported-version boundary) and a
   release-candidate gate (required before the tag), and the criterion for
@@ -39,6 +31,21 @@ What that covers is stated in [the public contract](docs/contract.md).
   `OPENAI_API_KEY` mapped to it), and a ChatGPT access token is deliberately not
   adopted because it rotates, reintroducing the auth-file bridge's mid-run
   refresh problem (0019).
+
+### Changed
+
+- The OpenCode adapter is no longer marked experimental. The criterion fixed
+  before the suite ran (ADR-0018) is met: the release-candidate real-runtime
+  check passes on macOS and Linux for a provider-key run, the config guard, and a
+  no-credential failure (#146).
+
+### Fixed
+
+- The Codex adapter forwards an API key under `CODEX_API_KEY` as well as
+  `OPENAI_API_KEY`, because `codex exec` on current releases authenticates only
+  from the former and otherwise opens the Responses transport unauthenticated.
+  Setting `OPENAI_API_KEY` still works (the adapter maps it), and an empty
+  `CODEX_API_KEY` falls back to it (#143, ADR-0019).
 
 ## [0.4.0] - 2026-09-15
 

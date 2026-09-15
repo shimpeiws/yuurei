@@ -223,7 +223,7 @@ Initial implementations:
 
 - `ClaudeCodeRuntime`
 - `CodexRuntime`
-- `OpenCodeRuntime` (experimental; issue #106 — see §20. Implemented and security-reviewed)
+- `OpenCodeRuntime` (issue #106 — see §20. Implemented and security-reviewed)
 
 Runtime-specific configuration paths and CLI arguments are confined inside each adapter. External specifications are expected to change, so fixed values must not leak into the core.
 
@@ -890,7 +890,7 @@ The following are not reopened during v0.3 implementation.
 - The lower-layer tool is named `yuurei`
 - Claude Code and Codex are the target runtimes
 - Both are treated as separate native cells
-- The OpenCode adapter (issue #106, contract in §20) is an explicitly tracked extension of this set. It is implemented under the same `Runtime` boundary, marked experimental, and is listed in the user-facing docs alongside Claude Code and Codex now that its implementation and required security review have landed
+- The OpenCode adapter (issue #106, contract in §20) is an explicitly tracked extension of this set. It is implemented under the same `Runtime` boundary and is listed in the user-facing docs alongside Claude Code and Codex; its implementation, required security review, and the pre-registered end-to-end criterion for its status (ADR-0018) have landed
 - Cross-runtime porting is not implemented
 - Local LLMs are not a current premise
 - The four boundaries `Runtime` / `Isolation` / `TraceSchema` / `CostModel` are established
@@ -926,10 +926,11 @@ This section locks the OpenCode adapter contract, verified by a read-only spike
 before implementation. Raw evidence and reproduction steps live in
 [`docs/design/spike/opencode-contract.md`](spike/opencode-contract.md) and
 [`scripts/spike/opencode-contract.sh`](../../scripts/spike/opencode-contract.sh).
-OpenCode is marked experimental and listed in the user-facing docs now that the
-adapter and its required security review
+OpenCode is listed in the user-facing docs now that the adapter, its required
+security review
 (§`docs/security/review-policy.md`; record:
-`docs/security/reviews/opencode-adapter-2026-09-14.md`) have landed.
+`docs/security/reviews/opencode-adapter-2026-09-14.md`), and the pre-registered
+end-to-end criterion for its status (ADR-0018) have landed.
 
 ### 20.1 Minimum supported version
 

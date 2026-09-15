@@ -327,12 +327,6 @@ argument changes and behaviour changes carry no notice promise.
 **Stated, not promised**: a credential refresh during a run can leave the real
 login stale, requiring a fresh login. See Section D.
 
-### OpenCode's experimental marking
-
-The OpenCode adapter is marked experimental. The criterion for removing the
-marking is fixed in [ADR-0018](adr/0018-pre-register-the-opencode-criterion.md);
-applying it is _(pending #146)_.
-
 ---
 
 ## C. Security invariants
