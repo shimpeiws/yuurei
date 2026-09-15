@@ -1,0 +1,21 @@
+name: Real-runtime nightly
+
+# Nightly, against the pinned runtime versions. A failure here is a signal to
+# revisit the supported-version boundary, not a release blocker (ADR-0017).
+
+on:
+  schedule:
+    # Off the hour: GitHub queues jobs scheduled on the hour.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    uses: ./.github/workflows/e2e.yml
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

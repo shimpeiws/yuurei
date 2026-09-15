@@ -1,0 +1,65 @@
+name: Real-runtime end-to-end
+
+# The shared body of the nightly and release-candidate runs (ADR-0017). It
+# installs the pinned runtime versions and runs the whole suite with the real
+# runtimes enabled, so the tests that need a real `claude`, `codex` or `opencode`
+# actually execute. Callers decide when it runs and whether it blocks.
+
+on:
+  workflow_call:
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+      OPENAI_API_KEY:
+        required: true
+      OPENROUTER_API_KEY:
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  # Exact pins; moving the exercised set is an edit here, deliberately (ADR-0017).
+  CLAUDE_CODE_VERSION: '2.1.272'
+  CODEX_VERSION: '0.154.0'
+  OPENCODE_VERSION: '1.18.31'
+
+jobs:
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.6.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The runtimes this project does not control, at the versions it declares
+      # supported. The real-runtime tests launch these, not a shim.
+      - name: Install pinned runtimes
+        run: |
+          npm install --global \
+            "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+            "@openai/codex@${CODEX_VERSION}" \
+            "opencode-ai@${OPENCODE_VERSION}"
+
+      - name: Tests, with the real runtimes enabled
+        run: pnpm test
+        env:
+          YUUREI_E2E_REAL: '1'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

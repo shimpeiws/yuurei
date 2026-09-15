@@ -289,6 +289,12 @@ Which runtimes are recognised, and the minimum supported version of each. The
 promise is that **these versions are exercised in CI** — not that every future
 runtime version will work.
 
+The exercised set is installed at an exact version by the nightly and
+release-candidate workflows (ADR-0017): `@anthropic-ai/claude-code@2.1.272`,
+`@openai/codex@0.154.0`, `opencode-ai@1.18.31`, each at or above the adapter's
+declared minimum. Moving the exercised set is an edit to that workflow; the
+minimum boundary itself is pinned by a test.
+
 ### Supported platforms
 
 macOS and Linux, both exercised in CI. Windows is not supported.

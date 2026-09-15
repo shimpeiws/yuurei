@@ -9,6 +9,13 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ### Added
 
+- The real-runtime end-to-end suite runs in CI. A nightly workflow installs the
+  pinned runtime versions and runs the whole suite with the real runtimes
+  enabled, on macOS and Linux; a release-candidate workflow does the same and is
+  triggered by the `release` label or by hand, as the gate before a tag
+  (#143, #145).
+- Every section of `docs/manual-verification.md` is labelled automated or
+  deliberately manual, with a reason for each manual one (#143).
 - CI runs the suite on macOS as well as Linux, so the declared platform support
   and the tested one agree, and each runtime adapter's minimum supported version
   is pinned by a test that fails when the boundary changes without the declared

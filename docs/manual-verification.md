@@ -10,6 +10,32 @@ verifies and provides exact copy-paste commands with expected outcomes.
 
 ---
 
+## Automation status
+
+Every section below is either covered by CI or deliberately manual, with the
+reason. **Automated** means the repository's tests exercise it: the fake-runtime
+suite on every pull request, and the real-runtime suite on the nightly and
+release-candidate runs (ADR-0017), which install pinned runtime versions.
+
+| Section                                 | Status    | Note                                                                                       |
+| --------------------------------------- | --------- | ------------------------------------------------------------------------------------------ |
+| Authentication 1 — Claude subscription  | Manual    | Needs an interactive `claude setup-token`; no way to mint it unattended in CI.             |
+| Authentication 2 — Claude API key       | Automated | Real-runtime run forwards `ANTHROPIC_API_KEY`.                                             |
+| Authentication 3 — Codex API key        | Automated | Real-runtime run forwards `OPENAI_API_KEY`.                                                |
+| Authentication 4 — Codex auth-file      | Manual    | Needs a real interactive ChatGPT login; the bridge is experimental and rotation-sensitive. |
+| Codex E2E 1–3 (build, project, key)     | Automated | Real-runtime run.                                                                          |
+| Codex E2E 4 (auth-file bridge)          | Manual    | Same reason as Authentication 4.                                                           |
+| Codex E2E 5 (`--keep` scrubbing)        | Manual    | Requires a bridged credential to scrub; that needs an interactive login.                   |
+| Codex E2E 6 (interruption)              | Automated | Integration signal tests cover interruption during `prepare()`.                            |
+| OpenCode E2E 1–3 (build, project, key)  | Automated | Real-runtime run.                                                                          |
+| OpenCode E2E 4 (file bridge)            | Manual    | Same reason as Authentication 4.                                                           |
+| OpenCode E2E 5 (`--keep` scrubbing)     | Manual    | Same reason as Codex E2E 5.                                                                |
+| OpenCode E2E 6 (config guard)           | Automated | Config-guard tests; rejection happens before the runtime starts, so no runtime is needed.  |
+| Task path boundary 1–3                  | Automated | Task-path integration tests.                                                               |
+| Task path boundary 4 (isolation caveat) | Manual    | A caveat to reason about, not a runnable check.                                            |
+
+---
+
 ## Authentication paths
 
 This section verifies each supported authentication path without printing
