@@ -43,16 +43,16 @@ the same kind and a flat list produces promises that cannot be kept.
 ### Commands
 
 `yuurei doctor`, `yuurei profile list`, `yuurei inspect <profile-name>`,
-`yuurei run [run-name]`, `yuurei trace show <run-id>`, `yuurei clean`,
-`yuurei init [directory]`.
+`yuurei run [run-name]`, `yuurei runs`, `yuurei trace show <run-id>`,
+`yuurei clean`, `yuurei init [directory]`.
 
 ### Flags
 
-| Command                                                                               | Flags                                                                  |
-| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `init`                                                                                | `--runtime`, `--profile`, `--task`, `--run`                            |
-| `run`                                                                                 | `--profile`, `--task`, `--model`, `--keep`, `--timeout`, `--isolation` |
-| all of the above, plus `doctor` / `profile list` / `inspect` / `trace show` / `clean` | `--json`                                                               |
+| Command                                                                                        | Flags                                                                  |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `init`                                                                                         | `--runtime`, `--profile`, `--task`, `--run`                            |
+| `run`                                                                                          | `--profile`, `--task`, `--model`, `--keep`, `--timeout`, `--isolation` |
+| all of the above, plus `doctor` / `profile list` / `inspect` / `runs` / `trace show` / `clean` | `--json`                                                               |
 
 The credential-bridge flags are **not** here; they are in Section B.
 
@@ -148,14 +148,84 @@ is a no.
 ### The run directory
 
 `.yuurei/runs/<run-id>/` contains `trace.json`, `resolved-profile.json`,
-`stdout.log`, `stderr.log` and `artifacts.json`. `patch.diff` and `workspace/`
-are **not** part of this promise yet — see Section D.
+`stdout.log`, `stderr.log`, `artifacts.json`, and `patch.diff` and `workspace/`
+_(pending #139)_.
 
 `trace.json` is written atomically and last, so its presence means the run
-finished and every durable output succeeded.
+reached its end and the identity-and-outcome record is complete. The **required**
+durable outputs are `stdout.log`, `stderr.log`, `artifacts.json`,
+`resolved-profile.json` and `trace.json`; their files are present whenever the
+run directory is retained, and a failure to write any of them removes the run
+directory. Their **content** is not all-or-nothing: the logs are capped and
+redacted, so a stored log can be truncated (Section D). Only the workspace copy
+and `patch.diff` are additionally best-effort as files: either may be absent or
+partial, and the trace's `artifacts` (which files exist) and `diagnostics` (why
+one does not) say so.
 
 Two concurrent `yuurei run` invocations never share a run directory: the
 directory is claimed atomically and the run id regenerated on collision.
+
+### `patch.diff` and `workspace/` _(pending #139)_
+
+The runtime executes in a fresh workspace **inside the temporary cell**. After
+the run, the pipeline copies its regular files into `workspace/` in the run
+directory (no-follow: symlinks are not followed or copied) and generates
+`patch.diff` from that copy. The copy preserves content only; mode, executable
+bit, owner and mtime are not promised. Nothing is copied into the cell workspace,
+so every file is a new file and the diff is an all-additions diff.
+
+`patch.diff` is a UTF-8, LF-terminated unified diff, with files in ascending
+order of the UTF-8 byte sequence of their relative path: one hunk per non-empty
+file, with `--- /dev/null` and `+++ <path>` headers (path relative to the
+workspace root, forward slashes), each content line prefixed with `+`, and a
+`\ No newline at end of file` marker where the stored file lacks a trailing
+newline. An empty file is represented by its headers alone, with no hunk. A CRLF
+is not normalized; a trailing CR stays in the line content.
+
+A file is skipped, and stays in `workspace/` with only the patch omitting it,
+when it contains a NUL byte or invalid UTF-8, when a component of its relative
+path is not valid UTF-8 or contains a NUL, LF, CR, TAB or backslash, or when it is
+larger than the effective artifact size cap (`maxArtifactBytes`). Files are added
+until the next would take the whole patch past that cap; the rest are skipped.
+Every skip is recorded in the trace's `diagnostics`; the strings are fixed, the
+count is the only variable for a skip, and a failure is a fixed sentence with no
+count. No path is ever included:
+
+- `workspace: <n> symlink(s) skipped`
+- `workspace: <n> special file(s) skipped`
+- `workspace: copy failed; durable workspace may be incomplete`
+- `patch: <n> binary file(s) omitted`
+- `patch: <n> oversized file(s) omitted`
+- `patch: <n> unrepresentable name(s) omitted`
+- `patch: <n> file(s) omitted over the total cap`
+- `patch: generation failed; patch.diff not recorded`
+
+A skip category with no entries is omitted; a failure sentence appears only when
+the failure occurred.
+
+`patch.diff` is created whenever generation succeeds; with no in-scope files it is
+an empty file, so a missing `patch.diff` always means generation did not succeed.
+Copy and patch generation are best-effort, and run in this order before the
+isolation cell is disposed: copy the cell workspace, generate and redact
+`patch.diff`, write `artifacts.json`, write the remaining durable outputs, write
+`trace.json` last, then scrub and dispose. If the copy or the patch fails, the run
+still succeeds, `patch.diff` is left absent (the patch is not generated from a
+partial copy), and the trace records a fixed-string diagnostic. `patch.diff` is
+redacted like a log before it is stored, and its digest in `artifacts.json` covers
+the stored bytes. The collector caps the stored bytes after redaction;
+`truncated: true` means it cut them at the cap, so the stored bytes are not a
+complete unified diff.
+The patch is not a round-trippable snapshot: it does not represent mode,
+executable bit, owner, mtime, or empty directories. A filesystem actor mutating
+the tree during the copy, and a hard link to an inode outside the workspace, are
+out of scope (§12.1), as they are for profile materialization.
+
+The files in `workspace/` are stored **as the agent produced them and are not
+scrubbed**; a secret the agent writes there is recorded. This is an accepted
+risk, not a guarantee. `workspace/` is not an entry in `artifacts.json`.
+
+`--keep` preserves the isolation cell only; `workspace/` and `patch.diff` persist
+in the run directory regardless.
 
 ### `artifacts.json`
 
@@ -183,6 +253,32 @@ the materialized config. Profile content is never written here.
 On success it prints the trace. Given a trace written under an older
 `schema_version` it reads it **read-only** — never rewriting it, never
 recomputing an old digest. Given a run id with no trace it exits 2.
+
+### Run index _(pending #140)_
+
+`yuurei runs` lists the runs under the current project's `.yuurei/runs/`. With
+`--json` it emits one object per run, one per line; rows are the `info` lines
+carrying a `run_id`.
+
+A row is a fixed projection of the run's trace and carries exactly `run_id`,
+`started_at`, `finished_at`, `runtime.id`, `model.requested`, `profile.name`,
+`task.source`, `isolation.strategy`, `execution` (`exit_code`, `signal`,
+`timed_out`), and `requested_cell` (`digest`, `inputs_version`). Field names and
+nesting match the trace. Each nested object carries only the listed field
+(`runtime` is `{ "id": ... }`, `model` is `{ "requested": ... }`, `execution` is
+`{ "exit_code", "signal", "timed_out" }`, `requested_cell` is
+`{ "digest", "inputs_version" }`). The row is closed: a trace field outside this
+list does not appear, and extending the list is an additive change. A field
+absent from the trace is **absent** from the row, never `null`, and an absent
+optional object is not emitted as an empty object.
+
+Rows are ordered by ascending lexicographic `run_id`. A directory under
+`.yuurei/runs/` is skipped when its `trace.json` is missing or does not parse, or
+when its name does not equal the trace's `run_id`; only directories are
+considered. Skipped directories are reported as one fixed `warn` line,
+`runs: <n> invalid run director(ies) skipped`, never with a directory name, the
+run id, or the parse error text. The human-readable form is a summary and is not
+part of this promise.
 
 ### Runtime detection
 
@@ -272,11 +368,9 @@ Documented so the expectation is accurate. None of it is a guarantee.
 - **Credential staleness.** With a bridge flag, a token refresh during a run
   lands only in the isolated copy; the real file stays as it was and the rotated
   copy is discarded on cleanup. The real login may then need to be re-established.
-- **`patch.diff` and `workspace/`.** The design document lists both in the run
-  directory; neither is produced yet. Four things must be settled before they
-  move to Section A: the base directory the diff is taken against, which files
-  are in scope, what happens when generation fails, and how an empty diff is
-  represented _(pending #139)_.
+- **Secrets in `workspace/`.** The files under `workspace/` are stored as the
+  agent produced them and are not scrubbed; only `patch.diff` receives the
+  best-effort text redaction. See Section A.
 - **Artifact size cap and log truncation.** Stored artifacts and logs are capped;
   beyond the cap the stored bytes are cut and `truncated` is set.
 
