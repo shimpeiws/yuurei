@@ -20,6 +20,19 @@ future ROI tracker — can consume. `yuurei` itself stays agnostic of any
 such consumer; the dependency only ever points one way, from that tool
 toward `yuurei`.
 
+## What isolation means here
+
+`yuurei` separates **configuration and environment variables**: it points a
+runtime at an isolated config root and, at the default isolation level, a
+temporary `HOME`, so the runtime does not read or write your everyday
+`~/.claude` or `~/.codex`. It is **not** a container or an OS sandbox, and it
+does **not** confine the code the agent runs — that code can reach anything your
+user account can. Two runs are reproducible in the configuration they are given,
+not in what the agent does. The guarantees the project makes, and the risks it
+does not defend against, are stated in the
+[public contract](docs/contract.md); this README points at it rather than
+restating them.
+
 ## Quickstart
 
 Install yuurei from npm, or build it from a source checkout:
@@ -93,8 +106,12 @@ the isolated copy afterward. The real global file is never modified. It is an
 explicit opt-in because that file can carry a rotating OAuth access/refresh
 token pair: if the token refreshes mid-run, only the isolated copy receives the
 new state while the real file stays stale, and the valid rotated copy is then
-discarded on cleanup. Do not copy credentials into profiles, tasks, traces,
-artifacts, or logs.
+discarded on cleanup. The guarantees — the real `~/.codex/auth.json` is never
+modified, and the isolated copy is scrubbed on normal exit and on catchable
+signals (`SIGINT`, `SIGTERM`) even under `--keep` — are the
+[contract's](docs/contract.md); the flag's name and shape may change or be
+removed in a minor release. Do not copy credentials into profiles, tasks,
+traces, artifacts, or logs.
 
 #### OpenCode
 
@@ -124,6 +141,8 @@ exactly `~/.local/share/opencode/auth.json` into the isolated cell, runs with
 it, and scrubs the isolated copy afterward — even under `--keep`. The real file
 is never modified. The flag is an explicit opt-in because that file can carry a
 rotating OAuth token pair, with the same mid-run refresh limitation as Codex.
+The guarantees are the [contract's](docs/contract.md), and the flag's name and
+shape may change or be removed in a minor release.
 
 OpenCode materializes profile config under the isolated config directory and
 disables project-config, external-skill, and auto-update loading. A profile's

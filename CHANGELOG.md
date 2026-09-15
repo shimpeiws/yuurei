@@ -28,6 +28,13 @@ What that covers is stated in [the public contract](docs/contract.md).
   required run output exits 6 (trace or artifact save failed) instead of 5,
   matching the contract's exit-code table (#149).
 
+### Documentation
+
+- `README.md` and `docs/getting-started.md` state plainly that isolation
+  separates configuration and environment variables — it is not a container or
+  an OS sandbox, and does not confine the code the agent runs — and point at the
+  contract for the auth-bridge guarantees instead of restating them (#148).
+
 ### Security
 
 - A repo-wide security re-audit for v1.0.0
