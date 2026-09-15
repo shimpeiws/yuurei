@@ -1,0 +1,22 @@
+name: Real-runtime release candidate
+
+# The release gate (ADR-0017). Run by hand, or by applying the `release` label
+# to the release pull request. docs/releasing.md requires it to pass before the
+# `v<version>` tag is created.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'release'
+    uses: ./.github/workflows/e2e.yml
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
