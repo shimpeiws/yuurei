@@ -136,14 +136,41 @@ describe('contract verification: an older trace stays readable', () => {
     expect(result.code).toBe(0);
 
     const lines = result.stdout.trim().split('\n');
-    const summary = JSON.parse(lines[lines.length - 1] ?? '{}') as Record<string, unknown>;
-    expect(summary['requestedCell']).toBeNull();
-    expect(summary['yuureiVersion']).toBeNull();
+    const printed = JSON.parse(lines[lines.length - 1] ?? '{}') as Record<string, unknown>;
+    // The full trace is printed, so the file never has to be opened, and a
+    // field the older trace lacks is absent rather than invented.
+    expect(printed['schema_version']).toBe('0.3');
+    expect(printed['run_id']).toBe('legacy-run');
+    expect(printed['execution']).toEqual(LEGACY_TRACE.execution);
+    expect('requested_cell' in printed).toBe(false);
+    expect('yuurei_version' in printed).toBe(false);
 
     // Read-only: the CLI never rewrites an older trace or invents a digest.
     const after = await readFile(tracePath, 'utf8');
     expect(after).toBe(`${JSON.stringify(LEGACY_TRACE, null, 2)}\n`);
     expect(after).not.toContain('requested_cell');
+  });
+
+  it('(141) prints the whole trace with --json, so a consumer need not open the file', async () => {
+    const project = await createFixtureProject(CLAUDE);
+    const run = await runCli(['run', 'smoke'], project.env, project.root);
+    const runId = run.stdout.match(/run ([^ ]+) finished/)?.[1];
+    if (!runId) throw new Error(`run id missing: ${run.stdout}`);
+
+    const shown = await runCli(['trace', 'show', runId, '--json'], project.env, project.root);
+    expect(shown.code).toBe(0);
+
+    const lines = shown.stdout.trim().split('\n');
+    const printed = JSON.parse(lines[lines.length - 1] ?? '{}') as Record<string, unknown>;
+    const onDisk = JSON.parse(
+      await readFile(join(project.root, '.yuurei', 'runs', runId, 'trace.json'), 'utf8'),
+    ) as Record<string, unknown>;
+
+    // Every field of the trace is present; level and message are the only extras.
+    const { level, message, ...fields } = printed;
+    expect(fields).toEqual(onDisk);
+    expect(level).toBe('info');
+    expect(message).toBe(runId);
   });
 });
 
