@@ -177,7 +177,8 @@ Expected results for the API-key run:
 - The command exits successfully.
 - The output reports `run <run-id> finished` with `exitCode: 0` and `signal: null`.
 - `.yuurei/runs/<run-id>/trace.json` exists and records runtime `codex`.
-- `.yuurei/runs/<run-id>/artifacts.json`, `stdout.log`, and `stderr.log` exist.
+- `.yuurei/runs/<run-id>/artifacts.json`, `stdout.log`, `stderr.log`,
+  `patch.diff` and `workspace/` exist.
 - The run does not create or modify `~/.codex/auth.json`.
 
 Save the run ID from the command output, then inspect the trace:
@@ -187,7 +188,8 @@ yuurei trace show <run-id>
 ```
 
 The command prints the Codex runtime, exit code, signal, duration, and timeout
-status without printing task output or credentials.
+status without printing task output or credentials. Add `--json` to print the
+whole trace, so no field requires opening `trace.json`.
 
 ### 4. Run Codex with the interactive login bridge
 
@@ -347,7 +349,8 @@ Expected results:
 - `.yuurei/runs/<run-id>/trace.json` records runtime `opencode`, with
   `model.resolved: null` and `model.resolved_reason: "unobserved"`.
 - `usage` carries the `step_finish` token counts and `cost_usd` when reported.
-- `artifacts.json`, `stdout.log`, and `stderr.log` exist.
+- `artifacts.json`, `stdout.log`, `stderr.log`, `patch.diff` and `workspace/`
+  exist.
 - The run does not create or modify `~/.local/share/opencode/auth.json`.
 
 Save the run ID from the output, then inspect the trace:
