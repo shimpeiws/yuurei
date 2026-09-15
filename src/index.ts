@@ -8,6 +8,7 @@ import { EXIT_CODES, YuureiError } from './cli/exit-codes.js';
 import { loggerForFlags } from './cli/output.js';
 import { runProfileList } from './cli/profile-list.js';
 import { runRun } from './cli/run.js';
+import { runRuns } from './cli/runs.js';
 import { runTraceShow } from './cli/trace-show.js';
 import { packageVersion } from './version.js';
 
@@ -161,6 +162,15 @@ cli
         );
       },
     ),
+  );
+
+cli
+  .command('runs', 'List the runs under .yuurei/runs/')
+  .option('--json', 'Output as JSON')
+  .action(
+    withErrorHandling(async (flags: { json?: boolean }) => {
+      await runRuns(process.cwd(), loggerForFlags(flags), flags.json ?? false);
+    }),
   );
 
 cli

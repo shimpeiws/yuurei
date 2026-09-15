@@ -495,6 +495,9 @@ yuurei run refactor-claude-pstack --keep
 # Show an existing trace
 yuurei trace show <run-id>
 
+# List the runs under .yuurei/runs/
+yuurei runs
+
 # Remove isolation temp directories orphaned by abnormal termination
 yuurei clean
 ```

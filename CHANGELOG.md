@@ -9,6 +9,10 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ### Added
 
+- `yuurei runs` lists the runs under `.yuurei/runs/`, with `--json` emitting one
+  object per run. A row is a fixed projection of the trace, ordered by ascending
+  `run_id`; an unreadable or inconsistent directory is skipped and reported as a
+  fixed warning that carries no path (#140).
 - `yuurei trace show --json` prints the complete trace, with `level` and
   `message` the only fields beside it, so a consumer does not have to read
   `trace.json` to obtain a field (#141).
@@ -18,8 +22,8 @@ What that covers is stated in [the public contract](docs/contract.md).
 - `docs/contract.md` now records the run index as a stable surface and
   `patch.diff`/`workspace/` as stable artifacts, naming the base, scope, failure
   and empty-diff behaviour and the accepted risk that a secret the agent writes
-  to the workspace is recorded. Both land in the implementation that follows
-  _(pending #139, #140)_.
+  to the workspace is recorded. The patch and workspace land in the
+  implementation that follows _(pending #139)_.
 
 ### Changed
 
