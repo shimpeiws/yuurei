@@ -14,6 +14,19 @@ What that covers is stated in [the public contract](docs/contract.md).
   `next` dist-tag and soaked for one week with `docs/contract.md` frozen, and the
   publish workflow derives the dist-tag from the version so a prerelease can
   never become `latest` (0020).
+- `docs/contract-verification.md` maps every contract entry to the test or
+  document that demonstrates it, required before the v1.0.0 candidate. Its gaps
+  are closed here: `profile list` and `inspect` gain tests, the `--json` line
+  shape is asserted, exit 6 is emitted for a required-output save failure, and
+  `yuurei run` exits 3 when the runtime is not installed or is below its declared
+  minimum (#149).
+
+### Fixed
+
+- `yuurei run` exits 3 (runtime not found or unsupported) instead of 5 when the
+  runtime is not installed or is below its minimum, and a failure to save a
+  required run output exits 6 (trace or artifact save failed) instead of 5,
+  matching the contract's exit-code table (#149).
 
 ## [0.5.0] - 2026-09-15
 

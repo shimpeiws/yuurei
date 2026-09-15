@@ -218,6 +218,44 @@ describe('contract verification: run index', () => {
   });
 });
 
+describe('contract verification: CLI surface', () => {
+  afterEach(cleanupFixtures);
+
+  function parseLines(stdout: string): Record<string, unknown>[] {
+    return stdout
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+
+  it('profile list reports each profile, with --json one level/message object per line', async () => {
+    const project = await createFixtureProject(CLAUDE);
+
+    const result = await runCli(['profile', 'list', '--json'], project.env, project.root);
+    expect(result.code).toBe(0);
+
+    const lines = parseLines(result.stdout);
+    expect(lines).toContainEqual(
+      expect.objectContaining({ level: 'info', message: 'fixture', runtime: 'claude-code' }),
+    );
+    for (const line of lines) {
+      expect(typeof line['level']).toBe('string');
+      expect(typeof line['message']).toBe('string');
+    }
+  });
+
+  it('inspect resolves a profile without running it, with --json', async () => {
+    const project = await createFixtureProject(CLAUDE);
+
+    const result = await runCli(['inspect', 'fixture', '--json'], project.env, project.root);
+    expect(result.code).toBe(0);
+
+    const [line] = parseLines(result.stdout);
+    expect(line).toMatchObject({ level: 'info', message: 'fixture', runtime: 'claude-code' });
+    expect(String(line?.['digest'])).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+});
+
 describe('contract verification: configuration errors', () => {
   afterEach(cleanupFixtures);
 
@@ -267,5 +305,17 @@ describe('contract verification: configuration errors', () => {
     const result = await runCli(['run', 'smoke'], project.env, project.root);
 
     expect(result.code).toBe(2);
+  });
+
+  it('exits 3 when the runtime is not installed', async () => {
+    const project = await createFixtureProject(CLAUDE);
+    await rm(join(project.bin, 'claude'));
+    // Keep the fixture bin on PATH but no runtime behind it, so detection fails
+    // rather than finding a real `claude` on the runner.
+    const env = { ...project.env, PATH: `${project.bin}:/usr/bin:/bin` };
+
+    const result = await runCli(['run', 'smoke'], env, project.root);
+
+    expect(result.code).toBe(3);
   });
 });
