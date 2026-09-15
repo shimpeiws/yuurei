@@ -21,7 +21,7 @@ import { claudeConfigDir } from './paths.js';
 
 const RUNTIME_ID = 'claude-code';
 const COMMAND = 'claude';
-const MIN_SUPPORTED_VERSION: [number, number, number] = [2, 0, 0];
+export const MIN_SUPPORTED_VERSION: [number, number, number] = [2, 0, 0];
 
 /**
  * Claude Code resolves its credential store to `<config dir>/.credentials.json`

@@ -23,7 +23,7 @@ import { codexConfigDir } from './paths.js';
 
 const RUNTIME_ID = 'codex';
 const COMMAND = 'codex';
-const MIN_SUPPORTED_VERSION: [number, number, number] = [0, 100, 0];
+export const MIN_SUPPORTED_VERSION: [number, number, number] = [0, 100, 0];
 
 /**
  * Root-level `auth.json` is reserved for the opt-in bridged credential (see

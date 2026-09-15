@@ -10,7 +10,13 @@ permissions:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    # macOS and Linux are both declared supported (contract, Supported
+    # platforms), so the suite that proves it runs on both.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
