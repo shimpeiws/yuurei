@@ -6,6 +6,10 @@ import { printDoctorReport, runDoctor } from '../../src/cli/doctor.js';
 import { ORPHAN_TEMP_DIR_MIN_AGE_MS } from '../../src/isolation/tempdir.js';
 import { createLogger, type Logger } from '../../src/util/logger.js';
 
+// runDoctor() probes each installed runtime with a child process, which can run
+// past the 5s default under load.
+vi.setConfig({ testTimeout: 30_000 });
+
 function makeLogger(): {
   logger: Logger;
   messages: { level: string; message: string; data?: Record<string, unknown> }[];
