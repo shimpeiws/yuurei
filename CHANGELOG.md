@@ -7,6 +7,15 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+### Added
+
+- Two records under `docs/adr/`: the real-runtime end-to-end check is separated
+  into a nightly run (a signal to revisit the supported-version boundary) and a
+  release-candidate gate (required before the tag), and the criterion for
+  dropping OpenCode's experimental marking is fixed before the suite runs
+  (0017, 0018). `docs/releasing.md` states that the release-candidate check must
+  pass before a release is tagged.
+
 ## [0.4.0] - 2026-09-15
 
 ### Added

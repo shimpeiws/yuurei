@@ -70,7 +70,12 @@ package version.
 2. Update `CHANGELOG.md` following [Keep a Changelog]
    (https://keepachangelog.com/en/1.1.0/) in the `[Unreleased]` section.
 3. Open a PR with those changes, merge it against `origin/main`.
-4. Create a GitHub Release with tag `v<version>` on the merged commit,
+4. Run the **release-candidate real-runtime check** and confirm it is green
+   before going further. It is the real-runtime suite on macOS and Linux against
+   the pinned runtime versions, triggered by the `release` label on the release
+   PR or by hand. The nightly run is the same suite and is not blocking; this one
+   is the gate, and the tag is not created until it passes (ADR-0017).
+5. Create a GitHub Release with tag `v<version>` on the merged commit,
    e.g. `v0.1.0`. The `Publish to npm` workflow runs from the release tag
    (an immutable ref) on the `[published]` event and publishes the matching
    npm version.
