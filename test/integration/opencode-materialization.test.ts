@@ -206,7 +206,15 @@ describe('OpenCode profile materialization', () => {
     };
     const runtime: Runtime = {
       id: () => oc.id(),
-      detect: () => oc.detect(),
+      // A fake runtime: the pipeline checks the runtime before running, but this
+      // test is about credential scrubbing, not detection.
+      detect: async () => ({
+        installed: true,
+        version: '1.18.30',
+        versionSupported: true,
+        executablePath: 'opencode',
+        authUsable: true,
+      }),
       prepare: (cell, context, register) => oc.prepare(cell, context, register),
       execute: async (run: PreparedRun): Promise<RuntimeResult> => {
         const now = new Date().toISOString();
