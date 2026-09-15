@@ -1,9 +1,12 @@
 import { rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { NoopCostModel } from '../cost/noop.js';
 import { installSignalCleanup } from './signals.js';
 import { resolveCell, type CellResolutionInput } from '../cell/resolver.js';
 import { REQUESTED_CELL_INPUTS_VERSION } from '../cell/digest.js';
 import type { ResolvedCell } from '../cell/types.js';
+import { buildPatch, copyWorkspace } from './workspace.js';
 import {
   collectArtifacts,
   DEFAULT_ARTIFACT_MAX_BYTES,
@@ -227,19 +230,60 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       redactLog(result.stderrPath, layout.stderrPath),
     ]);
 
+    // Copy the cell workspace into the run and record it as a patch (ADR-0016).
+    // Both are best-effort: a failure leaves the patch absent and is recorded as
+    // a fixed diagnostic, without failing the run.
+    let workspaceDiagnostics: string[];
+    try {
+      workspaceDiagnostics = await copyWorkspace(context.workspaceDir, layout.workspaceDir);
+    } catch {
+      workspaceDiagnostics = ['workspace: copy failed; durable workspace may be incomplete'];
+    }
+    let patchDiagnostics: string[] = [];
+    let patchTruncated = false;
+    try {
+      const patch = await buildPatch(layout.workspaceDir, maxArtifactBytes);
+      patchDiagnostics = patch.diagnostics;
+      const tempPatchPath = join(layout.runDir, `.patch.diff.tmp-${randomUUID()}`);
+      try {
+        await writeFile(tempPatchPath, patch.diff, 'utf8');
+        patchTruncated = await redactFile(
+          tempPatchPath,
+          layout.patchPath,
+          knownCredentialValues,
+          maxArtifactBytes,
+        );
+      } finally {
+        // Never leave an unredacted temp copy behind, even when redaction fails.
+        await rm(tempPatchPath, { force: true });
+      }
+    } catch {
+      patchDiagnostics.push('patch: generation failed; patch.diff not recorded');
+    }
+    const diagnostics = [
+      ...(fragment.diagnostics ?? []),
+      ...workspaceDiagnostics,
+      ...patchDiagnostics,
+    ];
+
     // Collect artifacts and persist every durable output BEFORE the trace is
     // written. trace.json is the completion marker: it is written last, so a
     // failure in any step above leaves a run directory with no trace.json,
     // which cleanup removes and `yuurei trace show` cannot consume. The
     // artifact list in the trace is derived from the manifest, so the two can
     // never disagree (#111).
-    const manifest = await collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log'], {
-      maxBytes: maxArtifactBytes,
-      truncatedPaths: [
-        ...(stdoutTruncated ? ['stdout.log'] : []),
-        ...(stderrTruncated ? ['stderr.log'] : []),
-      ],
-    });
+    const manifest = await collectArtifacts(
+      layout.runDir,
+      ['stdout.log', 'stderr.log', 'patch.diff'],
+      {
+        maxBytes: maxArtifactBytes,
+        truncatedPaths: [
+          ...(stdoutTruncated ? ['stdout.log'] : []),
+          ...(stderrTruncated ? ['stderr.log'] : []),
+          ...(patchTruncated ? ['patch.diff'] : []),
+        ],
+      },
+    );
     await writeArtifactManifest(layout.runDir, manifest);
     // Identity, not content: §10.1 records a digest of the profile content,
     // and §10.2 keeps a profile's own secrets out of the durable run dir.
@@ -290,9 +334,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       artifacts: manifest.artifacts.map(({ path, kind }) => ({ path, kind })),
       // Durable non-fatal notes. Omitted when empty so traces without
       // diagnostics keep their previous shape.
-      ...(fragment.diagnostics && fragment.diagnostics.length > 0
-        ? { diagnostics: fragment.diagnostics }
-        : {}),
+      ...(diagnostics.length > 0 ? { diagnostics } : {}),
     };
 
     await writeTrace(layout.runDir, trace);

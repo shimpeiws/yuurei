@@ -112,7 +112,7 @@ export class ClaudeCodeRuntime implements Runtime {
       command: COMMAND,
       args: buildClaudeCodeArgs(cell),
       env,
-      cwd: isolation.rootDir,
+      cwd: isolation.workspaceDir,
       isolation,
       cell,
       runtimeVersion: detection.version,

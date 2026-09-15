@@ -141,7 +141,7 @@ export class OpenCodeRuntime implements Runtime {
       command: COMMAND,
       args: buildOpenCodeArgs(cell),
       env,
-      cwd: isolation.rootDir,
+      cwd: isolation.workspaceDir,
       isolation,
       cell,
       runtimeVersion: detection.version,

@@ -16,10 +16,13 @@ export class Level1Isolation implements Isolation {
     const rootDir = await createTempDir();
     const homeDir = join(rootDir, 'home');
     await mkdir(homeDir, { recursive: true, mode: 0o700 });
+    const workspaceDir = join(rootDir, 'workspace');
+    await mkdir(workspaceDir, { recursive: true, mode: 0o700 });
 
     return {
       strategy: 'level1',
       rootDir,
+      workspaceDir,
       homeDir,
       env: buildRestrictedEnv(process.env, { HOME: homeDir }),
       keep: false,
