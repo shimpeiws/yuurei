@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   ci:
+    name: ci (${{ matrix.os }})
     # macOS and Linux are both declared supported (contract, Supported
     # platforms), so the suite that proves it runs on both.
     strategy:
@@ -54,3 +55,13 @@ jobs:
       # surfacing for the first time while publishing a tag.
       - name: Package smoke test
         run: pnpm run smoke:package
+
+  # The branch ruleset requires a check named `ci`. A matrix job reports as
+  # `ci (ubuntu-latest)` / `ci (macos-latest)`, so this job carries the plain
+  # name and passes only when every matrix leg has.
+  ci-required:
+    name: ci
+    needs: [ci]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "macOS and Linux jobs passed"
