@@ -158,6 +158,7 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
   });
 
   logger.info(`run ${result.runId} finished`, {
+    run_id: result.runId,
     exitCode: result.trace.execution.exit_code,
     signal: result.trace.execution.signal,
     runDir: result.runDir,

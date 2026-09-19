@@ -167,10 +167,11 @@ describe('contract verification: an older trace stays readable', () => {
     ) as Record<string, unknown>;
 
     // Every field of the trace is present; level and message are the only extras.
-    const { level, message, ...fields } = printed;
+    const { level, message, run_id, ...fields } = printed;
     expect(fields).toEqual(onDisk);
     expect(level).toBe('info');
     expect(message).toBe(runId);
+    expect(run_id).toBe(runId);
   });
 });
 
