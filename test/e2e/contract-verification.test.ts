@@ -153,9 +153,15 @@ describe('contract verification: an older trace stays readable', () => {
 
   it('(141) prints the whole trace with --json, so a consumer need not open the file', async () => {
     const project = await createFixtureProject(CLAUDE);
-    const run = await runCli(['run', 'smoke'], project.env, project.root);
+    const run = await runCli(['run', 'smoke', '--json'], project.env, project.root);
     const runId = run.stdout.match(/run ([^ ]+) finished/)?.[1];
     if (!runId) throw new Error(`run id missing: ${run.stdout}`);
+    const completion = run.stdout
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .find((line) => line['message'] === `run ${runId} finished`);
+    expect(completion?.['run_id']).toBe(runId);
 
     const shown = await runCli(['trace', 'show', runId, '--json'], project.env, project.root);
     expect(shown.code).toBe(0);
