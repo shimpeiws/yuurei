@@ -7,6 +7,11 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+### Added
+
+- `yuurei run --json` includes `run_id` on its completion line, so scripts can
+  pass the run directly to `yuurei trace show` without parsing the message.
+
 ## [1.0.0] - 2026-09-16
 
 The release where the freeze becomes a promise. The stable surface — the

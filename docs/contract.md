@@ -97,6 +97,7 @@ non-zero is not a `yuurei` failure: it is recorded in `execution.exit_code` and
 One JSON object per line. Every line has `level` (`info`, `warn` or `error`) and
 `message`; command-specific fields sit alongside them at the top level. `error`
 lines go to stderr, the rest to stdout. Adding a field is an additive change.
+The `run --json` completion line includes the run's `run_id` as a top-level field.
 
 ### Configuration file schemas
 
