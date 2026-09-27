@@ -55,6 +55,75 @@ describe('OpenCodeRuntime.normalize()', () => {
     expect(fragment.cost).toEqual({ amount: 0, currency: 'USD' });
   });
 
+  it('extracts the last text event as the run result', async () => {
+    const result = makeResult();
+    const lines = [
+      '{"type":"text","part":{"type":"text","text":"first"}}',
+      '{"type":"step_finish","part":{"type":"step-finish","tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0}}',
+      '{"type":"text","part":{"type":"text","text":"final answer"}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, lines, 'utf8');
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: 'final answer' });
+  });
+
+  it('reports the result as unobserved when no text event was emitted', async () => {
+    const result = makeResult();
+    await writeFile(
+      result.stdoutPath,
+      '{"type":"step_start","part":{"type":"step-start"}}\n',
+      'utf8',
+    );
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'unobserved' });
+  });
+
+  it('reports the result as parse_failed when a text event has no string text', async () => {
+    const result = makeResult();
+    await writeFile(
+      result.stdoutPath,
+      '{"type":"text","part":{"type":"text","text":42}}\n',
+      'utf8',
+    );
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('reports the result as parse_failed when every line is unparseable', async () => {
+    const result = makeResult();
+    await writeFile(result.stdoutPath, 'not json\nalso not json\n', 'utf8');
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('reports the result as parse_failed when stdout is unreadable', async () => {
+    const result = makeResult();
+    await mkdir(result.stdoutPath);
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('reports the result as unobserved when stdout is absent after a killed run', async () => {
+    const result = makeResult();
+    result.exitCode = null;
+    result.signal = 'SIGTERM';
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'unobserved' });
+  });
+
   it('reports the model as unobserved with an explicit reason', async () => {
     const result = makeResult();
     await writeFile(result.stdoutPath, REAL_STDOUT, 'utf8');

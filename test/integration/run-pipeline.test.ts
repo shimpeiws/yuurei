@@ -1110,6 +1110,180 @@ describe('run pipeline', () => {
     expect(() => TraceSchema.parse(result.trace)).not.toThrow();
   });
 
+  it('persists the runtime result as a redacted result.txt artifact, never inlined', async () => {
+    // §10.2: the result is runtime output, so it goes through the same
+    // redaction path as the logs and lands in a file, not in trace.json.
+    const profile: ResolvedProfile = {
+      name: 'result-artifact',
+      runtime: 'result-artifact-runtime',
+      content: { profileYaml: { runtime: 'result-artifact-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+    const secretValue = 'sk-result-do-not-persist-this-literal-value';
+
+    const fake: Runtime = {
+      id: () => 'result-artifact-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
+        runtimeId: 'result-artifact-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialValuesToRedact: [secretValue],
+      }),
+      execute: async (run: PreparedRun) => {
+        const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+        const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+        await writeFile(stdoutPath, '', 'utf8');
+        await writeFile(stderrPath, '', 'utf8');
+        return {
+          exitCode: 0,
+          signal: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          stdoutPath,
+          stderrPath,
+          timedOut: false,
+        };
+      },
+      normalize: async () => ({
+        runtime: { id: 'result-artifact-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
+        usage: {},
+        result: { text: `final answer: token=${secretValue}` },
+      }),
+    };
+
+    const result = await runPipeline({
+      runtimeId: profile.runtime,
+      requestedModel: '',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      resolveRuntime: () => fake,
+    });
+
+    const persisted = await readFile(join(result.runDir, 'result.txt'), 'utf8');
+    expect(persisted).not.toContain(secretValue);
+    expect(persisted).toContain('final answer: token=[REDACTED]');
+
+    // The message text never reaches trace.json — only the artifact entry.
+    expect(JSON.stringify(result.trace)).not.toContain('final answer');
+    expect(result.trace.artifacts).toContainEqual(
+      expect.objectContaining({ path: 'result.txt', kind: 'result' }),
+    );
+    const manifest = JSON.parse(await readFile(join(result.runDir, 'artifacts.json'), 'utf8')) as {
+      artifacts: { path: string; kind: string; digest: string }[];
+    };
+    const entry = manifest.artifacts.find((a) => a.path === 'result.txt');
+    expect(entry?.kind).toBe('result');
+    expect(entry?.digest).toMatch(/^sha256:/);
+
+    const { TraceSchema } = await import('../../src/trace/schema.js');
+    expect(() => TraceSchema.parse(result.trace)).not.toThrow();
+  });
+
+  it('records why no result.txt was persisted: unobserved vs parse_failed', async () => {
+    const makeFake = (
+      id: string,
+      result: { text: string | null; reason: 'unobserved' | 'parse_failed' },
+    ): Runtime => ({
+      id: () => id,
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
+        runtimeId: id,
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialValuesToRedact: [],
+      }),
+      execute: async (run: PreparedRun) => {
+        const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+        const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+        await writeFile(stdoutPath, '', 'utf8');
+        await writeFile(stderrPath, '', 'utf8');
+        return {
+          exitCode: 0,
+          signal: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          stdoutPath,
+          stderrPath,
+          timedOut: false,
+        };
+      },
+      normalize: async () => ({
+        runtime: { id, version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
+        usage: {},
+        result,
+      }),
+    });
+
+    const cases = [
+      { id: 'unobserved-runtime', reason: 'unobserved', diagnostic: 'no final message emitted' },
+      {
+        id: 'parse-failed-runtime',
+        reason: 'parse_failed',
+        diagnostic: 'final message could not be parsed',
+      },
+    ] as const;
+    for (const { id, reason, diagnostic } of cases) {
+      const profile: ResolvedProfile = {
+        name: id,
+        runtime: id,
+        content: { profileYaml: { runtime: id }, configFiles: {} },
+        digest: 'sha256:0000',
+      };
+      const result = await runPipeline({
+        runtimeId: id,
+        requestedModel: '',
+        profile,
+        taskPath,
+        yuureiVersion: '0.0.1',
+        yuureiDir: workDir,
+        isolationStrategy: 'level1',
+        keep: false,
+        resolveRuntime: () => makeFake(id, { text: null, reason }),
+      });
+
+      expect(result.trace.diagnostics).toContain(`result: ${diagnostic}`);
+      await expect(readFile(join(result.runDir, 'result.txt'), 'utf8')).rejects.toThrow();
+      expect(result.trace.artifacts.map((a) => a.path)).not.toContain('result.txt');
+    }
+  });
+
   it('records signal in the trace when the runtime child is killed by a signal', async () => {
     // Defect A: a signal-terminated child (exitCode null, signal 'SIGINT') must
     // be recorded in trace.execution.signal; exit_code stays null.

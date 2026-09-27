@@ -106,6 +106,7 @@ export async function writeArtifactManifest(
 }
 
 function kindFor(path: string): string {
+  if (path === 'result.txt') return 'result';
   if (path.endsWith('.diff')) return 'patch';
   if (path.endsWith('.log')) return 'log';
   return 'file';

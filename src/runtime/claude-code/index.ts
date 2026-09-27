@@ -10,6 +10,7 @@ import type {
   NormalizedTraceFragment,
   PreparedRun,
   RegisterCredentialPath,
+  ResultObservationReason,
   Runtime,
   RuntimeDetection,
   RuntimeResult,
@@ -146,6 +147,10 @@ export class ClaudeCodeRuntime implements Runtime {
     let cost: { amount: number; currency: string } | null = null;
     let resolved: string | null = null;
     let resolvedReason: ModelResolutionReason = 'unobserved';
+    let finalResult: { text: string | null; reason?: ResultObservationReason } = {
+      text: null,
+      reason: 'unobserved',
+    };
     const warnings: string[] = [];
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
@@ -155,6 +160,7 @@ export class ClaudeCodeRuntime implements Runtime {
       } catch {
         warnings.push('claude-code: stdout was not valid JSON — usage unobserved');
         resolvedReason = 'parse_failed';
+        finalResult = { text: null, reason: 'parse_failed' };
         parsed = undefined;
       }
       if (parsed !== undefined) {
@@ -203,9 +209,17 @@ export class ClaudeCodeRuntime implements Runtime {
           if (typeof totalCost === 'number' && Number.isFinite(totalCost)) {
             cost = { amount: totalCost, currency: 'USD' };
           }
+          // `result` is the runtime's final message; the pipeline persists it
+          // as result.txt rather than inlining it into the trace.
+          const resultField = obj['result'];
+          finalResult =
+            typeof resultField === 'string'
+              ? { text: resultField }
+              : { text: null, reason: resultField === undefined ? 'unobserved' : 'parse_failed' };
         } else {
           warnings.push('claude-code: stdout JSON was not an object — usage unobserved');
           resolvedReason = 'parse_failed';
+          finalResult = { text: null, reason: 'parse_failed' };
         }
       }
     } catch (err) {
@@ -233,6 +247,7 @@ export class ClaudeCodeRuntime implements Runtime {
       execution: { exitCode: result.exitCode, signal: result.signal, durationMs },
       usage,
       cost,
+      result: finalResult,
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }

@@ -62,6 +62,14 @@ export interface NormalizationContext {
   runtimeVersion: string | null;
 }
 
+/**
+ * Why `result.text` is null: 'unobserved' = the runtime emitted no final
+ * message; 'parse_failed' = a source existed but could not be read. Mirrors
+ * `model.resolvedReason` — lets a consumer tell "nothing was emitted" from
+ * "extraction failed" without parsing prose.
+ */
+export type ResultObservationReason = 'unobserved' | 'parse_failed';
+
 export interface NormalizedTraceFragment {
   runtime: { id: string; version: string | null };
   model: {
@@ -87,6 +95,14 @@ export interface NormalizedTraceFragment {
    * `source: 'runtime'` so a recomputation knows what it is looking at.
    */
   cost?: { amount: number; currency: string } | null;
+  /**
+   * The final assistant message the runtime emitted, read out of the output
+   * the adapter already parses. The text itself is runtime output and may
+   * carry an arbitrary secret, so it is never inlined into trace.json — the
+   * pipeline persists it, redacted and capped, as `result.txt`. `reason`
+   * explains a null `text` and is omitted when `text` is non-null.
+   */
+  result?: { text: string | null; reason?: ResultObservationReason };
   /**
    * Non-fatal issues encountered during normalization (e.g. usage parse
    * failure). Empty array and absent are equivalent — the pipeline reports

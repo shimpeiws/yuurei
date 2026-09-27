@@ -60,6 +60,72 @@ describe('CodexRuntime.normalize()', () => {
     });
   });
 
+  it('extracts the last agent_message as the run result', async () => {
+    const result = makeResult();
+    const twoMessages = [
+      '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"first"}}',
+      '{"type":"item.completed","item":{"id":"item_2","type":"reasoning","text":"thinking"}}',
+      '{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"final answer"}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, twoMessages, 'utf8');
+
+    const runtime = new CodexRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: 'final answer' });
+  });
+
+  it('reports the result as unobserved when no agent_message was emitted', async () => {
+    const result = makeResult();
+    const noMessage = [
+      '{"type":"thread.started","thread_id":"abc"}',
+      '{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"ls"}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, noMessage, 'utf8');
+
+    const runtime = new CodexRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'unobserved' });
+  });
+
+  it('reports the result as parse_failed when the agent_message text is malformed', async () => {
+    const result = makeResult();
+    const malformed = [
+      '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":42}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, malformed, 'utf8');
+
+    const runtime = new CodexRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('reports the result as parse_failed when every line is unparseable', async () => {
+    const result = makeResult();
+    await writeFile(result.stdoutPath, 'not json\nalso not json\n', 'utf8');
+
+    const runtime = new CodexRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('reports the result as unobserved when stdout is absent after a killed run', async () => {
+    const result = makeResult();
+    result.exitCode = null;
+    result.signal = 'SIGTERM';
+
+    const runtime = new CodexRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'unobserved' });
+  });
+
   it('threads runtimeVersion into the trace runtime field', async () => {
     const result = makeResult();
     await writeFile(result.stdoutPath, REAL_CODEX_STDOUT, 'utf8');

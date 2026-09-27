@@ -12,6 +12,7 @@ import type {
   NormalizedTraceFragment,
   PreparedRun,
   RegisterCredentialPath,
+  ResultObservationReason,
   Runtime,
   RuntimeDetection,
   RuntimeResult,
@@ -266,6 +267,10 @@ export class CodexRuntime implements Runtime {
     const durationMs = new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime();
 
     let usage: Record<string, number | null> = {};
+    let finalResult: { text: string | null; reason?: ResultObservationReason } = {
+      text: null,
+      reason: 'unobserved',
+    };
     const warnings: string[] = [];
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
@@ -273,6 +278,11 @@ export class CodexRuntime implements Runtime {
       // turn.completed) and to treat valid-JSON non-objects as malformed too.
       let firstCompleted: Record<string, unknown> | null = null;
       let malformedLineCount = 0;
+      let wellFormedEventSeen = false;
+      // The final assistant message is the last agent_message item; the
+      // pipeline persists it as result.txt rather than inlining it.
+      let lastAgentText: string | null = null;
+      let malformedAgentText = false;
       for (const line of stdout.split('\n')) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -288,13 +298,29 @@ export class CodexRuntime implements Runtime {
           malformedLineCount++;
           continue;
         }
+        wellFormedEventSeen = true;
         const obj = event as Record<string, unknown>;
         if (obj['type'] === 'turn.completed' && firstCompleted === null) {
           firstCompleted = obj;
         }
+        if (obj['type'] === 'item.completed') {
+          const item = obj['item'];
+          if (typeof item === 'object' && item !== null) {
+            const rec = item as Record<string, unknown>;
+            if (rec['type'] === 'agent_message') {
+              if (typeof rec['text'] === 'string') lastAgentText = rec['text'];
+              else malformedAgentText = true;
+            }
+          }
+        }
       }
       if (malformedLineCount > 0) {
         warnings.push(`codex: ${malformedLineCount} unparseable JSONL line(s) skipped`);
+      }
+      if (lastAgentText !== null) {
+        finalResult = { text: lastAgentText };
+      } else if (malformedAgentText || (malformedLineCount > 0 && !wellFormedEventSeen)) {
+        finalResult = { text: null, reason: 'parse_failed' };
       }
       if (firstCompleted !== null) {
         const usageRaw = firstCompleted['usage'];
@@ -330,6 +356,7 @@ export class CodexRuntime implements Runtime {
         warnings.push(
           `codex: stdout unreadable (${err instanceof Error ? err.message : String(err)}) — usage unobserved`,
         );
+        finalResult = { text: null, reason: 'parse_failed' };
       }
     }
 
@@ -338,6 +365,7 @@ export class CodexRuntime implements Runtime {
       model: { requested: '', resolved: null, resolvedReason: 'unobserved' },
       execution: { exitCode: result.exitCode, signal: result.signal, durationMs },
       usage,
+      result: finalResult,
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }

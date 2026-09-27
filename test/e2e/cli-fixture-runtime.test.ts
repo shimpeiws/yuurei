@@ -100,6 +100,7 @@ describe('CLI end-to-end with a fixture runtime', () => {
     expect(trace['model']).toMatchObject({ resolved: 'claude-fixture-1' });
     expect(trace['cost']).toEqual({ amount: 0.001, currency: 'USD', source: 'runtime' });
     expect(await readFile(join(runDir, 'stdout.log'), 'utf8')).toContain('fixture response');
+    expect(await readFile(join(runDir, 'result.txt'), 'utf8')).toContain('fixture response');
     expect(await readdir(runDir)).toEqual(
       expect.arrayContaining(['stderr.log', 'resolved-profile.json', 'artifacts.json']),
     );

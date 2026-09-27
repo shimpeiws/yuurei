@@ -326,10 +326,42 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     } else {
       patchDiagnostics.push('patch: generation failed; patch.diff not recorded');
     }
+
+    // The runtime's final message is a durable output like patch.diff —
+    // best-effort, redacted and capped through the same temp-file path, and
+    // never inlined into trace.json (runtime output is untrusted; §10.2).
+    // A missing text is recorded with the reason the adapter reported so a
+    // consumer can tell "nothing was emitted" from "extraction failed".
+    const runResult = fragment.result;
+    let resultTruncated = false;
+    const resultDiagnostics: string[] = [];
+    if (typeof runResult?.text === 'string') {
+      const tempInput = join(layout.runDir, `.result.in.tmp-${randomUUID()}`);
+      const tempOutput = join(layout.runDir, `.result.out.tmp-${randomUUID()}`);
+      try {
+        await writeFile(tempInput, runResult.text, 'utf8');
+        resultTruncated = await redactFile(
+          tempInput,
+          tempOutput,
+          knownCredentialValues,
+          maxArtifactBytes,
+        );
+        await rename(tempOutput, layout.resultPath);
+      } catch {
+        resultDiagnostics.push('result: save failed; result.txt not recorded');
+      } finally {
+        await Promise.allSettled([rm(tempInput, { force: true }), rm(tempOutput, { force: true })]);
+      }
+    } else if (runResult?.reason === 'parse_failed') {
+      resultDiagnostics.push('result: final message could not be parsed');
+    } else if (runResult?.reason === 'unobserved') {
+      resultDiagnostics.push('result: no final message emitted');
+    }
     const diagnostics = [
       ...(fragment.diagnostics ?? []),
       ...workspaceDiagnostics,
       ...patchDiagnostics,
+      ...resultDiagnostics,
     ];
 
     // Collect artifacts and persist every durable output BEFORE the trace is
@@ -339,12 +371,13 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // artifact list in the trace is derived from the manifest, so the two can
     // never disagree (#111).
     const manifest = await save(() =>
-      collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log', 'patch.diff'], {
+      collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log', 'patch.diff', 'result.txt'], {
         maxBytes: maxArtifactBytes,
         truncatedPaths: [
           ...(stdoutTruncated ? ['stdout.log'] : []),
           ...(stderrTruncated ? ['stderr.log'] : []),
           ...(patchTruncated ? ['patch.diff'] : []),
+          ...(resultTruncated ? ['result.txt'] : []),
         ],
       }),
     );

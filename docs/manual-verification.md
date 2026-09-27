@@ -204,7 +204,7 @@ Expected results for the API-key run:
 - The output reports `run <run-id> finished` with `exitCode: 0` and `signal: null`.
 - `.yuurei/runs/<run-id>/trace.json` exists and records runtime `codex`.
 - `.yuurei/runs/<run-id>/artifacts.json`, `stdout.log`, `stderr.log`,
-  `patch.diff` and `workspace/` exist.
+  `patch.diff`, `result.txt` and `workspace/` exist.
 - The run does not create or modify `~/.codex/auth.json`.
 
 Save the run ID from the command output, then inspect the trace:
@@ -376,8 +376,8 @@ Expected results:
   `model.resolved: null` and `model.resolved_reason: "unobserved"`.
 - `usage` carries the `step_finish` token counts, and `cost` records the
   runtime-reported USD cost with `source: "runtime"`.
-- `artifacts.json`, `stdout.log`, `stderr.log`, `patch.diff` and `workspace/`
-  exist.
+- `artifacts.json`, `stdout.log`, `stderr.log`, `patch.diff`, `result.txt` and
+  `workspace/` exist.
 - The run does not create or modify `~/.local/share/opencode/auth.json`.
 
 Save the run ID from the output, then inspect the trace:

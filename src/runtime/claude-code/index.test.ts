@@ -142,6 +142,57 @@ describe('ClaudeCodeRuntime.normalize()', () => {
     });
   });
 
+  it('extracts the final result text from the result object', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, REAL_CLAUDE_STDOUT, 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: 'hello' });
+  });
+
+  it('reports the result as unobserved when the result field is absent', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, '{"usage":{},"type":"result"}\n', 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'unobserved' });
+  });
+
+  it('reports the result as parse_failed when the result field is malformed', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, '{"result":42,"type":"result"}\n', 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('reports the result as parse_failed when stdout cannot be read as a result object', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, 'not json\n', 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('reports the result as unobserved when stdout is absent after a killed run', async () => {
+    const { result } = makeResult();
+    result.exitCode = null;
+    result.signal = 'SIGTERM';
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'unobserved' });
+  });
+
   it('records the runtime-reported total_cost_usd as an observed cost', async () => {
     const { result, stdoutPath } = makeResult();
     await writeFile(stdoutPath, REAL_CLAUDE_STDOUT, 'utf8');

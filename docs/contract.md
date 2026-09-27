@@ -155,6 +155,16 @@ the figure came from, so a later recomputation knows what it is looking at:
 `CostModel` that produced the estimate. A runtime-reported cost is the
 provider's own number for the run, not an estimate.
 
+`model.resolved` is the model the runtime reports having served, which is not
+necessarily the model that was requested. Where the runtime's output exposes
+the identity it is recorded; Claude Code's result object carries a
+`modelUsage` map keyed by the serving model id, and several ids mean several
+models served the run (a fallback, for example) and are joined. When
+`resolved` is `null`, `resolved_reason` says why: `unobserved` means the
+runtime's output carries no model identity — Codex's and OpenCode's event
+streams emit none — and `parse_failed` means a source existed but could not
+be read.
+
 ### The requested-cell digest
 
 `requested_cell.digest` identifies **what was requested of a cell**: the runtime
@@ -182,7 +192,8 @@ is a no.
 ### The run directory
 
 `.yuurei/runs/<run-id>/` contains `trace.json`, `resolved-profile.json`,
-`stdout.log`, `stderr.log`, `artifacts.json`, `patch.diff` and `workspace/`.
+`stdout.log`, `stderr.log`, `artifacts.json`, `patch.diff`, `result.txt` and
+`workspace/`.
 
 `trace.json` is written atomically and last, so its presence means the run
 reached its end and the identity-and-outcome record is complete. The **required**
@@ -193,7 +204,7 @@ directory. Their **content** is not all-or-nothing: the logs are capped and
 redacted, so a stored log can be truncated (Section D). Only the workspace copy
 and `patch.diff` are additionally best-effort as files: either may be absent or
 partial, and the trace's `artifacts` (which files exist) and `diagnostics` (why
-one does not) say so.
+one does not) say so. `result.txt` is best-effort the same way.
 
 Two concurrent `yuurei run` invocations never share a run directory: the
 directory is claimed atomically and the run id regenerated on collision.
@@ -240,12 +251,12 @@ the failure occurred.
 an empty file, so a missing `patch.diff` always means generation did not succeed.
 Copy and patch generation are best-effort, and run in this order before the
 isolation cell is disposed: copy the cell workspace, generate and redact
-`patch.diff`, write `artifacts.json`, write the remaining durable outputs, write
-`trace.json` last, then scrub and dispose. If the copy or the patch fails, the run
-still succeeds, `patch.diff` is left absent (the patch is not generated from a
-partial copy), and the trace records a fixed-string diagnostic. `patch.diff` is
-redacted like a log before it is stored, and its digest in `artifacts.json` covers
-the stored bytes. The collector caps the stored bytes after redaction;
+`patch.diff`, persist `result.txt`, write `artifacts.json`, write the remaining
+durable outputs, write `trace.json` last, then scrub and dispose. If the copy
+or the patch fails, the run still succeeds, `patch.diff` is left absent (the
+patch is not generated from a partial copy), and the trace records a
+fixed-string diagnostic. `patch.diff` is redacted like a log before it is
+stored, and its digest in `artifacts.json` covers the stored bytes. The collector caps the stored bytes after redaction;
 `truncated: true` means it cut them at the cap, so the stored bytes are not a
 complete unified diff.
 The patch is not a round-trippable snapshot: it does not represent mode,
@@ -259,6 +270,24 @@ risk, not a guarantee. `workspace/` is not an entry in `artifacts.json`.
 
 `--keep` preserves the isolation cell only; `workspace/` and `patch.diff` persist
 in the run directory regardless.
+
+### `result.txt`
+
+`result.txt` is the runtime's final assistant message, read out of the
+structured output the adapter already parses (the `result` field for Claude
+Code, the last `agent_message` item for Codex, the last `text` event for
+OpenCode). It is runtime output, so it is never inlined into `trace.json`: it
+is stored as a file, redacted and capped like a log, and listed in
+`artifacts.json` with `kind: "result"`.
+
+Persisting it is best-effort like `patch.diff`. When no `result.txt` exists the
+trace's `diagnostics` says why, as a fixed string with no runtime text:
+
+- `result: no final message emitted` — the runtime's output ended without a
+  final message (or no output was captured at all).
+- `result: final message could not be parsed` — a source existed but could not
+  be read into text.
+- `result: save failed; result.txt not recorded` — persistence itself failed.
 
 ### `artifacts.json`
 

@@ -11,6 +11,7 @@ import type {
   NormalizedTraceFragment,
   PreparedRun,
   RegisterCredentialPath,
+  ResultObservationReason,
   Runtime,
   RuntimeDetection,
   RuntimeResult,
@@ -169,6 +170,10 @@ export class OpenCodeRuntime implements Runtime {
 
     const usage: Record<string, number | null> = {};
     let cost: { amount: number; currency: string } | null = null;
+    let finalResult: { text: string | null; reason?: ResultObservationReason } = {
+      text: null,
+      reason: 'unobserved',
+    };
     const diagnostics: string[] = [];
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
@@ -176,6 +181,11 @@ export class OpenCodeRuntime implements Runtime {
       const malformedLines: number[] = [];
       let sawError = false;
       let sawStepFinish = false;
+      let sawWellFormedEvent = false;
+      // The final assistant message is the last `text` event; the pipeline
+      // persists it as result.txt rather than inlining it into the trace.
+      let lastText: string | null = null;
+      let malformedText = false;
 
       for (const [index, line] of stdout.split('\n').entries()) {
         const lineNumber = index + 1;
@@ -192,6 +202,7 @@ export class OpenCodeRuntime implements Runtime {
           malformedLines.push(lineNumber);
           continue;
         }
+        sawWellFormedEvent = true;
         const obj = event as Record<string, unknown>;
         if (obj['type'] === 'error') {
           // Record only that an error was observed. The error body is runtime
@@ -199,6 +210,16 @@ export class OpenCodeRuntime implements Runtime {
           // into the durable diagnostics (redactSecrets does not guarantee
           // removing an unknown value).
           sawError = true;
+          continue;
+        }
+        if (obj['type'] === 'text') {
+          const part = obj['part'];
+          const text =
+            typeof part === 'object' && part !== null
+              ? (part as Record<string, unknown>)['text']
+              : undefined;
+          if (typeof text === 'string') lastText = text;
+          else malformedText = true;
           continue;
         }
         if (obj['type'] !== 'step_finish') continue;
@@ -262,6 +283,11 @@ export class OpenCodeRuntime implements Runtime {
           diagnostics.push(`opencode: ${key} unobserved (${shown}${more})`);
         }
       }
+      if (lastText !== null) {
+        finalResult = { text: lastText };
+      } else if (malformedText || (malformedLines.length > 0 && !sawWellFormedEvent)) {
+        finalResult = { text: null, reason: 'parse_failed' };
+      }
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') {
@@ -274,6 +300,7 @@ export class OpenCodeRuntime implements Runtime {
         // Fixed string only: `err.message` can carry a filesystem path, and
         // diagnostics are contractually fixed-string (§6.3, §20.7).
         diagnostics.push('opencode: stdout unreadable — usage unobserved');
+        finalResult = { text: null, reason: 'parse_failed' };
       }
     }
 
@@ -283,6 +310,7 @@ export class OpenCodeRuntime implements Runtime {
       execution: { exitCode: result.exitCode, signal: result.signal, durationMs },
       usage,
       cost,
+      result: finalResult,
       // Durable notes only. `warnings` is a separate, operator-facing channel
       // (§6.3); normalization issues here are diagnostic, not actionable
       // warnings, so they are not mirrored into it.

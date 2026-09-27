@@ -132,6 +132,9 @@ describe('CLI end-to-end with a fixture OpenCode runtime', () => {
     expect(
       await readFile(join(fixture.root, '.yuurei', 'runs', runId, 'stdout.log'), 'utf8'),
     ).toContain('fixture response');
+    expect(
+      await readFile(join(fixture.root, '.yuurei', 'runs', runId, 'result.txt'), 'utf8'),
+    ).toContain('fixture response');
     expect(await readdir(join(fixture.root, '.yuurei', 'runs', runId))).toEqual(
       expect.arrayContaining(['stderr.log', 'resolved-profile.json', 'artifacts.json']),
     );
