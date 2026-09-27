@@ -15,6 +15,10 @@ export interface RunLayout {
   artifactsPath: string;
   patchPath: string;
   resultPath: string;
+  /** Seeded runs only: the canonical input manifest (empty-workspace runs never write it). */
+  baselineManifestPath: string;
+  /** Seeded runs only: the added/modified/deleted record against the baseline. */
+  changesPath: string;
 }
 
 function runLayout(yuureiDir: string, runId: string): RunLayout {
@@ -29,6 +33,8 @@ function runLayout(yuureiDir: string, runId: string): RunLayout {
     artifactsPath: join(runDir, 'artifacts.json'),
     patchPath: join(runDir, 'patch.diff'),
     resultPath: join(runDir, 'result.txt'),
+    baselineManifestPath: join(runDir, 'baseline-manifest.json'),
+    changesPath: join(runDir, 'changes.json'),
   };
 }
 

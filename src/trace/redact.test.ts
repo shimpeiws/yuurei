@@ -81,7 +81,7 @@ describe('redactFile', () => {
     const outputPath = join(tempDir, 'output.log');
     await writeFile(inputPath, `token:${'x'.repeat(200_000)}tail\n`, 'utf8');
 
-    const truncated = await redactFile(inputPath, outputPath, [], 1024);
+    const { truncated } = await redactFile(inputPath, outputPath, [], 1024);
 
     const output = await readFile(outputPath, 'utf8');
     expect(truncated).toBe(true);
@@ -95,7 +95,7 @@ describe('redactFile', () => {
     const secret = `s-${'x'.repeat(100_000)}`;
     await writeFile(inputPath, `${secret}${'w'.repeat(200_000)}`, 'utf8');
 
-    const truncated = await redactFile(inputPath, outputPath, [secret], 64);
+    const { truncated } = await redactFile(inputPath, outputPath, [secret], 64);
 
     const output = await readFile(outputPath, 'utf8');
     expect(truncated).toBe(true);

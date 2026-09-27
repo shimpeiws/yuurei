@@ -5,9 +5,11 @@ import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 import { NoopCostModel } from '../cost/noop.js';
 import { installSignalCleanup } from './signals.js';
 import { resolveCell, type CellResolutionInput } from '../cell/resolver.js';
-import { REQUESTED_CELL_INPUTS_VERSION } from '../cell/digest.js';
 import type { ResolvedCell } from '../cell/types.js';
+import { materializeSeed, toBaselineManifest } from '../seed/index.js';
+import type { WorkspaceChanges } from '../seed/types.js';
 import { buildPatch, copyWorkspace } from './workspace.js';
+import { buildSeededPatch, collectSeededWorkspace, toChangesManifest } from './seeded.js';
 import {
   collectArtifacts,
   DEFAULT_ARTIFACT_MAX_BYTES,
@@ -214,6 +216,42 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   const signalCleanup = installSignalCleanup({ cleanup });
   let primaryError: unknown;
   try {
+    // A failure to persist a required output is a trace/artifact save failure
+    // (exit 6), whether it happens before or after the runtime runs
+    // (contract, Exit codes). The best-effort workspace copy and patch are
+    // handled separately and do not reach here.
+    const save = async <T>(operation: () => Promise<T>): Promise<T> => {
+      try {
+        return await operation();
+      } catch (error) {
+        if (error instanceof YuureiError) throw error;
+        throw new YuureiError(
+          `failed to save the run outputs: ${error instanceof Error ? error.message : String(error)}`,
+          EXIT_CODES.TRACE_OR_ARTIFACT_SAVE_FAILED,
+        );
+      }
+    };
+    const maxArtifactBytes = input.maxArtifactBytes ?? DEFAULT_ARTIFACT_MAX_BYTES;
+
+    // Seed the cell workspace before the runtime starts (#202): the
+    // materialized baseline is verified against the requested one, then the
+    // canonical input manifest is persisted as a required output. A seed
+    // failure aborts the run before the runtime executes, as a
+    // configuration error (fail closed).
+    let seedMaterializedDigest: string | undefined;
+    if (cell.seed !== undefined) {
+      const seed = cell.seed;
+      const materialized = await materializeSeed(seed, context.workspaceDir);
+      seedMaterializedDigest = materialized.digest;
+      await save(() =>
+        writeFile(
+          layout.baselineManifestPath,
+          JSON.stringify(toBaselineManifest(seed, materialized.digest), null, 2),
+          'utf8',
+        ),
+      );
+    }
+
     prepared = await runtime.prepare(cell, context, (path) => registeredCredentialPaths.add(path));
     const result = await runtime.execute(prepared, cell.executionOptions.timeout_ms);
     const fragment = await runtime.normalize(result, { runtimeVersion: prepared.runtimeVersion });
@@ -249,25 +287,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
           : null;
 
     const knownCredentialValues = prepared.credentialValuesToRedact;
-    const maxArtifactBytes = input.maxArtifactBytes ?? DEFAULT_ARTIFACT_MAX_BYTES;
-    // A failure to persist a required output is a trace/artifact save failure
-    // (exit 6), not a runtime execution failure — the runtime already ran
-    // (contract, Exit codes). The best-effort workspace copy and patch are
-    // handled separately and do not reach here.
-    const save = async <T>(operation: () => Promise<T>): Promise<T> => {
-      try {
-        return await operation();
-      } catch (error) {
-        if (error instanceof YuureiError) throw error;
-        throw new YuureiError(
-          `failed to save the run outputs: ${error instanceof Error ? error.message : String(error)}`,
-          EXIT_CODES.TRACE_OR_ARTIFACT_SAVE_FAILED,
-        );
-      }
-    };
     const redactLog = async (inputPath: string, outputPath: string): Promise<boolean> => {
       try {
-        return await redactFile(inputPath, outputPath, knownCredentialValues, maxArtifactBytes);
+        const { truncated } = await redactFile(
+          inputPath,
+          outputPath,
+          knownCredentialValues,
+          maxArtifactBytes,
+        );
+        return truncated;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
           await writeFile(outputPath, '', 'utf8');
@@ -285,18 +313,53 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // Both are best-effort: a failure leaves the patch absent and is recorded as
     // a fixed diagnostic, without failing the run. A partial copy yields no
     // patch, because a patch of a partial tree is a wrong record rather than a
-    // partial one.
+    // partial one. On a seeded run the copy retains only the files that differ
+    // from the materialized baseline and classifies the change set (#202); an
+    // incomplete collection records neither the changes nor the patch.
     let workspaceDiagnostics: string[] = [];
     let workspaceComplete = false;
+    let changes: WorkspaceChanges | undefined;
     try {
-      const copy = await copyWorkspace(context.workspaceDir, layout.workspaceDir);
-      workspaceDiagnostics = copy.diagnostics;
-      workspaceComplete = copy.complete;
+      if (cell.seed !== undefined) {
+        const collected = await collectSeededWorkspace(
+          context.workspaceDir,
+          layout.workspaceDir,
+          cell.seed.files,
+        );
+        workspaceDiagnostics = collected.diagnostics;
+        workspaceComplete = collected.complete;
+        if (collected.complete) changes = collected.changes;
+      } else {
+        const copy = await copyWorkspace(context.workspaceDir, layout.workspaceDir);
+        workspaceDiagnostics = copy.diagnostics;
+        workspaceComplete = copy.complete;
+      }
     } catch {
       workspaceDiagnostics = ['workspace: copy failed; durable workspace may be incomplete'];
     }
+    // changes.json carries the run's added/modified/deleted record — including
+    // the deletion information the retained workspace cannot hold. It is a
+    // required output once the change set exists; an incomplete collection
+    // leaves it absent with a fixed diagnostic, never a partial record.
+    const changesDiagnostics: string[] = [];
+    if (cell.seed !== undefined) {
+      const seed = cell.seed;
+      if (changes === undefined) {
+        changesDiagnostics.push('changes: collection failed; changes.json not recorded');
+      } else {
+        await save(() =>
+          writeFile(
+            layout.changesPath,
+            JSON.stringify(toChangesManifest(seed.digest, changes), null, 2),
+            'utf8',
+          ),
+        );
+      }
+    }
     let patchDiagnostics: string[] = [];
     let patchTruncated = false;
+    let patchRedacted = false;
+    let patchPublished = false;
     if (workspaceComplete) {
       // Redact and cap the diff in memory — buildPatch already returns it as
       // a string, so staging it to disk would only write an unredacted copy
@@ -305,12 +368,25 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       // place.
       const tempOutput = join(layout.runDir, `.patch.out.tmp-${randomUUID()}`);
       try {
-        const patch = await buildPatch(layout.workspaceDir, maxArtifactBytes);
+        const patch =
+          cell.seed !== undefined && changes !== undefined
+            ? await buildSeededPatch(
+                changes,
+                {
+                  workspaceDir: layout.workspaceDir,
+                  sourceDir: cell.seed.sourceDir,
+                  baseline: cell.seed.files,
+                },
+                maxArtifactBytes,
+              )
+            : await buildPatch(layout.workspaceDir, maxArtifactBytes);
         patchDiagnostics = patch.diagnostics;
-        const redacted = redactText(patch.diff, knownCredentialValues, maxArtifactBytes);
-        patchTruncated = redacted.truncated;
-        await writeFile(tempOutput, redacted.text, 'utf8');
+        const redaction = redactText(patch.diff, knownCredentialValues, maxArtifactBytes);
+        patchTruncated = redaction.truncated;
+        patchRedacted = redaction.redacted;
+        await writeFile(tempOutput, redaction.text, 'utf8');
         await rename(tempOutput, layout.patchPath);
+        patchPublished = true;
       } catch {
         // Reached only before the rename, so patch.diff was not published and
         // the "generation failed" note is accurate.
@@ -353,7 +429,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     }
     const diagnostics = [
       ...(fragment.diagnostics ?? []),
+      ...(cell.seed?.diagnostics ?? []),
       ...workspaceDiagnostics,
+      ...changesDiagnostics,
       ...patchDiagnostics,
       ...resultDiagnostics,
     ];
@@ -365,15 +443,25 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // artifact list in the trace is derived from the manifest, so the two can
     // never disagree (#111).
     const manifest = await save(() =>
-      collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log', 'patch.diff', 'result.txt'], {
-        maxBytes: maxArtifactBytes,
-        truncatedPaths: [
-          ...(stdoutTruncated ? ['stdout.log'] : []),
-          ...(stderrTruncated ? ['stderr.log'] : []),
-          ...(patchTruncated ? ['patch.diff'] : []),
-          ...(resultTruncated ? ['result.txt'] : []),
+      collectArtifacts(
+        layout.runDir,
+        [
+          'stdout.log',
+          'stderr.log',
+          'patch.diff',
+          'result.txt',
+          ...(cell.seed !== undefined ? ['baseline-manifest.json', 'changes.json'] : []),
         ],
-      }),
+        {
+          maxBytes: maxArtifactBytes,
+          truncatedPaths: [
+            ...(stdoutTruncated ? ['stdout.log'] : []),
+            ...(stderrTruncated ? ['stderr.log'] : []),
+            ...(patchTruncated ? ['patch.diff'] : []),
+            ...(resultTruncated ? ['result.txt'] : []),
+          ],
+        },
+      ),
     );
     await save(() => writeArtifactManifest(layout.runDir, manifest));
     // Identity, not content: §10.1 records a digest of the profile content,
@@ -406,7 +494,45 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       task: { source: cell.resolvedTask.source, digest: cell.resolvedTask.digest },
       requested_cell: {
         digest: cell.requestedCellDigest,
-        inputs_version: REQUESTED_CELL_INPUTS_VERSION,
+        inputs_version: cell.requestedCellInputsVersion,
+      },
+      // A seeded run binds the requested and materialized baseline
+      // identities, the change set, and the stored artifacts it is described
+      // by (#202). `changes` is absent when the collection did not complete.
+      ...(cell.seed !== undefined && seedMaterializedDigest !== undefined
+        ? {
+            seed: {
+              policy: 'git-tracked-files' as const,
+              source: cell.seed.sourceDir,
+              head: cell.seed.head,
+              baseline: {
+                requested_digest: cell.seed.digest,
+                materialized_digest: seedMaterializedDigest,
+                files: cell.seed.fileCount,
+                bytes: cell.seed.totalBytes,
+              },
+              ...(changes !== undefined
+                ? {
+                    changes: {
+                      added: changes.added.length,
+                      modified: changes.modified.length,
+                      deleted: changes.deleted.length,
+                    },
+                  }
+                : {}),
+            },
+          }
+        : {}),
+      // An absent patch is distinct from a complete empty one; `partial`
+      // covers every way the stored diff stops short of a faithful record —
+      // omitted files, redaction, truncation.
+      patch: {
+        base: cell.seed !== undefined ? ('seeded' as const) : ('empty' as const),
+        state: !patchPublished
+          ? ('absent' as const)
+          : patchDiagnostics.length > 0 || patchTruncated || patchRedacted
+            ? ('partial' as const)
+            : ('complete' as const),
       },
       isolation: { strategy: context.strategy, verified: true },
       execution_options: cell.executionOptions,

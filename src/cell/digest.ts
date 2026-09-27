@@ -13,6 +13,15 @@ import type { RequestedCellInput } from './types.js';
 export const REQUESTED_CELL_INPUTS_VERSION = 1;
 
 /**
+ * The input set version for a seeded run (#202): it adds the seed mode and
+ * baseline identity to `RequestedCellInput`, which is a different input
+ * contract and therefore a different version. Empty-workspace runs keep
+ * version 1 — their input set is unchanged, so their digests remain
+ * comparable with runs computed before seeding existed.
+ */
+export const REQUESTED_CELL_INPUTS_VERSION_SEEDED = 2;
+
+/**
  * requested_cell_digest = hash(runtime id, requested model, resolved profile
  * content, task content, isolation strategy, identity-forming execution
  * contracts) — design doc §7.3, ADR-0011. Hashed over resolved content, never

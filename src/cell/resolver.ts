@@ -3,7 +3,13 @@ import { sha256Digest } from '../util/hash.js';
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 import type { ResolvedProfile } from '../profile/types.js';
 import type { IsolationStrategy } from '../isolation/types.js';
-import { computeRequestedCellDigest } from './digest.js';
+import {
+  computeRequestedCellDigest,
+  REQUESTED_CELL_INPUTS_VERSION,
+  REQUESTED_CELL_INPUTS_VERSION_SEEDED,
+} from './digest.js';
+import { resolveSeed } from '../seed/index.js';
+import { SEED_POLICY } from '../seed/types.js';
 import type { ExecutionOptions, ResolvedCell, ResolvedTaskRef } from './types.js';
 
 export interface CellResolutionInput {
@@ -20,6 +26,12 @@ export interface CellResolutionInput {
   /** Milliseconds before the runtime is sent SIGTERM. null/undefined = no timeout. */
   timeoutMs?: number | null;
   isolationStrategy: IsolationStrategy;
+  /**
+   * Opt-in seeded workspace (#202): an explicitly selected local Git
+   * repository root whose tracked files seed the cell workspace. Absent =
+   * the empty-workspace run the contract has always described.
+   */
+  seedRepo?: string;
 }
 
 /** Resolves a task file into its content plus a content digest. */
@@ -106,6 +118,12 @@ export async function resolveCell(input: CellResolutionInput): Promise<ResolvedC
     runtime: runtimeExecutionOptions,
   };
 
+  // A seeded run resolves its baseline here, at resolution time, so the
+  // baseline's identity is part of the request before the cell exists.
+  const seed = input.seedRepo !== undefined ? await resolveSeed(input.seedRepo) : undefined;
+  const requestedCellInputsVersion =
+    seed === undefined ? REQUESTED_CELL_INPUTS_VERSION : REQUESTED_CELL_INPUTS_VERSION_SEEDED;
+
   const requestedCellDigest = computeRequestedCellDigest({
     runtimeId: input.runtimeId,
     requestedModel: input.requestedModel,
@@ -113,6 +131,7 @@ export async function resolveCell(input: CellResolutionInput): Promise<ResolvedC
     executionOptions,
     profileContentDigest: resolvedProfile.digest,
     taskContentDigest: resolvedTask.digest,
+    ...(seed !== undefined ? { seed: { policy: SEED_POLICY, baselineDigest: seed.digest } } : {}),
   });
 
   return {
@@ -124,5 +143,7 @@ export async function resolveCell(input: CellResolutionInput): Promise<ResolvedC
     executionOptions,
     yuureiVersion: input.yuureiVersion,
     requestedCellDigest,
+    requestedCellInputsVersion,
+    ...(seed !== undefined ? { seed } : {}),
   };
 }

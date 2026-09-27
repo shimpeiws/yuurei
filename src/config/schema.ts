@@ -18,6 +18,7 @@ export const YuureiConfigSchema = z.object({
       model: z.string().optional(),
       timeout: z.number().int().optional(),
       isolation: z.string().optional(),
+      seed_repo: z.string().optional(),
     }),
   ),
 });

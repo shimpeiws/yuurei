@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { findYuureiDir } from '../config/discovery.js';
 import { loadYuureiConfig } from '../config/yuurei-config.js';
 import type { YuureiConfig } from '../config/schema.js';
@@ -48,6 +48,12 @@ export interface RunOptions {
    * explicitly-set provider API key, forwarded from the environment.
    */
   bridgeOpenCodeAuthFile: boolean | undefined;
+  /**
+   * Opt-in, experimental (#202): seed the cell workspace from this local Git
+   * repository root instead of starting empty. The repository must be clean
+   * in its tracked state; untracked and ignored files are never seeded.
+   */
+  seedRepo: string | undefined;
 }
 
 const YUUREI_VERSION = packageVersion;
@@ -123,6 +129,18 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
   }
   const isolationStrategy = isolationRaw;
 
+  // The seed repository is a parameter like `timeout` or `isolation` — CLI
+  // flag first, then the run definition. A flag path resolves against the
+  // caller's cwd; a definition path resolves against the project root (the
+  // directory holding `.yuurei/`), since the seed is a project workspace.
+  let seedRepo: string | undefined;
+  if (options.seedRepo !== undefined) {
+    cliOverrides.push('seed_repo');
+    seedRepo = resolve(cwd, options.seedRepo);
+  } else if (runEntry?.seed_repo !== undefined) {
+    seedRepo = resolve(join(yuureiDir, '..'), runEntry.seed_repo);
+  }
+
   const profileEntry = config.profiles[profileName];
   if (!profileEntry) {
     throw new YuureiError(`unknown profile: ${profileName}`, EXIT_CODES.CONFIG_ERROR);
@@ -149,6 +167,7 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     isolationStrategy,
     keep: options.keep ?? false,
     timeoutMs,
+    ...(seedRepo !== undefined ? { seedRepo } : {}),
     executionOptions: {
       bridge_codex_auth_file: options.bridgeCodexAuthFile ?? false,
       bridge_opencode_auth_file: options.bridgeOpenCodeAuthFile ?? false,

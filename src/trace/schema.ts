@@ -76,6 +76,44 @@ export const TraceSchema = z.object({
     .optional(),
   // How the run was specified (ADR-0013). Absent on older traces.
   definition: DefinitionSchema.optional(),
+  // A seeded run's input identity (#202): the policy that produced the
+  // baseline, its non-secret provenance, and the requested/materialized
+  // baseline digests the pre-runtime verification compared. Absent on
+  // empty-workspace runs; absence means unknown, never "not seeded".
+  seed: z
+    .object({
+      policy: z.literal('git-tracked-files'),
+      source: z.string(),
+      head: z.string(),
+      baseline: z.object({
+        requested_digest: z.string(),
+        materialized_digest: z.string(),
+        files: z.number().int().nonnegative(),
+        bytes: z.number().int().nonnegative(),
+      }),
+      // Absent when the run's change collection did not complete — the
+      // diagnostics say why; a missing `changes` is never "no changes".
+      changes: z
+        .object({
+          added: z.number().int().nonnegative(),
+          modified: z.number().int().nonnegative(),
+          deleted: z.number().int().nonnegative(),
+        })
+        .optional(),
+    })
+    .optional(),
+  // Whether `patch.diff` is a faithful record of the run's changes (#202):
+  // `absent` = generation did not succeed (an absent patch is distinct from
+  // a complete empty one); `partial` = recorded but not complete — omitted
+  // files, redaction, or truncation, all of which the diagnostics and
+  // artifact manifest also mark; `complete` = a full record. Absent on
+  // traces written before this field existed.
+  patch: z
+    .object({
+      base: z.enum(['empty', 'seeded']),
+      state: z.enum(['complete', 'partial', 'absent']),
+    })
+    .optional(),
   execution: z.object({
     exit_code: z.number().nullable(),
     signal: z.string().nullable(),
