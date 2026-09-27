@@ -1,10 +1,14 @@
+import { execFile } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { sha256Digest } from '../util/hash.js';
 import { buildSeededPatch, collectSeededWorkspace, toChangesManifest } from './seeded.js';
 import type { SeedManifest } from '../seed/types.js';
+
+const execFileAsync = promisify(execFile);
 
 const dirs: string[] = [];
 
@@ -94,6 +98,37 @@ describe('collectSeededWorkspace', () => {
     expect(result.diagnostics.some((d) => d.includes('symlink'))).toBe(true);
     await expect(readFile(join(durable, 'a.txt'))).rejects.toThrow();
   });
+
+  it('keeps a file whose name contains a legitimate U+FFFD', async () => {
+    const cell = await tempDir('yuurei-seeded-cell-');
+    const durable = await tempDir('yuurei-seeded-durable-');
+    await writeTree(cell, { 'draft\uFFFD.txt': 'x\n' });
+
+    const result = await collectSeededWorkspace(cell, durable, {});
+
+    expect(result.complete).toBe(true);
+    expect(result.changes.added).toEqual(['draft\uFFFD.txt']);
+    expect(await readFile(join(durable, 'draft\uFFFD.txt'), 'utf8')).toBe('x\n');
+  });
+
+  it.skipIf(process.platform === 'darwin')(
+    'reports collection incomplete when an entry name is not valid UTF-8',
+    async () => {
+      // APFS rejects invalid-UTF-8 names at open(), so the fixture needs a
+      // filesystem that stores raw name bytes.
+      const cell = await tempDir('yuurei-seeded-cell-');
+      const durable = await tempDir('yuurei-seeded-durable-');
+      const baseline = await writeTree(cell, { 'a.txt': 'same\n' });
+      await writeFile(
+        Buffer.concat([Buffer.from(`${cell}/`, 'utf8'), Buffer.from([0x62, 0xff])]),
+        'x\n',
+      );
+
+      const result = await collectSeededWorkspace(cell, durable, baseline);
+
+      expect(result.complete).toBe(false);
+    },
+  );
 
   it('marks collection incomplete when a cell file cannot be read', async () => {
     const cell = await tempDir('yuurei-seeded-cell-');
@@ -239,6 +274,41 @@ describe('buildSeededPatch', () => {
     );
     expect(patch.diff).toBe('');
     expect(patch.diagnostics).toEqual(['patch: 1 binary file(s) omitted']);
+  });
+
+  it('keeps a change whose filename contains a legitimate U+FFFD', async () => {
+    const { sourceDir, workspaceDir, baseline } = await fixture({
+      add: { 'draft\uFFFD.txt': 'hello\n' },
+    });
+
+    const patch = await buildSeededPatch(
+      { added: ['draft\uFFFD.txt'], modified: [], deleted: [] },
+      { workspaceDir, sourceDir, baseline },
+      1024 * 1024,
+    );
+
+    expect(patch.diagnostics).toEqual([]);
+    expect(patch.diff).toBe('--- /dev/null\n+++ draft\uFFFD.txt\n@@ -0,0 +1,1 @@\n+hello\n');
+  });
+
+  it('omits a change whose baseline path became a FIFO', async () => {
+    const sourceDir = await tempDir('yuurei-patch-src-');
+    const workspaceDir = await tempDir('yuurei-patch-dst-');
+    await execFileAsync('mkfifo', [join(sourceDir, 'gone.txt')]);
+    const baseline: SeedManifest = {
+      'gone.txt': { digest: sha256Digest(Buffer.from('bye\n')), mode: 0o644, bytes: 4 },
+    };
+
+    // A blocking open would wait for a writer that never exists; the patch
+    // omits the baseline as unavailable and the run completes.
+    const patch = await buildSeededPatch(
+      { added: [], modified: [], deleted: ['gone.txt'] },
+      { workspaceDir, sourceDir, baseline },
+      1024 * 1024,
+    );
+
+    expect(patch.diff).toBe('');
+    expect(patch.diagnostics).toEqual(['patch: 1 file(s) omitted; baseline content unavailable']);
   });
 
   it('omits a deleted file whose baseline bytes no longer verify', async () => {

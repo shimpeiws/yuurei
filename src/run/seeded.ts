@@ -1,9 +1,10 @@
+import { constants } from 'node:fs';
 import { mkdir, open, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { PatchResult } from './workspace.js';
 import { hasForbiddenNameChar, renderNewFile, toPatchText } from './workspace.js';
 import type { SeedManifest, WorkspaceChanges } from '../seed/types.js';
-import { isPathWithin } from '../util/fs.js';
+import { decodeUtf8Strict, isPathWithin } from '../util/fs.js';
 import { sha256Digest } from '../util/hash.js';
 
 /** Ascending order of a path's UTF-8 byte sequence, as `buildPatch` uses. */
@@ -51,13 +52,25 @@ export async function collectSeededWorkspace(
   async function walk(relativeDir: string): Promise<void> {
     let entries;
     try {
-      entries = await readdir(join(sourceDir, relativeDir), { withFileTypes: true });
+      entries = await readdir(join(sourceDir, relativeDir), {
+        withFileTypes: true,
+        encoding: 'buffer',
+      });
     } catch {
       failed = true;
       return;
     }
     for (const entry of entries) {
-      const rel = relativeDir === '' ? entry.name : `${relativeDir}/${entry.name}`;
+      // Names are decoded from their raw bytes: a name that is not valid
+      // UTF-8 cannot be recorded in the change set, so collection reports
+      // incomplete rather than silently renaming the file. A literal
+      // U+FFFD in a name decodes successfully and keeps its real name.
+      const name = decodeUtf8Strict(entry.name);
+      if (name === null) {
+        failed = true;
+        continue;
+      }
+      const rel = relativeDir === '' ? name : `${relativeDir}/${name}`;
       if (entry.isDirectory()) {
         await walk(rel);
       } else if (entry.isFile()) {
@@ -144,8 +157,10 @@ async function readResultText(
 ): Promise<ReadResult> {
   const full = join(workspaceDir, path);
   // Stat and read through one handle so the size check and the read cannot
-  // observe different files (TOCTOU).
-  const handle = await open(full);
+  // observe different files (TOCTOU). O_NONBLOCK keeps a FIFO planted in
+  // the durable workspace from blocking the open; the stat below rejects
+  // it as unavailable.
+  const handle = await open(full, constants.O_RDONLY | constants.O_NONBLOCK);
   try {
     const fileStat = await handle.stat();
     if (!fileStat.isFile()) return { ok: false, reason: 'unavailable' };
@@ -177,9 +192,12 @@ async function readBaselineText(
   if (!(await isPathWithin(context.sourceDir, full))) {
     return { ok: false, reason: 'unavailable' };
   }
-  // Stat and read through one handle: the fd pins the inode, so the size
-  // check and the read cannot observe different files (TOCTOU).
-  const handle = await open(full).catch(() => null);
+  // A blocking open would hang on a FIFO until a writer appears — and a
+  // baseline path can legitimately become one between seed resolution and
+  // patch generation — so the open is non-blocking and the descriptor
+  // itself is validated with fstat below: the fd pins the inode, so the
+  // size check and the read cannot observe different files (TOCTOU).
+  const handle = await open(full, constants.O_RDONLY | constants.O_NONBLOCK).catch(() => null);
   if (handle === null) return { ok: false, reason: 'unavailable' };
   try {
     const fileStat = await handle.stat();
@@ -225,9 +243,7 @@ export async function buildSeededPatch(
   const representable: typeof entries = [];
   let unrepresentable = 0;
   for (const entry of entries) {
-    if (
-      entry.path.split('/').some((part) => part.includes('\uFFFD') || hasForbiddenNameChar(part))
-    ) {
+    if (entry.path.split('/').some(hasForbiddenNameChar)) {
       unrepresentable += 1;
     } else {
       representable.push(entry);

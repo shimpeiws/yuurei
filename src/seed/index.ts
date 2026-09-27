@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
+import { constants } from 'node:fs';
 import { chmod, mkdir, open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
-import { isPathWithin } from '../util/fs.js';
+import { decodeUtf8Strict, isPathWithin } from '../util/fs.js';
 import { sha256Digest } from '../util/hash.js';
 import { canonicalJsonStringify } from '../util/json.js';
 import { gitHead, gitLsFiles, gitShowToplevel, gitStatusPorcelain } from './git.js';
@@ -44,7 +45,9 @@ function fail(message: string): never {
 function assertSafeRelativePath(path: string): string[] {
   const components = path.split('/');
   if (components.some((part) => part === '' || part === '.' || part === '..')) {
-    fail(`unsafe path in repository index: ${path}`);
+    // Tracked filenames stay out of error output — a name may itself be
+    // sensitive, the same reason patch diagnostics count without naming.
+    fail('unsafe path in seed manifest');
   }
   return components;
 }
@@ -117,12 +120,12 @@ export async function resolveSeed(
 
   for (const entry of indexEntries) {
     if (entry.stage !== '0') {
-      fail(`path ${entry.path} has unresolved index stage ${entry.stage}`);
+      fail(`a tracked path has unresolved index stage ${entry.stage}`);
     }
-    if (entry.mode === SYMLINK_MODE) fail(`tracked symlink ${entry.path} cannot be seeded`);
-    if (entry.mode === GITLINK_MODE) fail(`submodule ${entry.path} cannot be seeded`);
+    if (entry.mode === SYMLINK_MODE) fail('a tracked symlink cannot be seeded');
+    if (entry.mode === GITLINK_MODE) fail('a tracked submodule cannot be seeded');
     if (!REGULAR_FILE_MODES.has(entry.mode)) {
-      fail(`unsupported index mode ${entry.mode} for ${entry.path}`);
+      fail(`unsupported index mode ${entry.mode} for a tracked path`);
     }
     const components = assertSafeRelativePath(entry.path);
     if (components.some((part) => EXCLUDED_COMPONENTS.has(part))) {
@@ -140,30 +143,30 @@ export async function resolveSeed(
     // a source that resolves outside the repository root is never read into
     // a cell.
     if (!(await isPathWithin(resolvedDir, sourcePath))) {
-      fail(`tracked path ${entry.path} resolves outside the repository`);
+      fail('a tracked path resolves outside the repository');
     }
-    // Stat and read through one open handle: a check-then-read on the path
-    // could observe two different files, but the fd pins the inode — the
-    // bytes hashed below are the bytes the stat described.
-    const sourceHandle = await open(sourcePath).catch(() =>
-      fail(`cannot open tracked file ${entry.path}`),
+    // A blocking open would hang on a FIFO until a writer appears, so the
+    // open is non-blocking and the descriptor itself is validated with
+    // fstat below: a check-then-read on the path could observe two
+    // different files, but the fd pins the inode — the bytes hashed below
+    // are the bytes the stat described.
+    const sourceHandle = await open(sourcePath, constants.O_RDONLY | constants.O_NONBLOCK).catch(
+      () => fail('cannot open a tracked file'),
     );
     let content: Buffer;
     try {
       const sourceStat = await sourceHandle.stat();
       if (!sourceStat.isFile()) {
-        fail(`tracked path ${entry.path} is not a regular file on disk`);
+        fail('a tracked path is not a regular file on disk');
       }
       if (sourceStat.size > limits.maxFileBytes) {
-        fail(
-          `tracked file ${entry.path} exceeds the per-file limit of ${limits.maxFileBytes} bytes`,
-        );
+        fail(`a tracked file exceeds the per-file limit of ${limits.maxFileBytes} bytes`);
       }
       totalBytes += sourceStat.size;
       if (totalBytes > limits.maxTotalBytes) {
         fail(`seed exceeds the documented total limit of ${limits.maxTotalBytes} bytes`);
       }
-      content = await sourceHandle.readFile();
+      content = await sourceHandle.readFile().catch(() => fail('cannot read a tracked file'));
     } finally {
       await sourceHandle.close();
     }
@@ -175,7 +178,7 @@ export async function resolveSeed(
     // blob once a filter rewrites them.
     if (blobOid(content, entry.oid) !== entry.oid) {
       fail(
-        `tracked file ${entry.path} does not match the index ` +
+        'a tracked file does not match the index ' +
           '(content filters such as text=auto are not supported by seeding)',
       );
     }
@@ -237,13 +240,29 @@ export async function materializeSeed(
     assertSafeRelativePath(path);
     const target = join(workspaceDir, path);
     if (!(await isPathWithin(workspaceDir, target))) {
-      fail(`refusing to write ${path}: escapes the cell workspace`);
+      fail('refusing to write a tracked path: escapes the cell workspace');
     }
-    const content = await readFile(join(seed.sourceDir, path)).catch(() =>
-      fail(`cannot read ${path} from the source repository`),
+    // Same non-blocking discipline as resolveSeed: a blocking open would
+    // hang forever on a FIFO planted at the tracked path, so the open is
+    // non-blocking and fstat on the descriptor proves the opened object is
+    // a regular file.
+    const sourcePath = join(seed.sourceDir, path);
+    const sourceHandle = await open(sourcePath, constants.O_RDONLY | constants.O_NONBLOCK).catch(
+      () => fail('cannot read a tracked file from the source repository'),
     );
+    let content: Buffer;
+    try {
+      if (!(await sourceHandle.stat()).isFile()) {
+        fail('cannot read a tracked file from the source repository');
+      }
+      content = await sourceHandle
+        .readFile()
+        .catch(() => fail('cannot read a tracked file from the source repository'));
+    } finally {
+      await sourceHandle.close();
+    }
     if (sha256Digest(content) !== entry.digest) {
-      fail(`${path} changed between seed resolution and materialization`);
+      fail('a tracked file changed between seed resolution and materialization');
     }
     await mkdir(dirname(target), { recursive: true });
     // Exclusive create, owner-only at first: the workspace was verified
@@ -275,9 +294,20 @@ export async function materializeSeed(
 async function manifestOf(dir: string): Promise<SeedManifest> {
   const files = Object.create(null) as SeedManifest;
   async function walk(relativeDir: string): Promise<void> {
-    const entries = await readdir(join(dir, relativeDir), { withFileTypes: true });
+    const entries = await readdir(join(dir, relativeDir), {
+      withFileTypes: true,
+      encoding: 'buffer',
+    });
     for (const entry of entries) {
-      const rel = relativeDir === '' ? entry.name : `${relativeDir}/${entry.name}`;
+      // Raw-byte names, decoded strictly: a name that is not valid UTF-8
+      // cannot match the manifest (and could not be recorded if it did), so
+      // it is a verification failure like any other unexpected entry. A
+      // literal U+FFFD decodes fine and keeps its real name.
+      const name = decodeUtf8Strict(entry.name);
+      if (name === null) {
+        fail('unexpected entry in the seeded workspace');
+      }
+      const rel = relativeDir === '' ? name : `${relativeDir}/${name}`;
       if (entry.isDirectory()) {
         await walk(rel);
       } else if (entry.isFile()) {
@@ -290,7 +320,7 @@ async function manifestOf(dir: string): Promise<SeedManifest> {
           bytes: content.byteLength,
         };
       } else {
-        fail(`unexpected non-regular entry in the seeded workspace: ${rel}`);
+        fail('unexpected non-regular entry in the seeded workspace');
       }
     }
   }
