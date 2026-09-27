@@ -240,10 +240,11 @@ export async function materializeSeed(
       fail(`${path} changed between seed resolution and materialization`);
     }
     await mkdir(dirname(target), { recursive: true });
-    // Exclusive create: the workspace was verified empty, so an existing
-    // entry at `target` — planted between the check and this write — fails
-    // the materialization instead of being followed or overwritten.
-    const targetHandle = await open(target, 'wx');
+    // Exclusive create, owner-only at first: the workspace was verified
+    // empty, so an existing entry at `target` — planted between the check
+    // and this write — fails the materialization instead of being followed
+    // or overwritten, and nothing else can observe the file before chmod.
+    const targetHandle = await open(target, 'wx', 0o600);
     try {
       await targetHandle.writeFile(content);
     } finally {
