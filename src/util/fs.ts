@@ -36,11 +36,13 @@ export async function isPathWithin(parent: string, child: string): Promise<boole
  * lossy `toString('utf8')` turns invalid bytes into U+FFFD, which is
  * indistinguishable from a legitimate U+FFFD in a name. Strict decoding
  * keeps the two cases apart — a literal U+FFFD is valid and returns its
- * string, while genuinely invalid bytes return null.
+ * string, while genuinely invalid bytes return null. `ignoreBOM` keeps a
+ * leading U+FEFF as the filename character it is rather than stripping it
+ * as a byte-order mark.
  */
 export function decodeUtf8Strict(raw: Uint8Array): string | null {
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(raw);
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(raw);
   } catch {
     return null;
   }

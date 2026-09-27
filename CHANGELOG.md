@@ -53,6 +53,19 @@ What that covers is stated in [the public contract](docs/contract.md).
   so on), so a caller reads the same keys regardless of which runtime ran
   (#194).
 
+### Fixed
+
+- A seeded run no longer hangs when a tracked path becomes a FIFO between
+  seed resolution and the post-run reads: baseline and seed source opens
+  are non-blocking and validate the opened descriptor, so a non-regular
+  entry is omitted from the patch or fails seeding instead of blocking
+  forever (#202).
+- Filenames containing a legitimate U+FFFD now render in `patch.diff`
+  instead of being omitted as unrepresentable — filenames are decoded
+  strictly from their raw bytes, so only genuinely invalid UTF-8 names are
+  rejected — and seed error messages no longer include tracked filenames
+  (#202).
+
 ## [1.0.0] - 2026-09-16
 
 The release where the freeze becomes a promise. The stable surface — the

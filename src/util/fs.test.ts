@@ -40,4 +40,11 @@ describe('decodeUtf8Strict', () => {
     // hidden it behind the same U+FFFD character.
     expect(decodeUtf8Strict(Buffer.from([0x66, 0xff]))).toBeNull();
   });
+
+  it('keeps a leading U+FEFF as a filename character, not a stripped BOM', () => {
+    // EF BB BF at the start of a name is the byte sequence of U+FEFF; a
+    // decoder that treats it as a byte-order mark would silently drop the
+    // first character of the filename.
+    expect(decodeUtf8Strict(Buffer.from('﻿name.txt', 'utf8'))).toBe('﻿name.txt');
+  });
 });

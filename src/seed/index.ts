@@ -166,7 +166,7 @@ export async function resolveSeed(
       if (totalBytes > limits.maxTotalBytes) {
         fail(`seed exceeds the documented total limit of ${limits.maxTotalBytes} bytes`);
       }
-      content = await sourceHandle.readFile();
+      content = await sourceHandle.readFile().catch(() => fail('cannot read a tracked file'));
     } finally {
       await sourceHandle.close();
     }
@@ -255,7 +255,9 @@ export async function materializeSeed(
       if (!(await sourceHandle.stat()).isFile()) {
         fail('cannot read a tracked file from the source repository');
       }
-      content = await sourceHandle.readFile();
+      content = await sourceHandle
+        .readFile()
+        .catch(() => fail('cannot read a tracked file from the source repository'));
     } finally {
       await sourceHandle.close();
     }
