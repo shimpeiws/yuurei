@@ -170,11 +170,18 @@ export class ClaudeCodeRuntime implements Runtime {
           // by the resolved model id — the runtime's own record of which
           // model(s) served the run. Several keys mean several models served
           // (for example a fallback), and joining them reports that rather
-          // than guessing a primary.
+          // than guessing a primary. The keys must be genuine model ids: an
+          // array (whose "keys" are indices) or an empty key means the map is
+          // malformed, and its values are parse failures rather than observed
+          // models.
           const modelUsage = obj['modelUsage'];
-          if (typeof modelUsage === 'object' && modelUsage !== null) {
+          if (typeof modelUsage === 'object' && modelUsage !== null && !Array.isArray(modelUsage)) {
             const models = Object.keys(modelUsage).sort();
-            if (models.length > 0) resolved = models.join(',');
+            if (models.length > 0 && models.every((model) => model.length > 0)) {
+              resolved = models.join(',');
+            } else if (models.some((model) => model.length === 0)) {
+              resolvedReason = 'parse_failed';
+            }
           } else if (modelUsage !== undefined) {
             resolvedReason = 'parse_failed';
           }

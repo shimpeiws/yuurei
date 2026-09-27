@@ -103,16 +103,25 @@ describe('ClaudeCodeRuntime.normalize()', () => {
 
   it('reports parse_failed when the modelUsage field is malformed', async () => {
     const { result, stdoutPath } = makeResult();
-    await writeFile(stdoutPath, '{"modelUsage":"oops","type":"result"}\n', 'utf8');
+    // A non-map value, an array (whose keys are indices, not model ids), and a
+    // map carrying an empty key are all malformed rather than observed models.
+    for (const stdout of [
+      '{"modelUsage":"oops","type":"result"}\n',
+      '{"modelUsage":[{}],"type":"result"}\n',
+      '{"modelUsage":{"":{}},"type":"result"}\n',
+      '{"modelUsage":{"":{},"claude-sonnet-4-5":{}},"type":"result"}\n',
+    ]) {
+      await writeFile(stdoutPath, stdout, 'utf8');
 
-    const runtime = new ClaudeCodeRuntime();
-    const fragment = await runtime.normalize(result, makeContext(null));
+      const runtime = new ClaudeCodeRuntime();
+      const fragment = await runtime.normalize(result, makeContext(null));
 
-    expect(fragment.model).toEqual({
-      requested: '',
-      resolved: null,
-      resolvedReason: 'parse_failed',
-    });
+      expect(fragment.model).toEqual({
+        requested: '',
+        resolved: null,
+        resolvedReason: 'parse_failed',
+      });
+    }
   });
 
   it('reports parse_failed when stdout cannot be read as a result object', async () => {

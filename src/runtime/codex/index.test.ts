@@ -105,6 +105,36 @@ describe('CodexRuntime.normalize()', () => {
     expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
   });
 
+  it('discards an earlier agent_message when the last one is malformed', async () => {
+    const result = makeResult();
+    const trailingMalformed = [
+      '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"draft"}}',
+      '{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":42}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, trailingMalformed, 'utf8');
+
+    const runtime = new CodexRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('takes the last agent_message even when an earlier one was malformed', async () => {
+    const result = makeResult();
+    const leadingMalformed = [
+      '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":42}}',
+      '{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"final answer"}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, leadingMalformed, 'utf8');
+
+    const runtime = new CodexRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: 'final answer' });
+  });
+
   it('reports the result as parse_failed when every line is unparseable', async () => {
     const result = makeResult();
     await writeFile(result.stdoutPath, 'not json\nalso not json\n', 'utf8');

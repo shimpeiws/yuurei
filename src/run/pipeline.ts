@@ -299,8 +299,11 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     let patchTruncated = false;
     if (workspaceComplete) {
       // Redact to a temp file, then publish atomically, so a failed write never
-      // leaves a partial or unredacted patch.diff in place.
-      const tempInput = join(layout.runDir, `.patch.in.tmp-${randomUUID()}`);
+      // leaves a partial or unredacted patch.diff in place. The unredacted
+      // input is staged inside the cell root, which cleanup and the orphan
+      // sweep remove even after a hard kill — the durable run directory never
+      // holds unredacted content, only the already-redacted output temp.
+      const tempInput = join(context.rootDir, `.patch.in.tmp-${randomUUID()}`);
       const tempOutput = join(layout.runDir, `.patch.out.tmp-${randomUUID()}`);
       try {
         const patch = await buildPatch(layout.workspaceDir, maxArtifactBytes);
@@ -319,8 +322,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         patchDiagnostics.push('patch: generation failed; patch.diff not recorded');
       } finally {
         // Both removals run regardless of one another; neither can change
-        // whether the patch was published. A stranded temp file shares the run
-        // directory, whose contents the agent already produced (ADR-0016).
+        // whether the patch was published. A stranded output temp is already
+        // redacted; a stranded input temp sits in the cell root and is swept
+        // with it (ADR-0016).
         await Promise.allSettled([rm(tempInput, { force: true }), rm(tempOutput, { force: true })]);
       }
     } else {
@@ -330,13 +334,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // The runtime's final message is a durable output like patch.diff —
     // best-effort, redacted and capped through the same temp-file path, and
     // never inlined into trace.json (runtime output is untrusted; §10.2).
-    // A missing text is recorded with the reason the adapter reported so a
-    // consumer can tell "nothing was emitted" from "extraction failed".
+    // As with the patch, the unredacted input is staged inside the cell root
+    // so a hard kill cannot strand it in the durable run directory. A missing
+    // text is recorded with the reason the adapter reported so a consumer can
+    // tell "nothing was emitted" from "extraction failed".
     const runResult = fragment.result;
     let resultTruncated = false;
     const resultDiagnostics: string[] = [];
     if (typeof runResult?.text === 'string') {
-      const tempInput = join(layout.runDir, `.result.in.tmp-${randomUUID()}`);
+      const tempInput = join(context.rootDir, `.result.in.tmp-${randomUUID()}`);
       const tempOutput = join(layout.runDir, `.result.out.tmp-${randomUUID()}`);
       try {
         await writeFile(tempInput, runResult.text, 'utf8');

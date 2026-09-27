@@ -183,7 +183,10 @@ export class OpenCodeRuntime implements Runtime {
       let sawStepFinish = false;
       let sawWellFormedEvent = false;
       // The final assistant message is the last `text` event; the pipeline
-      // persists it as result.txt rather than inlining it into the trace.
+      // persists it as result.txt rather than inlining it into the trace. The
+      // state tracked is the *latest* matching event's, so a malformed text
+      // event discards an earlier valid text rather than letting it stand in
+      // as the final message.
       let lastText: string | null = null;
       let malformedText = false;
 
@@ -218,8 +221,8 @@ export class OpenCodeRuntime implements Runtime {
             typeof part === 'object' && part !== null
               ? (part as Record<string, unknown>)['text']
               : undefined;
-          if (typeof text === 'string') lastText = text;
-          else malformedText = true;
+          lastText = typeof text === 'string' ? text : null;
+          malformedText = typeof text !== 'string';
           continue;
         }
         if (obj['type'] !== 'step_finish') continue;

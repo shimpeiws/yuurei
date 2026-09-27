@@ -89,11 +89,13 @@ export const TraceSchema = z.object({
   // figure came from — 'runtime' when the runtime itself reported it (the
   // provider's own number, not an estimate), otherwise the CostModel id that
   // produced it — so a later recomputation knows what it is looking at.
+  // Additive and optional: traces written before `source` existed carry a
+  // non-null cost without it, and a reader treats absence as unknown.
   cost: z
     .object({
       amount: z.number(),
       currency: z.string(),
-      source: z.string(),
+      source: z.string().optional(),
     })
     .nullable(),
   artifacts: z.array(

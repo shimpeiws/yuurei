@@ -96,6 +96,34 @@ describe('OpenCodeRuntime.normalize()', () => {
     expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
   });
 
+  it('discards an earlier text event when the last one is malformed', async () => {
+    const result = makeResult();
+    const lines = [
+      '{"type":"text","part":{"type":"text","text":"draft"}}',
+      '{"type":"text","part":{"type":"text","text":42}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, lines, 'utf8');
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('takes the last text event even when an earlier one was malformed', async () => {
+    const result = makeResult();
+    const lines = [
+      '{"type":"text","part":{"type":"text","text":42}}',
+      '{"type":"text","part":{"type":"text","text":"final answer"}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, lines, 'utf8');
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: 'final answer' });
+  });
+
   it('reports the result as parse_failed when every line is unparseable', async () => {
     const result = makeResult();
     await writeFile(result.stdoutPath, 'not json\nalso not json\n', 'utf8');

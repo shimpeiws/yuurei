@@ -153,7 +153,9 @@ the figure came from, so a later recomputation knows what it is looking at:
 `runtime` when the runtime itself reported it (Claude Code's
 `total_cost_usd`, OpenCode's per-step `cost`), otherwise the id of the
 `CostModel` that produced the estimate. A runtime-reported cost is the
-provider's own number for the run, not an estimate.
+provider's own number for the run, not an estimate. `source` is additive:
+a trace written before it existed carries `{ amount, currency }` alone, and
+a reader treats its absence as unknown.
 
 `model.resolved` is the model the runtime reports having served, which is not
 necessarily the model that was requested. Where the runtime's output exposes

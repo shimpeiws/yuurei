@@ -26,12 +26,15 @@ Checked against each invariant in `CLAUDE.md` / Section C:
   paths (`bridgeCodexAuthFile`, `bridgeCodexApiKey`,
   `bridgeOpenCodeAuthFile`) are untouched.
 - **No secrets in the trace; logs/artifacts redacted.** The final result text
-  is runtime output and is treated exactly like a log: written to a temp file
-  in the run directory, run through `redactFile` with the known credential
-  values and the byte cap, and published via `rename` — an unredacted or
-  partial file can never become `result.txt`. The text is never placed in
-  `trace.json`; only the artifact entry (`path`, `kind: "result"`, digest)
-  reaches the trace. Covered by
+  is runtime output and is treated exactly like a log: staged unredacted in a
+  temp file inside the cell root, run through `redactFile` with the known
+  credential values and the byte cap into a temp output in the run directory,
+  and published via `rename` — an unredacted or partial file can never become
+  `result.txt`, and the durable run directory never holds unredacted content
+  (a hard kill strands the input temp inside the cell root, where the orphan
+  sweep reclaims it; the same staging applies to `.patch.*.tmp-*`). The text
+  is never placed in `trace.json`; only the artifact entry (`path`,
+  `kind: "result"`, digest) reaches the trace. Covered by
   `test/integration/run-pipeline.test.ts` ("persists the runtime result as a
   redacted result.txt artifact, never inlined").
 - **Diagnostics stay fixed-string.** The new diagnostics (`result: no final
@@ -41,10 +44,11 @@ message emitted`, `result: final message could not be parsed`,
 - **Credential backend / profile boundaries.** Unchanged — no new config or
   env surface is forwarded into the cell.
 - **Cleanup.** `result.txt` lives in the durable run directory, not the cell;
-  the temp inputs are removed in a `finally` on every path, and a run
+  the temp files are removed in a `finally` on every path, and a run
   interrupted before `writeTrace` still has its run directory removed by the
-  existing cleanup, so a stranded unredacted temp requires a hard kill — the
-  same accepted exposure already documented for `.patch.*.tmp-*` (ADR-0016).
+  existing cleanup. Unredacted staging temps are written inside the cell
+  root, so even a hard kill leaves them only in a directory the orphan
+  recovery sweep reclaims — never in the retained run directory (ADR-0016).
 - **Fail-closed paths.** Unchanged — no path validation, isolation
   verification, or bridging logic was modified. The adapters only read
   `result.stdoutPath`, a path the pipeline created inside the cell; the new

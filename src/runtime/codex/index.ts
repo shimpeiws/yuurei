@@ -280,7 +280,10 @@ export class CodexRuntime implements Runtime {
       let malformedLineCount = 0;
       let wellFormedEventSeen = false;
       // The final assistant message is the last agent_message item; the
-      // pipeline persists it as result.txt rather than inlining it.
+      // pipeline persists it as result.txt rather than inlining it. The state
+      // tracked is the *latest* matching event's, so a malformed agent_message
+      // discards an earlier valid text rather than letting it stand in as the
+      // final message.
       let lastAgentText: string | null = null;
       let malformedAgentText = false;
       for (const line of stdout.split('\n')) {
@@ -308,8 +311,8 @@ export class CodexRuntime implements Runtime {
           if (typeof item === 'object' && item !== null) {
             const rec = item as Record<string, unknown>;
             if (rec['type'] === 'agent_message') {
-              if (typeof rec['text'] === 'string') lastAgentText = rec['text'];
-              else malformedAgentText = true;
+              lastAgentText = typeof rec['text'] === 'string' ? rec['text'] : null;
+              malformedAgentText = typeof rec['text'] !== 'string';
             }
           }
         }
