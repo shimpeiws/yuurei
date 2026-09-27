@@ -11,6 +11,7 @@ import type {
   NormalizedTraceFragment,
   PreparedRun,
   RegisterCredentialPath,
+  ResultObservationReason,
   Runtime,
   RuntimeDetection,
   RuntimeResult,
@@ -41,6 +42,9 @@ const OPENCODE_PROVIDER_ENV_KEYS = [
   'GROQ_API_KEY',
 ] as const;
 
+/** Path to the per-step USD cost in a `step-finish` part. */
+const COST_PATH: readonly string[] = ['cost'];
+
 /** Usage metric -> path into a `step-finish` part. */
 const USAGE_METRIC_PATHS: Record<string, readonly string[]> = {
   input_tokens: ['tokens', 'input'],
@@ -48,9 +52,6 @@ const USAGE_METRIC_PATHS: Record<string, readonly string[]> = {
   reasoning_output_tokens: ['tokens', 'reasoning'],
   cache_read_input_tokens: ['tokens', 'cache', 'read'],
   cache_write_input_tokens: ['tokens', 'cache', 'write'],
-  // OpenCode reports cost in USD per step. v0.3's CostModel is a no-op, so the
-  // observed value is kept here rather than silently dropped (design doc §20.7).
-  cost_usd: ['cost'],
 };
 
 /**
@@ -168,6 +169,11 @@ export class OpenCodeRuntime implements Runtime {
     const durationMs = new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime();
 
     const usage: Record<string, number | null> = {};
+    let cost: { amount: number; currency: string } | null = null;
+    let finalResult: { text: string | null; reason?: ResultObservationReason } = {
+      text: null,
+      reason: 'unobserved',
+    };
     const diagnostics: string[] = [];
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
@@ -175,6 +181,14 @@ export class OpenCodeRuntime implements Runtime {
       const malformedLines: number[] = [];
       let sawError = false;
       let sawStepFinish = false;
+      let sawWellFormedEvent = false;
+      // The final assistant message is the last `text` event; the pipeline
+      // persists it as result.txt rather than inlining it into the trace. The
+      // state tracked is the *latest* matching event's, so a malformed text
+      // event discards an earlier valid text rather than letting it stand in
+      // as the final message.
+      let lastText: string | null = null;
+      let malformedText = false;
 
       for (const [index, line] of stdout.split('\n').entries()) {
         const lineNumber = index + 1;
@@ -191,6 +205,7 @@ export class OpenCodeRuntime implements Runtime {
           malformedLines.push(lineNumber);
           continue;
         }
+        sawWellFormedEvent = true;
         const obj = event as Record<string, unknown>;
         if (obj['type'] === 'error') {
           // Record only that an error was observed. The error body is runtime
@@ -198,6 +213,16 @@ export class OpenCodeRuntime implements Runtime {
           // into the durable diagnostics (redactSecrets does not guarantee
           // removing an unknown value).
           sawError = true;
+          continue;
+        }
+        if (obj['type'] === 'text') {
+          const part = obj['part'];
+          const text =
+            typeof part === 'object' && part !== null
+              ? (part as Record<string, unknown>)['text']
+              : undefined;
+          lastText = typeof text === 'string' ? text : null;
+          malformedText = typeof text !== 'string';
           continue;
         }
         if (obj['type'] !== 'step_finish') continue;
@@ -213,7 +238,9 @@ export class OpenCodeRuntime implements Runtime {
           continue;
         }
         sawStepFinish = true;
-        for (const [key, path] of Object.entries(USAGE_METRIC_PATHS)) {
+        // The runtime's per-step USD cost is summed like a usage metric but
+        // lands on the fragment's `cost`, not under a usage key.
+        for (const [key, path] of Object.entries({ ...USAGE_METRIC_PATHS, cost: COST_PATH })) {
           const entry = (metrics[key] ??= { sum: 0, problems: [] });
           const field = pickField(part, path);
           if (!field.found) {
@@ -248,12 +275,26 @@ export class OpenCodeRuntime implements Runtime {
           const entry = metrics[key];
           usage[key] = entry !== undefined && entry.problems.length === 0 ? entry.sum : null;
         }
+        const costEntry = metrics['cost'];
+        if (costEntry !== undefined && costEntry.problems.length === 0) {
+          cost = { amount: costEntry.sum, currency: 'USD' };
+        }
+        // Deprecated alias (contract, `trace.json`): 0.3 consumers read the
+        // observed USD cost from this usage key. It derives from the same
+        // `cost` entry, so an omitted cost is reported as one problem, not two.
+        usage['cost_usd'] =
+          costEntry !== undefined && costEntry.problems.length === 0 ? costEntry.sum : null;
         for (const [key, entry] of Object.entries(metrics)) {
           if (entry.problems.length === 0) continue;
           const shown = entry.problems.slice(0, 3).join('; ');
           const more = entry.problems.length > 3 ? '; …' : '';
           diagnostics.push(`opencode: ${key} unobserved (${shown}${more})`);
         }
+      }
+      if (lastText !== null) {
+        finalResult = { text: lastText };
+      } else if (malformedText || (malformedLines.length > 0 && !sawWellFormedEvent)) {
+        finalResult = { text: null, reason: 'parse_failed' };
       }
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
@@ -267,6 +308,7 @@ export class OpenCodeRuntime implements Runtime {
         // Fixed string only: `err.message` can carry a filesystem path, and
         // diagnostics are contractually fixed-string (§6.3, §20.7).
         diagnostics.push('opencode: stdout unreadable — usage unobserved');
+        finalResult = { text: null, reason: 'parse_failed' };
       }
     }
 
@@ -275,6 +317,8 @@ export class OpenCodeRuntime implements Runtime {
       model: { requested: '', resolved: null, resolvedReason: 'unobserved' },
       execution: { exitCode: result.exitCode, signal: result.signal, durationMs },
       usage,
+      cost,
+      result: finalResult,
       // Durable notes only. `warnings` is a separate, operator-facing channel
       // (§6.3); normalization issues here are diagnostic, not actionable
       // warnings, so they are not mirrored into it.

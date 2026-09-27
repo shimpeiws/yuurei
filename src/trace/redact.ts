@@ -53,6 +53,46 @@ export function redactKnownValues(text: string, values: readonly string[]): stri
 }
 
 /**
+ * The shared redact-and-cap core: whole-buffer redaction, then a byte-exact
+ * prefix. `inputTruncated` reports the stream's early stop, so the flag means
+ * "the artifact does not contain the complete input" regardless of how much
+ * redaction removed.
+ */
+function redactAndCap(
+  buffered: string,
+  values: readonly string[],
+  maxBytes: number,
+  inputTruncated: boolean,
+): { text: string; truncated: boolean } {
+  let output = redactSecrets(redactKnownValues(buffered, values));
+  output = redactTerminalKnownPrefix(output, values);
+  const truncated = inputTruncated || Buffer.byteLength(output, 'utf8') > maxBytes;
+  return { text: utf8Prefix(output, maxBytes), truncated };
+}
+
+/**
+ * The in-memory counterpart of `redactFile`, for payloads that already
+ * exist as a string (the runtime's final message, the workspace patch).
+ * Staging such a payload to disk only to read it back would write a second,
+ * unredacted copy and spend disk proportional to the full input. The payload
+ * is redacted in full before the byte cap is applied: capping the raw string
+ * first would drop text the redacted result can still retain (a known
+ * credential repeated through the payload shrinks far below the cap) and
+ * report `truncated` for output that fits. The caller persists only the
+ * bounded, redacted result.
+ */
+export function redactText(
+  text: string,
+  values: readonly string[],
+  maxBytes = DEFAULT_LOG_MAX_BYTES,
+): { text: string; truncated: boolean } {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new RangeError('maxBytes must be a non-negative safe integer');
+  }
+  return redactAndCap(text, values, maxBytes, false);
+}
+
+/**
  * Redacts and persists a log without retaining the complete input in
  * memory. Raw input is buffered only until the byte cap is exceeded (plus
  * at most one read chunk), so memory usage is bounded by `maxBytes`
@@ -81,11 +121,8 @@ export async function redactFile(
     }
   }
 
-  output = redactSecrets(redactKnownValues(output, values));
-  output = redactTerminalKnownPrefix(output, values);
-
-  const truncated = stoppedEarly || Buffer.byteLength(output, 'utf8') > maxBytes;
-  await writeFile(outputPath, utf8Prefix(output, maxBytes), 'utf8');
+  const { text, truncated } = redactAndCap(output, values, maxBytes, stoppedEarly);
+  await writeFile(outputPath, text, 'utf8');
   return truncated;
 }
 

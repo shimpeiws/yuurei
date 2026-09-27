@@ -44,7 +44,7 @@ async function createFixtureProject() {
   await mkdir(bin);
   await writeFile(
     join(bin, 'claude'),
-    '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({result:"fixture response",usage:{input_tokens:3,output_tokens:2}}));\n',
+    '#!/usr/bin/env node\nif (process.argv.includes("--version")) { process.stdout.write("2.1.0\\n"); process.exit(0); } process.stdout.write(JSON.stringify({result:"fixture response",usage:{input_tokens:3,output_tokens:2},modelUsage:{"claude-fixture-1":{}},total_cost_usd:0.001}));\n',
     'utf8',
   );
   await chmod(join(bin, 'claude'), 0o755);
@@ -97,7 +97,10 @@ describe('CLI end-to-end with a fixture runtime', () => {
     >;
     expect(trace['isolation']).toMatchObject({ verified: true });
     expect(trace['execution']).toMatchObject({ exit_code: 0, timed_out: false });
+    expect(trace['model']).toMatchObject({ resolved: 'claude-fixture-1' });
+    expect(trace['cost']).toEqual({ amount: 0.001, currency: 'USD', source: 'runtime' });
     expect(await readFile(join(runDir, 'stdout.log'), 'utf8')).toContain('fixture response');
+    expect(await readFile(join(runDir, 'result.txt'), 'utf8')).toContain('fixture response');
     expect(await readdir(runDir)).toEqual(
       expect.arrayContaining(['stderr.log', 'resolved-profile.json', 'artifacts.json']),
     );

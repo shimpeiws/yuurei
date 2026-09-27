@@ -14,6 +14,7 @@ export interface RunLayout {
   stderrPath: string;
   artifactsPath: string;
   patchPath: string;
+  resultPath: string;
 }
 
 function runLayout(yuureiDir: string, runId: string): RunLayout {
@@ -27,6 +28,7 @@ function runLayout(yuureiDir: string, runId: string): RunLayout {
     stderrPath: join(runDir, 'stderr.log'),
     artifactsPath: join(runDir, 'artifacts.json'),
     patchPath: join(runDir, 'patch.diff'),
+    resultPath: join(runDir, 'result.txt'),
   };
 }
 

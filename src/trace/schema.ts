@@ -85,11 +85,17 @@ export const TraceSchema = z.object({
   // An observed value not present in `usage` (rather than present as null)
   // means it was never even attempted; null means attempted but unobserved.
   usage: z.record(z.string(), z.number().nullable()),
-  // null = cost was not estimated for this run (CostModel is a no-op in v0.3).
+  // null = no cost figure exists for this run. `source` identifies where the
+  // figure came from — 'runtime' when the runtime itself reported it (the
+  // provider's own number, not an estimate), otherwise the CostModel id that
+  // produced it — so a later recomputation knows what it is looking at.
+  // Additive and optional: traces written before `source` existed carry a
+  // non-null cost without it, and a reader treats absence as unknown.
   cost: z
     .object({
       amount: z.number(),
       currency: z.string(),
+      source: z.string().optional(),
     })
     .nullable(),
   artifacts: z.array(

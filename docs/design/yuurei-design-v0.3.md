@@ -586,6 +586,7 @@ Execution results are saved as follows.
 ├── stderr.log
 ├── artifacts.json
 ├── patch.diff
+├── result.txt
 └── workspace/
 ```
 
@@ -594,6 +595,8 @@ What is actually saved is configurable, and secrets or oversized files are not d
 The runtime executes in a fresh `workspace/` inside the temporary cell, and after the run the pipeline copies its regular files (no-follow, symlinks skipped) into the run's `workspace/`. `patch.diff` is an all-additions unified diff of that copy against the empty base: it records what the agent produced, not changes to a supplied project, because none is copied in. Copy and patch are best-effort; on failure `patch.diff` is absent and the reason is a fixed-string entry in the trace's `diagnostics`. ADR-0016 and the contract state the scope, format, caps and accepted risks.
 
 `stdout.log`/`stderr.log` are not a byte-for-byte copy of what the runtime produced: known bridged credential values and generic secret-shaped patterns are redacted before persisting (§9.2, §10.2), so a run that printed a credential to its own output will not have that value recoverable from the durable run directory — but this is a best-effort text pass over whatever the runtime happened to emit, not a content-aware guarantee.
+
+`result.txt` is the runtime's final assistant message, which each adapter extracts from the structured output it already parses (Claude Code's `result` field, Codex's last `agent_message` item, OpenCode's last `text` event). It is persisted through the same redact-and-cap path as the logs, is never inlined into `trace.json`, and is best-effort like `patch.diff`: when it is absent the trace's `diagnostics` records a fixed-string reason distinguishing "nothing was emitted" from "extraction failed".
 
 ### 10.1 What is recorded
 
@@ -1056,9 +1059,9 @@ a non-zero exit code plus a stdout `error` event, not a clean stderr message.
   authoritative failure signal.
 - These notes go to `diagnostics` only. They are not mirrored into the
   operator-facing `warnings` channel, preserving the §6.3 distinction.
-- OpenCode's per-step cost is retained as `usage.cost_usd` because v0.3's
-  `CostModel` is a no-op and `trace.cost` is always null. When `CostModel` gains
-  a real implementation, cost should move there and this usage key be retired.
+- OpenCode's per-step USD cost is summed like a usage metric but lands on
+  `trace.cost` with `source: "runtime"` — it is the provider's own figure for
+  the run, not an estimate, and `usage` holds only token quantities.
 
 ### 20.8 Test strategy for the adapter
 

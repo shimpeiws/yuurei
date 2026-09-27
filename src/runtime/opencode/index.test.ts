@@ -51,8 +51,108 @@ describe('OpenCodeRuntime.normalize()', () => {
       reasoning_output_tokens: 0,
       cache_read_input_tokens: 1792,
       cache_write_input_tokens: 0,
+      // Deprecated alias for 0.3 consumers: the observed USD cost used to live
+      // under this usage key.
       cost_usd: 0,
     });
+    expect(fragment.cost).toEqual({ amount: 0, currency: 'USD' });
+  });
+
+  it('extracts the last text event as the run result', async () => {
+    const result = makeResult();
+    const lines = [
+      '{"type":"text","part":{"type":"text","text":"first"}}',
+      '{"type":"step_finish","part":{"type":"step-finish","tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0}}',
+      '{"type":"text","part":{"type":"text","text":"final answer"}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, lines, 'utf8');
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: 'final answer' });
+  });
+
+  it('reports the result as unobserved when no text event was emitted', async () => {
+    const result = makeResult();
+    await writeFile(
+      result.stdoutPath,
+      '{"type":"step_start","part":{"type":"step-start"}}\n',
+      'utf8',
+    );
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'unobserved' });
+  });
+
+  it('reports the result as parse_failed when a text event has no string text', async () => {
+    const result = makeResult();
+    await writeFile(
+      result.stdoutPath,
+      '{"type":"text","part":{"type":"text","text":42}}\n',
+      'utf8',
+    );
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('discards an earlier text event when the last one is malformed', async () => {
+    const result = makeResult();
+    const lines = [
+      '{"type":"text","part":{"type":"text","text":"draft"}}',
+      '{"type":"text","part":{"type":"text","text":42}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, lines, 'utf8');
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('takes the last text event even when an earlier one was malformed', async () => {
+    const result = makeResult();
+    const lines = [
+      '{"type":"text","part":{"type":"text","text":42}}',
+      '{"type":"text","part":{"type":"text","text":"final answer"}}',
+      '',
+    ].join('\n');
+    await writeFile(result.stdoutPath, lines, 'utf8');
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: 'final answer' });
+  });
+
+  it('reports the result as parse_failed when every line is unparseable', async () => {
+    const result = makeResult();
+    await writeFile(result.stdoutPath, 'not json\nalso not json\n', 'utf8');
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('reports the result as parse_failed when stdout is unreadable', async () => {
+    const result = makeResult();
+    await mkdir(result.stdoutPath);
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('reports the result as unobserved when stdout is absent after a killed run', async () => {
+    const result = makeResult();
+    result.exitCode = null;
+    result.signal = 'SIGTERM';
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.result).toEqual({ text: null, reason: 'unobserved' });
   });
 
   it('reports the model as unobserved with an explicit reason', async () => {
@@ -76,7 +176,23 @@ describe('OpenCodeRuntime.normalize()', () => {
 
     expect(fragment.usage['input_tokens']).toBe(15);
     expect(fragment.usage['output_tokens']).toBe(5);
+    expect(fragment.cost).toEqual({ amount: 2, currency: 'USD' });
     expect(fragment.usage['cost_usd']).toBe(2);
+  });
+
+  it('reports an omitted cost once, not once per key', async () => {
+    const result = makeResult();
+    await writeFile(
+      result.stdoutPath,
+      '{"type":"step_finish","part":{"type":"step-finish","tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}}}}',
+      'utf8',
+    );
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.cost).toBeNull();
+    expect(fragment.usage['cost_usd']).toBeNull();
+    expect((fragment.diagnostics ?? []).filter((d) => d.includes('cost'))).toHaveLength(1);
   });
 
   it('records a missing metric as null rather than zero when a step omits it', async () => {
@@ -108,6 +224,7 @@ describe('OpenCodeRuntime.normalize()', () => {
     );
     expect(fragment.diagnostics?.[0]).toContain('lines 1');
     expect(fragment.usage['input_tokens']).toBe(6174);
+    expect(fragment.usage['cost_usd']).toBe(0);
   });
 
   it('returns empty usage and a diagnostic when no step_finish event is present', async () => {

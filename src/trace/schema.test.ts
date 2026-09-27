@@ -40,6 +40,14 @@ describe('TraceSchema', () => {
     expect(() => TraceSchema.parse(validTrace)).not.toThrow();
   });
 
+  it('accepts a non-null cost without source, as written before the field existed', () => {
+    const withLegacyCost = {
+      ...validTrace,
+      cost: { amount: 0.42, currency: 'USD' },
+    };
+    expect(TraceSchema.parse(withLegacyCost)).toEqual(withLegacyCost);
+  });
+
   it('rejects an unknown resolved_reason', () => {
     expect(() =>
       TraceSchema.parse({

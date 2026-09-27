@@ -1,8 +1,16 @@
+/**
+ * What a run observed, under the canonical usage-key vocabulary documented
+ * in `docs/contract.md`. `null` = the metric was attempted but unobserved;
+ * a CostModel must not treat it as zero.
+ */
 export interface UsageRecord {
   runtimeId: string;
   model: string;
   tokensIn: number | null;
   tokensOut: number | null;
+  cacheReadTokensIn: number | null;
+  cacheWriteTokensIn: number | null;
+  reasoningTokensOut: number | null;
 }
 
 export interface CostEstimate {

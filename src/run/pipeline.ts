@@ -19,7 +19,7 @@ import { toProfileManifest } from '../profile/manifest.js';
 import { getRuntime } from '../runtime/registry.js';
 import type { PreparedRun, Runtime } from '../runtime/types.js';
 import { writeTrace } from '../trace/writer.js';
-import { redactFile } from '../trace/redact.js';
+import { redactFile, redactText } from '../trace/redact.js';
 import type { RunDefinition, Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
 import { createUniqueRunLayout } from './layout.js';
@@ -219,13 +219,34 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     const fragment = await runtime.normalize(result, { runtimeVersion: prepared.runtimeVersion });
     for (const w of fragment.warnings ?? []) warn(w);
 
+    // A cost the runtime itself reported wins over estimation: it is the
+    // provider's own figure for this run, not a derived one. The CostModel
+    // runs only when the adapter observed none, and its id is recorded as the
+    // source so a recomputation knows what produced the number.
+    const observedCost = fragment.cost ?? null;
     const costModel = new NoopCostModel();
-    const costEstimate = await costModel.estimate({
-      runtimeId: cell.runtimeId,
-      model: cell.requestedModel,
-      tokensIn: fragment.usage['input_tokens'] ?? null,
-      tokensOut: fragment.usage['output_tokens'] ?? null,
-    });
+    const costEstimate =
+      observedCost === null
+        ? await costModel.estimate({
+            runtimeId: cell.runtimeId,
+            model: cell.requestedModel,
+            tokensIn: fragment.usage['input_tokens'] ?? null,
+            tokensOut: fragment.usage['output_tokens'] ?? null,
+            cacheReadTokensIn: fragment.usage['cache_read_input_tokens'] ?? null,
+            cacheWriteTokensIn: fragment.usage['cache_write_input_tokens'] ?? null,
+            reasoningTokensOut: fragment.usage['reasoning_output_tokens'] ?? null,
+          })
+        : null;
+    const cost: Trace['cost'] =
+      observedCost !== null
+        ? { ...observedCost, source: 'runtime' }
+        : costEstimate !== null && costEstimate.amount !== null
+          ? {
+              amount: costEstimate.amount,
+              currency: costEstimate.currency ?? 'USD',
+              source: costModel.id(),
+            }
+          : null;
 
     const knownCredentialValues = prepared.credentialValuesToRedact;
     const maxArtifactBytes = input.maxArtifactBytes ?? DEFAULT_ARTIFACT_MAX_BYTES;
@@ -277,38 +298,64 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     let patchDiagnostics: string[] = [];
     let patchTruncated = false;
     if (workspaceComplete) {
-      // Redact to a temp file, then publish atomically, so a failed write never
-      // leaves a partial or unredacted patch.diff in place.
-      const tempInput = join(layout.runDir, `.patch.in.tmp-${randomUUID()}`);
+      // Redact and cap the diff in memory — buildPatch already returns it as
+      // a string, so staging it to disk would only write an unredacted copy
+      // the cap is about to discard — then publish via a temp file + rename
+      // so a failed write never leaves a partial or unredacted patch.diff in
+      // place.
       const tempOutput = join(layout.runDir, `.patch.out.tmp-${randomUUID()}`);
       try {
         const patch = await buildPatch(layout.workspaceDir, maxArtifactBytes);
         patchDiagnostics = patch.diagnostics;
-        await writeFile(tempInput, patch.diff, 'utf8');
-        patchTruncated = await redactFile(
-          tempInput,
-          tempOutput,
-          knownCredentialValues,
-          maxArtifactBytes,
-        );
+        const redacted = redactText(patch.diff, knownCredentialValues, maxArtifactBytes);
+        patchTruncated = redacted.truncated;
+        await writeFile(tempOutput, redacted.text, 'utf8');
         await rename(tempOutput, layout.patchPath);
       } catch {
         // Reached only before the rename, so patch.diff was not published and
         // the "generation failed" note is accurate.
         patchDiagnostics.push('patch: generation failed; patch.diff not recorded');
       } finally {
-        // Both removals run regardless of one another; neither can change
-        // whether the patch was published. A stranded temp file shares the run
-        // directory, whose contents the agent already produced (ADR-0016).
-        await Promise.allSettled([rm(tempInput, { force: true }), rm(tempOutput, { force: true })]);
+        // A stranded output temp is already redacted; no path through this
+        // block writes unredacted content to disk (ADR-0016).
+        await rm(tempOutput, { force: true }).catch(() => {});
       }
     } else {
       patchDiagnostics.push('patch: generation failed; patch.diff not recorded');
+    }
+
+    // The runtime's final message is a durable output like patch.diff —
+    // best-effort, redacted and capped in memory (it already exists as a
+    // string, so no unredacted copy ever reaches disk), published through the
+    // same temp-file + rename path, and never inlined into trace.json
+    // (runtime output is untrusted; §10.2). A missing text is recorded with
+    // the reason the adapter reported so a consumer can tell "nothing was
+    // emitted" from "extraction failed".
+    const runResult = fragment.result;
+    let resultTruncated = false;
+    const resultDiagnostics: string[] = [];
+    if (typeof runResult?.text === 'string') {
+      const tempOutput = join(layout.runDir, `.result.out.tmp-${randomUUID()}`);
+      try {
+        const redacted = redactText(runResult.text, knownCredentialValues, maxArtifactBytes);
+        resultTruncated = redacted.truncated;
+        await writeFile(tempOutput, redacted.text, 'utf8');
+        await rename(tempOutput, layout.resultPath);
+      } catch {
+        resultDiagnostics.push('result: save failed; result.txt not recorded');
+      } finally {
+        await rm(tempOutput, { force: true }).catch(() => {});
+      }
+    } else if (runResult?.reason === 'parse_failed') {
+      resultDiagnostics.push('result: final message could not be parsed');
+    } else if (runResult?.reason === 'unobserved') {
+      resultDiagnostics.push('result: no final message emitted');
     }
     const diagnostics = [
       ...(fragment.diagnostics ?? []),
       ...workspaceDiagnostics,
       ...patchDiagnostics,
+      ...resultDiagnostics,
     ];
 
     // Collect artifacts and persist every durable output BEFORE the trace is
@@ -318,12 +365,13 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // artifact list in the trace is derived from the manifest, so the two can
     // never disagree (#111).
     const manifest = await save(() =>
-      collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log', 'patch.diff'], {
+      collectArtifacts(layout.runDir, ['stdout.log', 'stderr.log', 'patch.diff', 'result.txt'], {
         maxBytes: maxArtifactBytes,
         truncatedPaths: [
           ...(stdoutTruncated ? ['stdout.log'] : []),
           ...(stderrTruncated ? ['stderr.log'] : []),
           ...(patchTruncated ? ['patch.diff'] : []),
+          ...(resultTruncated ? ['result.txt'] : []),
         ],
       }),
     );
@@ -370,10 +418,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         timed_out: result.timedOut,
       },
       usage: fragment.usage,
-      cost:
-        costEstimate.amount === null
-          ? null
-          : { amount: costEstimate.amount, currency: costEstimate.currency ?? 'USD' },
+      cost,
       // The actual artifacts just collected — mirrors artifacts.json rather
       // than a placeholder empty list.
       artifacts: manifest.artifacts.map(({ path, kind }) => ({ path, kind })),

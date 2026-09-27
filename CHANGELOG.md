@@ -7,6 +7,37 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+### Added
+
+- Each run now records the runtime's final assistant message as `result.txt`
+  in the run directory: the adapter extracts it from the structured output it
+  already parses (Claude Code's `result` field, Codex's last `agent_message`
+  item, OpenCode's last `text` event), and the pipeline persists it redacted
+  and capped like a log, listed in `artifacts.json` with `kind: "result"`. The
+  text is never inlined into `trace.json`; when no `result.txt` is persisted a
+  fixed-string entry in `diagnostics` says whether nothing was emitted, the
+  source could not be parsed, or the save failed (#190).
+- `trace.json` records the model the runtime actually used where the runtime
+  reports one: the Claude Code adapter resolves it from the `modelUsage` map,
+  joining the ids when several served the run. Codex's and OpenCode's event
+  streams carry no model identity, so their traces keep `resolved: null` with
+  `resolved_reason: "unobserved"` — an honest "not emitted", not a parse
+  failure (#193).
+- A cost the runtime itself reports is now recorded with `source: "runtime"` —
+  Claude Code's `total_cost_usd` and the sum of OpenCode's per-step `cost` —
+  taking precedence over the CostModel estimate, which is used only when the
+  adapter observed none (#194).
+
+### Changed
+
+- `trace.json` usage normalizes to a canonical vocabulary across runtimes:
+  `input_tokens`, `output_tokens`, `cache_read_input_tokens`,
+  `cache_write_input_tokens` and `reasoning_output_tokens`. Runtime-specific
+  names map onto them (Claude Code's `cache_creation_input_tokens` is the
+  cache-write quantity, Codex's `cached_input_tokens` the cache-read one, and
+  so on), so a caller reads the same keys regardless of which runtime ran
+  (#194).
+
 ## [1.0.0] - 2026-09-16
 
 The release where the freeze becomes a promise. The stable surface — the

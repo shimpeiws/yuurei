@@ -180,5 +180,10 @@ if (args.includes('--version')) {
   process.stdout.write('2.1.0\\n');
   process.exit(0);
 }
-process.stdout.write(JSON.stringify({ result: 'fixture response', usage: { input_tokens: 3, output_tokens: 2 } }));
+process.stdout.write(JSON.stringify({
+  result: 'fixture response',
+  usage: { input_tokens: 3, output_tokens: 2 },
+  modelUsage: { 'claude-fixture-1': { inputTokens: 3, outputTokens: 2 } },
+  total_cost_usd: 0.001,
+}));
 `;

@@ -10,11 +10,13 @@ import type {
   NormalizedTraceFragment,
   PreparedRun,
   RegisterCredentialPath,
+  ResultObservationReason,
   Runtime,
   RuntimeDetection,
   RuntimeResult,
 } from '../types.js';
 import { writeFileTree } from '../../util/fs.js';
+import type { ModelResolutionReason } from '../../trace/schema.js';
 import { assertNoReservedConfigPath } from '../reserved-paths.js';
 import { buildClaudeCodeArgs } from './args.js';
 import { claudeConfigDir } from './paths.js';
@@ -142,6 +144,13 @@ export class ClaudeCodeRuntime implements Runtime {
     const durationMs = new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime();
 
     let usage: Record<string, number | null> = {};
+    let cost: { amount: number; currency: string } | null = null;
+    let resolved: string | null = null;
+    let resolvedReason: ModelResolutionReason = 'unobserved';
+    let finalResult: { text: string | null; reason?: ResultObservationReason } = {
+      text: null,
+      reason: 'unobserved',
+    };
     const warnings: string[] = [];
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
@@ -150,11 +159,35 @@ export class ClaudeCodeRuntime implements Runtime {
         parsed = JSON.parse(stdout.trim());
       } catch {
         warnings.push('claude-code: stdout was not valid JSON — usage unobserved');
+        resolvedReason = 'parse_failed';
+        finalResult = { text: null, reason: 'parse_failed' };
         parsed = undefined;
       }
       if (parsed !== undefined) {
         if (typeof parsed === 'object' && parsed !== null) {
           const obj = parsed as Record<string, unknown>;
+          // The result object carries `modelUsage`, per-model counters keyed
+          // by the resolved model id — the runtime's own record of which
+          // model(s) served the run. Several keys mean several models served
+          // (for example a fallback), and joining them reports that rather
+          // than guessing a primary. The keys must be genuine model ids: an
+          // array (whose "keys" are indices) or an empty key means the map is
+          // malformed, and its values are parse failures rather than observed
+          // models.
+          const modelUsage = obj['modelUsage'];
+          if (typeof modelUsage === 'object' && modelUsage !== null && !Array.isArray(modelUsage)) {
+            const models = Object.keys(modelUsage).sort();
+            if (models.length > 0 && models.every((model) => model.length > 0)) {
+              resolved = models.join(',');
+            } else if (models.some((model) => model.length === 0)) {
+              resolvedReason = 'parse_failed';
+            }
+          } else if (modelUsage !== undefined) {
+            resolvedReason = 'parse_failed';
+          }
+          // Canonical usage keys (contract, `trace.json`): the runtime's own
+          // names map onto them — cache_creation_input_tokens is the
+          // cache-write quantity, thinking_tokens the reasoning-output one.
           const usageRaw = obj['usage'];
           if (typeof usageRaw === 'object' && usageRaw !== null) {
             const u = usageRaw as Record<string, unknown>;
@@ -162,17 +195,41 @@ export class ClaudeCodeRuntime implements Runtime {
               const v = u[key];
               return typeof v === 'number' ? v : null;
             };
+            const details = u['output_tokens_details'];
+            const thinking =
+              typeof details === 'object' && details !== null
+                ? (details as Record<string, unknown>)['thinking_tokens']
+                : undefined;
             usage = {
               input_tokens: pick('input_tokens'),
               output_tokens: pick('output_tokens'),
-              cache_creation_input_tokens: pick('cache_creation_input_tokens'),
+              cache_write_input_tokens: pick('cache_creation_input_tokens'),
               cache_read_input_tokens: pick('cache_read_input_tokens'),
+              reasoning_output_tokens: typeof thinking === 'number' ? thinking : null,
+              // Deprecated alias (contract, `trace.json`): 0.3 consumers read
+              // the runtime's own key name here; removed in the next major.
+              cache_creation_input_tokens: pick('cache_creation_input_tokens'),
             };
           } else {
             warnings.push('claude-code: stdout JSON had no usage field — usage unobserved');
           }
+          // `total_cost_usd` is the runtime's own figure for the run; record
+          // it as an observed cost rather than estimating one.
+          const totalCost = obj['total_cost_usd'];
+          if (typeof totalCost === 'number' && Number.isFinite(totalCost)) {
+            cost = { amount: totalCost, currency: 'USD' };
+          }
+          // `result` is the runtime's final message; the pipeline persists it
+          // as result.txt rather than inlining it into the trace.
+          const resultField = obj['result'];
+          finalResult =
+            typeof resultField === 'string'
+              ? { text: resultField }
+              : { text: null, reason: resultField === undefined ? 'unobserved' : 'parse_failed' };
         } else {
           warnings.push('claude-code: stdout JSON was not an object — usage unobserved');
+          resolvedReason = 'parse_failed';
+          finalResult = { text: null, reason: 'parse_failed' };
         }
       }
     } catch (err) {
@@ -186,14 +243,22 @@ export class ClaudeCodeRuntime implements Runtime {
         warnings.push(
           `claude-code: stdout unreadable (${err instanceof Error ? err.message : String(err)}) — usage unobserved`,
         );
+        resolvedReason = 'parse_failed';
+        finalResult = { text: null, reason: 'parse_failed' };
       }
     }
 
     return {
       runtime: { id: RUNTIME_ID, version: context.runtimeVersion },
-      model: { requested: '', resolved: null, resolvedReason: 'unobserved' },
+      model: {
+        requested: '',
+        resolved,
+        ...(resolved === null ? { resolvedReason } : {}),
+      },
       execution: { exitCode: result.exitCode, signal: result.signal, durationMs },
       usage,
+      cost,
+      result: finalResult,
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }

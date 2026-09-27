@@ -12,6 +12,7 @@ import type {
   NormalizedTraceFragment,
   PreparedRun,
   RegisterCredentialPath,
+  ResultObservationReason,
   Runtime,
   RuntimeDetection,
   RuntimeResult,
@@ -266,6 +267,10 @@ export class CodexRuntime implements Runtime {
     const durationMs = new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime();
 
     let usage: Record<string, number | null> = {};
+    let finalResult: { text: string | null; reason?: ResultObservationReason } = {
+      text: null,
+      reason: 'unobserved',
+    };
     const warnings: string[] = [];
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
@@ -273,6 +278,14 @@ export class CodexRuntime implements Runtime {
       // turn.completed) and to treat valid-JSON non-objects as malformed too.
       let firstCompleted: Record<string, unknown> | null = null;
       let malformedLineCount = 0;
+      let wellFormedEventSeen = false;
+      // The final assistant message is the last agent_message item; the
+      // pipeline persists it as result.txt rather than inlining it. The state
+      // tracked is the *latest* matching event's, so a malformed agent_message
+      // discards an earlier valid text rather than letting it stand in as the
+      // final message.
+      let lastAgentText: string | null = null;
+      let malformedAgentText = false;
       for (const line of stdout.split('\n')) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -288,13 +301,29 @@ export class CodexRuntime implements Runtime {
           malformedLineCount++;
           continue;
         }
+        wellFormedEventSeen = true;
         const obj = event as Record<string, unknown>;
         if (obj['type'] === 'turn.completed' && firstCompleted === null) {
           firstCompleted = obj;
         }
+        if (obj['type'] === 'item.completed') {
+          const item = obj['item'];
+          if (typeof item === 'object' && item !== null) {
+            const rec = item as Record<string, unknown>;
+            if (rec['type'] === 'agent_message') {
+              lastAgentText = typeof rec['text'] === 'string' ? rec['text'] : null;
+              malformedAgentText = typeof rec['text'] !== 'string';
+            }
+          }
+        }
       }
       if (malformedLineCount > 0) {
         warnings.push(`codex: ${malformedLineCount} unparseable JSONL line(s) skipped`);
+      }
+      if (lastAgentText !== null) {
+        finalResult = { text: lastAgentText };
+      } else if (malformedAgentText || (malformedLineCount > 0 && !wellFormedEventSeen)) {
+        finalResult = { text: null, reason: 'parse_failed' };
       }
       if (firstCompleted !== null) {
         const usageRaw = firstCompleted['usage'];
@@ -307,9 +336,16 @@ export class CodexRuntime implements Runtime {
           usage = {
             input_tokens: pick('input_tokens'),
             output_tokens: pick('output_tokens'),
-            cached_input_tokens: pick('cached_input_tokens'),
+            // Canonical keys (contract, `trace.json`): the runtime's own
+            // `cached_input_tokens` is the cache-read quantity.
+            cache_read_input_tokens: pick('cached_input_tokens'),
             cache_write_input_tokens: pick('cache_write_input_tokens'),
             reasoning_output_tokens: pick('reasoning_output_tokens'),
+            // Deprecated alias (contract, `trace.json`): 0.3 consumers read the
+            // runtime's own key name here and the trace schema version stays
+            // 0.3, so it keeps carrying the cache-read quantity until the next
+            // major. A new adapter does not add one.
+            cached_input_tokens: pick('cached_input_tokens'),
           };
         } else {
           warnings.push('codex: turn.completed event had no usage field — usage unobserved');
@@ -328,6 +364,7 @@ export class CodexRuntime implements Runtime {
         warnings.push(
           `codex: stdout unreadable (${err instanceof Error ? err.message : String(err)}) — usage unobserved`,
         );
+        finalResult = { text: null, reason: 'parse_failed' };
       }
     }
 
@@ -336,6 +373,7 @@ export class CodexRuntime implements Runtime {
       model: { requested: '', resolved: null, resolvedReason: 'unobserved' },
       execution: { exitCode: result.exitCode, signal: result.signal, durationMs },
       usage,
+      result: finalResult,
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }

@@ -51,9 +51,167 @@ describe('ClaudeCodeRuntime.normalize()', () => {
     expect(fragment.usage).toEqual({
       input_tokens: 3,
       output_tokens: 4,
-      cache_creation_input_tokens: 0,
+      cache_write_input_tokens: 0,
       cache_read_input_tokens: 24335,
+      reasoning_output_tokens: 0,
+      // Deprecated alias for 0.3 consumers: the runtime's own key name.
+      cache_creation_input_tokens: 0,
     });
+  });
+
+  it('resolves the model from the modelUsage keys', async () => {
+    const { result, stdoutPath } = makeResult();
+    const stdout =
+      '{"modelUsage":{"claude-sonnet-4-5-20250929":{"inputTokens":3,"outputTokens":4,"costUSD":0.01}},"usage":{"input_tokens":3,"output_tokens":4},"type":"result"}\n';
+    await writeFile(stdoutPath, stdout, 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.model).toEqual({ requested: '', resolved: 'claude-sonnet-4-5-20250929' });
+  });
+
+  it('joins every modelUsage key when several models served the run', async () => {
+    const { result, stdoutPath } = makeResult();
+    const stdout =
+      '{"modelUsage":{"claude-sonnet-4-5":{},"claude-haiku-4-5":{}},"usage":{},"type":"result"}\n';
+    await writeFile(stdoutPath, stdout, 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.model).toEqual({
+      requested: '',
+      resolved: 'claude-haiku-4-5,claude-sonnet-4-5',
+    });
+  });
+
+  it('reports the model as unobserved when modelUsage is absent or empty', async () => {
+    const { result, stdoutPath } = makeResult();
+    // REAL_CLAUDE_STDOUT predates modelUsage; {} exercises the empty-object path.
+    for (const stdout of [REAL_CLAUDE_STDOUT, '{"modelUsage":{},"type":"result"}\n']) {
+      await writeFile(stdoutPath, stdout, 'utf8');
+
+      const runtime = new ClaudeCodeRuntime();
+      const fragment = await runtime.normalize(result, makeContext(null));
+
+      expect(fragment.model).toEqual({
+        requested: '',
+        resolved: null,
+        resolvedReason: 'unobserved',
+      });
+    }
+  });
+
+  it('reports parse_failed when the modelUsage field is malformed', async () => {
+    const { result, stdoutPath } = makeResult();
+    // A non-map value, an array (whose keys are indices, not model ids), and a
+    // map carrying an empty key are all malformed rather than observed models.
+    for (const stdout of [
+      '{"modelUsage":"oops","type":"result"}\n',
+      '{"modelUsage":[{}],"type":"result"}\n',
+      '{"modelUsage":{"":{}},"type":"result"}\n',
+      '{"modelUsage":{"":{},"claude-sonnet-4-5":{}},"type":"result"}\n',
+    ]) {
+      await writeFile(stdoutPath, stdout, 'utf8');
+
+      const runtime = new ClaudeCodeRuntime();
+      const fragment = await runtime.normalize(result, makeContext(null));
+
+      expect(fragment.model).toEqual({
+        requested: '',
+        resolved: null,
+        resolvedReason: 'parse_failed',
+      });
+    }
+  });
+
+  it('reports parse_failed when stdout cannot be read as a result object', async () => {
+    const { result, stdoutPath } = makeResult();
+    for (const stdout of ['not json\n', 'null']) {
+      await writeFile(stdoutPath, stdout, 'utf8');
+
+      const runtime = new ClaudeCodeRuntime();
+      const fragment = await runtime.normalize(result, makeContext(null));
+
+      expect(fragment.model.resolvedReason).toBe('parse_failed');
+    }
+  });
+
+  it('reports the model as unobserved when stdout is absent', async () => {
+    const { result } = makeResult();
+    result.exitCode = null;
+    result.signal = 'SIGTERM';
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.model).toEqual({
+      requested: '',
+      resolved: null,
+      resolvedReason: 'unobserved',
+    });
+  });
+
+  it('extracts the final result text from the result object', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, REAL_CLAUDE_STDOUT, 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: 'hello' });
+  });
+
+  it('reports the result as unobserved when the result field is absent', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, '{"usage":{},"type":"result"}\n', 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'unobserved' });
+  });
+
+  it('reports the result as parse_failed when the result field is malformed', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, '{"result":42,"type":"result"}\n', 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('reports the result as parse_failed when stdout cannot be read as a result object', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, 'not json\n', 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'parse_failed' });
+  });
+
+  it('reports the result as unobserved when stdout is absent after a killed run', async () => {
+    const { result } = makeResult();
+    result.exitCode = null;
+    result.signal = 'SIGTERM';
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.result).toEqual({ text: null, reason: 'unobserved' });
+  });
+
+  it('records the runtime-reported total_cost_usd as an observed cost', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, REAL_CLAUDE_STDOUT, 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.cost).toEqual({ amount: 0.007369499999999999, currency: 'USD' });
   });
 
   it('threads runtimeVersion into the trace runtime field', async () => {

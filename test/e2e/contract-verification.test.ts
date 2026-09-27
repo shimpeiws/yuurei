@@ -114,7 +114,8 @@ const LEGACY_TRACE = {
   isolation: { strategy: 'level1', verified: true },
   execution: { exit_code: 0, signal: null, duration_ms: 1000, timed_out: false },
   usage: {},
-  cost: null,
+  // A non-null cost written before `source` existed: amount and currency only.
+  cost: { amount: 0.42, currency: 'USD' },
   artifacts: [],
 };
 
