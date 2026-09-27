@@ -15,6 +15,7 @@ import type {
   RuntimeResult,
 } from '../types.js';
 import { writeFileTree } from '../../util/fs.js';
+import type { ModelResolutionReason } from '../../trace/schema.js';
 import { assertNoReservedConfigPath } from '../reserved-paths.js';
 import { buildClaudeCodeArgs } from './args.js';
 import { claudeConfigDir } from './paths.js';
@@ -143,6 +144,8 @@ export class ClaudeCodeRuntime implements Runtime {
 
     let usage: Record<string, number | null> = {};
     let cost: { amount: number; currency: string } | null = null;
+    let resolved: string | null = null;
+    let resolvedReason: ModelResolutionReason = 'unobserved';
     const warnings: string[] = [];
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
@@ -151,11 +154,24 @@ export class ClaudeCodeRuntime implements Runtime {
         parsed = JSON.parse(stdout.trim());
       } catch {
         warnings.push('claude-code: stdout was not valid JSON — usage unobserved');
+        resolvedReason = 'parse_failed';
         parsed = undefined;
       }
       if (parsed !== undefined) {
         if (typeof parsed === 'object' && parsed !== null) {
           const obj = parsed as Record<string, unknown>;
+          // The result object carries `modelUsage`, per-model counters keyed
+          // by the resolved model id — the runtime's own record of which
+          // model(s) served the run. Several keys mean several models served
+          // (for example a fallback), and joining them reports that rather
+          // than guessing a primary.
+          const modelUsage = obj['modelUsage'];
+          if (typeof modelUsage === 'object' && modelUsage !== null) {
+            const models = Object.keys(modelUsage).sort();
+            if (models.length > 0) resolved = models.join(',');
+          } else if (modelUsage !== undefined) {
+            resolvedReason = 'parse_failed';
+          }
           // Canonical usage keys (contract, `trace.json`): the runtime's own
           // names map onto them — cache_creation_input_tokens is the
           // cache-write quantity, thinking_tokens the reasoning-output one.
@@ -189,6 +205,7 @@ export class ClaudeCodeRuntime implements Runtime {
           }
         } else {
           warnings.push('claude-code: stdout JSON was not an object — usage unobserved');
+          resolvedReason = 'parse_failed';
         }
       }
     } catch (err) {
@@ -202,12 +219,17 @@ export class ClaudeCodeRuntime implements Runtime {
         warnings.push(
           `claude-code: stdout unreadable (${err instanceof Error ? err.message : String(err)}) — usage unobserved`,
         );
+        resolvedReason = 'parse_failed';
       }
     }
 
     return {
       runtime: { id: RUNTIME_ID, version: context.runtimeVersion },
-      model: { requested: '', resolved: null, resolvedReason: 'unobserved' },
+      model: {
+        requested: '',
+        resolved,
+        ...(resolved === null ? { resolvedReason } : {}),
+      },
       execution: { exitCode: result.exitCode, signal: result.signal, durationMs },
       usage,
       cost,

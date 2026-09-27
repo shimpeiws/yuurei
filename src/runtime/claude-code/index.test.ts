@@ -57,6 +57,91 @@ describe('ClaudeCodeRuntime.normalize()', () => {
     });
   });
 
+  it('resolves the model from the modelUsage keys', async () => {
+    const { result, stdoutPath } = makeResult();
+    const stdout =
+      '{"modelUsage":{"claude-sonnet-4-5-20250929":{"inputTokens":3,"outputTokens":4,"costUSD":0.01}},"usage":{"input_tokens":3,"output_tokens":4},"type":"result"}\n';
+    await writeFile(stdoutPath, stdout, 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.model).toEqual({ requested: '', resolved: 'claude-sonnet-4-5-20250929' });
+  });
+
+  it('joins every modelUsage key when several models served the run', async () => {
+    const { result, stdoutPath } = makeResult();
+    const stdout =
+      '{"modelUsage":{"claude-sonnet-4-5":{},"claude-haiku-4-5":{}},"usage":{},"type":"result"}\n';
+    await writeFile(stdoutPath, stdout, 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.model).toEqual({
+      requested: '',
+      resolved: 'claude-haiku-4-5,claude-sonnet-4-5',
+    });
+  });
+
+  it('reports the model as unobserved when modelUsage is absent or empty', async () => {
+    const { result, stdoutPath } = makeResult();
+    // REAL_CLAUDE_STDOUT predates modelUsage; {} exercises the empty-object path.
+    for (const stdout of [REAL_CLAUDE_STDOUT, '{"modelUsage":{},"type":"result"}\n']) {
+      await writeFile(stdoutPath, stdout, 'utf8');
+
+      const runtime = new ClaudeCodeRuntime();
+      const fragment = await runtime.normalize(result, makeContext(null));
+
+      expect(fragment.model).toEqual({
+        requested: '',
+        resolved: null,
+        resolvedReason: 'unobserved',
+      });
+    }
+  });
+
+  it('reports parse_failed when the modelUsage field is malformed', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, '{"modelUsage":"oops","type":"result"}\n', 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.model).toEqual({
+      requested: '',
+      resolved: null,
+      resolvedReason: 'parse_failed',
+    });
+  });
+
+  it('reports parse_failed when stdout cannot be read as a result object', async () => {
+    const { result, stdoutPath } = makeResult();
+    for (const stdout of ['not json\n', 'null']) {
+      await writeFile(stdoutPath, stdout, 'utf8');
+
+      const runtime = new ClaudeCodeRuntime();
+      const fragment = await runtime.normalize(result, makeContext(null));
+
+      expect(fragment.model.resolvedReason).toBe('parse_failed');
+    }
+  });
+
+  it('reports the model as unobserved when stdout is absent', async () => {
+    const { result } = makeResult();
+    result.exitCode = null;
+    result.signal = 'SIGTERM';
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.model).toEqual({
+      requested: '',
+      resolved: null,
+      resolvedReason: 'unobserved',
+    });
+  });
+
   it('records the runtime-reported total_cost_usd as an observed cost', async () => {
     const { result, stdoutPath } = makeResult();
     await writeFile(stdoutPath, REAL_CLAUDE_STDOUT, 'utf8');
