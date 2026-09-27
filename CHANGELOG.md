@@ -7,6 +7,8 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-28
+
 ### Added
 
 - Each run now records the runtime's final assistant message as `result.txt`
@@ -400,7 +402,8 @@ First published release. It implements the v0.3 design scope: single-runtime
 - `trace.json` is written atomically and last, so it is a reliable completion
   marker and can never be read half-written.
 
-[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/shimpeiws/yuurei/releases/tag/v1.1.0
 [1.0.0]: https://github.com/shimpeiws/yuurei/releases/tag/v1.0.0
 [1.0.0-rc.1]: https://github.com/shimpeiws/yuurei/releases/tag/v1.0.0-rc.1
 [0.5.0]: https://github.com/shimpeiws/yuurei/releases/tag/v0.5.0
