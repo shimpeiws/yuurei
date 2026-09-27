@@ -192,6 +192,49 @@ describe('resolveSeed', () => {
     });
   });
 
+  it('keeps a tracked file whose name contains a legitimate U+FFFD', async () => {
+    // U+FFFD is a valid filename character; only genuinely invalid UTF-8
+    // bytes make a path unrepresentable.
+    const dir = await repoWith({ 'draft\uFFFD.txt': 'x\n' });
+
+    const seed = await resolveSeed(dir);
+
+    expect(Object.keys(seed.files)).toEqual(['draft\uFFFD.txt']);
+  });
+
+  it.skipIf(process.platform === 'darwin')(
+    'fails on a tracked path that is not valid UTF-8',
+    async () => {
+      // APFS rejects invalid-UTF-8 names at open(), so the fixture needs a
+      // filesystem that stores raw name bytes.
+      const dir = await repoWith({ 'a.txt': 'alpha\n' });
+      await writeFile(
+        Buffer.concat([Buffer.from(`${dir}/`, 'utf8'), Buffer.from([0x62, 0xff])]),
+        'x\n',
+      );
+      await gitIn(dir, ['add', '-A']);
+      await gitIn(dir, ['commit', '-qm', 'add raw name']);
+
+      await expect(resolveSeed(dir)).rejects.toMatchObject({
+        exitCode: EXIT_CODES.CONFIG_ERROR,
+        message: expect.stringContaining('not valid UTF-8'),
+      });
+    },
+  );
+
+  it('does not place a tracked filename in an error message', async () => {
+    const dir = await repoWith({ 'a.txt': 'alpha\n' });
+    await symlink('a.txt', join(dir, 'sensitive-name.txt'));
+    await gitIn(dir, ['add', 'sensitive-name.txt']);
+    await gitIn(dir, ['commit', '-qm', 'add symlink']);
+
+    const error = await resolveSeed(dir).catch((e: unknown) => e);
+
+    expect(error).toMatchObject({ exitCode: EXIT_CODES.CONFIG_ERROR });
+    expect((error as Error).message).toContain('symlink');
+    expect((error as Error).message).not.toContain('sensitive-name');
+  });
+
   it('fails on a tracked gitlink (submodule entry)', async () => {
     const dir = await repoWith({ 'a.txt': 'alpha\n' });
     // A gitlink stays clean in `git status` only when a repository exists
@@ -337,6 +380,21 @@ describe('materializeSeed', () => {
     await expect(materializeSeed(seed, cell)).rejects.toMatchObject({
       exitCode: EXIT_CODES.CONFIG_ERROR,
       message: expect.stringContaining('changed between seed resolution and materialization'),
+    });
+  });
+
+  it('fails rather than hanging when a tracked path became a FIFO', async () => {
+    // A blocking open would wait for a writer that never exists; the
+    // non-blocking read path fails the materialization instead.
+    const repo = await freshRepo({ 'a.txt': 'alpha\n' });
+    const seed = await resolveSeed(repo);
+    await rm(join(repo, 'a.txt'));
+    await git('mkfifo', [join(repo, 'a.txt')]);
+    const cell = await freshWorkspace();
+
+    await expect(materializeSeed(seed, cell)).rejects.toMatchObject({
+      exitCode: EXIT_CODES.CONFIG_ERROR,
+      message: expect.stringContaining('cannot read a tracked file'),
     });
   });
 

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
+import { decodeUtf8Strict } from '../util/fs.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -123,11 +124,24 @@ export interface GitIndexEntry {
  * `git ls-files -s -z`: every index entry with its mode, object id and stage.
  * `-z` gives raw, unquoted NUL-separated records; a record is
  * `<mode> SP <oid> SP <stage> TAB <path>`.
+ *
+ * The output is decoded strictly: the canonical manifest records paths as
+ * JSON strings, so a tracked path that is not valid UTF-8 cannot be
+ * represented faithfully and the seed fails rather than silently recording
+ * a different name. Decoding strictly — not lossily — is also what keeps a
+ * legitimate U+FFFD in a filename from being rejected later.
  */
 export async function gitLsFiles(dir: string): Promise<GitIndexEntry[]> {
   const out = await runGit(dir, ['ls-files', '-s', '-z']);
+  const text = decodeUtf8Strict(out);
+  if (text === null) {
+    throw new YuureiError(
+      'a tracked path is not valid UTF-8 and cannot be seeded',
+      EXIT_CODES.CONFIG_ERROR,
+    );
+  }
   const entries: GitIndexEntry[] = [];
-  for (const record of out.toString('utf8').split('\0')) {
+  for (const record of text.split('\0')) {
     if (record === '') continue;
     const tab = record.indexOf('\t');
     if (tab === -1) {

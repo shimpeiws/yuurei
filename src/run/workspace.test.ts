@@ -140,6 +140,32 @@ describe('buildPatch', () => {
     expect(diagnostics).toEqual(['patch: 1 oversized file(s) omitted']);
   });
 
+  it('keeps a file whose name contains a legitimate U+FFFD', async () => {
+    await writeFile(join(dir, 'n\uFFFDme.txt'), 'x\n', 'utf8');
+
+    const { diff, diagnostics } = await buildPatch(dir, 1024 * 1024);
+
+    expect(diagnostics).toEqual([]);
+    expect(diff).toBe('--- /dev/null\n+++ n\uFFFDme.txt\n@@ -0,0 +1,1 @@\n+x\n');
+  });
+
+  it.skipIf(process.platform === 'darwin')(
+    'omits a file whose name is not valid UTF-8',
+    async () => {
+      // APFS rejects invalid-UTF-8 names at open(), so the fixture needs a
+      // filesystem that stores raw name bytes.
+      await writeFile(
+        Buffer.concat([Buffer.from(`${dir}/`, 'utf8'), Buffer.from([0x62, 0xff])]),
+        'x\n',
+      );
+
+      const { diff, diagnostics } = await buildPatch(dir, 1024 * 1024);
+
+      expect(diff).toBe('');
+      expect(diagnostics).toEqual(['patch: 1 unrepresentable name(s) omitted']);
+    },
+  );
+
   it('omits a file whose name cannot be represented', async () => {
     await writeFile(join(dir, 'tab\tname.txt'), 'x', 'utf8');
 

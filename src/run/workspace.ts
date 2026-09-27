@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { decodeUtf8Strict } from '../util/fs.js';
 
 /** Characters in a path component that cannot be represented in a diff header. */
 const FORBIDDEN_NAME_CHARS = ['\u0000', '\n', '\r', '\t', '\\'];
@@ -44,13 +45,25 @@ export async function copyWorkspace(sourceDir: string, destDir: string): Promise
   async function walk(relativeDir: string): Promise<void> {
     let entries;
     try {
-      entries = await readdir(join(sourceDir, relativeDir), { withFileTypes: true });
+      entries = await readdir(join(sourceDir, relativeDir), {
+        withFileTypes: true,
+        encoding: 'buffer',
+      });
     } catch {
       failed = true;
       return;
     }
     for (const entry of entries) {
-      const rel = relativeDir === '' ? entry.name : `${relativeDir}/${entry.name}`;
+      // Names are decoded from their raw bytes: a name that is not valid
+      // UTF-8 cannot be recorded faithfully, so the copy reports incomplete
+      // rather than silently renaming the file. A literal U+FFFD in a name
+      // decodes successfully and keeps its real name.
+      const name = decodeUtf8Strict(entry.name);
+      if (name === null) {
+        failed = true;
+        continue;
+      }
+      const rel = relativeDir === '' ? name : `${relativeDir}/${name}`;
       if (entry.isDirectory()) {
         try {
           await mkdir(join(destDir, rel), { recursive: true });
@@ -99,11 +112,23 @@ export interface PatchResult {
 export async function buildPatch(workspaceDir: string, maxBytes: number): Promise<PatchResult> {
   const diagnostics: string[] = [];
   const files: string[] = [];
+  let unrepresentable = 0;
 
   async function collect(relativeDir: string): Promise<void> {
-    const entries = await readdir(join(workspaceDir, relativeDir), { withFileTypes: true });
+    const entries = await readdir(join(workspaceDir, relativeDir), {
+      withFileTypes: true,
+      encoding: 'buffer',
+    });
     for (const entry of entries) {
-      const rel = relativeDir === '' ? entry.name : `${relativeDir}/${entry.name}`;
+      // A name that is not valid UTF-8 cannot be written into a diff
+      // header; strict decoding keeps a legitimate U+FFFD in a name
+      // representable while still omitting genuinely invalid bytes.
+      const name = decodeUtf8Strict(entry.name);
+      if (name === null) {
+        unrepresentable += 1;
+        continue;
+      }
+      const rel = relativeDir === '' ? name : `${relativeDir}/${name}`;
       if (entry.isDirectory()) await collect(rel);
       else if (entry.isFile()) files.push(rel);
     }
@@ -111,9 +136,8 @@ export async function buildPatch(workspaceDir: string, maxBytes: number): Promis
   await collect('');
 
   const representable: string[] = [];
-  let unrepresentable = 0;
   for (const rel of files) {
-    if (rel.split('/').some((part) => part.includes('\uFFFD') || hasForbiddenNameChar(part))) {
+    if (rel.split('/').some(hasForbiddenNameChar)) {
       unrepresentable += 1;
     } else {
       representable.push(rel);
