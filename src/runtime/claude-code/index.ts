@@ -234,6 +234,7 @@ export class ClaudeCodeRuntime implements Runtime {
           `claude-code: stdout unreadable (${err instanceof Error ? err.message : String(err)}) — usage unobserved`,
         );
         resolvedReason = 'parse_failed';
+        finalResult = { text: null, reason: 'parse_failed' };
       }
     }
 
