@@ -49,9 +49,15 @@ function assertSafeRelativePath(path: string): string[] {
   return components;
 }
 
-/** The git object id of a blob: sha1 over `blob <size>\0<content>`. */
-function blobOid(content: Buffer): string {
-  return createHash('sha1').update(`blob ${content.byteLength}\0`).update(content).digest('hex');
+/**
+ * The git object id of a blob over `blob <size>\0<content>`, hashed with the
+ * repository's object format. The index object ids carry the format: sha1 ids
+ * are 40 hex characters, sha256 ids are 64. Hashing a sha256 repository with
+ * sha1 would make every tracked file look locally edited.
+ */
+function blobOid(content: Buffer, indexOid: string): string {
+  const algorithm = indexOid.length === 64 ? 'sha256' : 'sha1';
+  return createHash(algorithm).update(`blob ${content.byteLength}\0`).update(content).digest('hex');
 }
 
 /**
@@ -167,7 +173,7 @@ export async function resolveSeed(
     // with clean filters (text=auto CRLF conversion, custom clean filters)
     // fail here by design: raw worktree bytes are never equal to the index
     // blob once a filter rewrites them.
-    if (blobOid(content) !== entry.oid) {
+    if (blobOid(content, entry.oid) !== entry.oid) {
       fail(
         `tracked file ${entry.path} does not match the index ` +
           '(content filters such as text=auto are not supported by seeding)',

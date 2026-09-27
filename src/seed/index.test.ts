@@ -30,9 +30,12 @@ function cleanGitEnv(): NodeJS.ProcessEnv {
  * same way the seed does — no mocks — so index/worktree semantics are the
  * ones Git actually enforces.
  */
-async function initRepo(files: Record<string, string | Buffer>): Promise<string> {
+async function initRepo(
+  files: Record<string, string | Buffer>,
+  initArgs: string[] = ['init', '-q'],
+): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'yuurei-seed-repo-'));
-  await git('git', ['init', '-q'], { cwd: dir, env: cleanGitEnv() });
+  await git('git', initArgs, { cwd: dir, env: cleanGitEnv() });
   await git('git', ['config', 'user.email', 'test@example.com'], {
     cwd: dir,
     env: cleanGitEnv(),
@@ -82,6 +85,18 @@ describe('resolveSeed', () => {
     expect(seed.fileCount).toBe(2);
     expect(seed.totalBytes).toBe(6 + 5);
     expect(seed.digest).toMatch(/^sha256:/);
+    expect(seed.diagnostics).toEqual([]);
+  });
+
+  it('resolves a repository whose object format is sha256', async () => {
+    const dir = await initRepo({ 'a.txt': 'alpha\n' }, ['init', '-q', '--object-format=sha256']);
+    dirs.push(dir);
+    expect((await gitIn(dir, ['rev-parse', '--show-object-format'])).trim()).toBe('sha256');
+
+    const seed = await resolveSeed(dir);
+
+    expect(Object.keys(seed.files)).toEqual(['a.txt']);
+    expect(seed.files['a.txt']?.digest).toBe(sha256Digest(Buffer.from('alpha\n')));
     expect(seed.diagnostics).toEqual([]);
   });
 

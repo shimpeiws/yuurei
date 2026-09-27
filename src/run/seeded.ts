@@ -305,6 +305,10 @@ export async function buildSeededPatch(
 
 /** Split text into LF-separated lines, keeping whether it ends in a newline. */
 function splitLines(text: string): { lines: string[]; endsWithNewline: boolean } {
+  // An empty file has zero lines, not one empty line: `''.split('\n')` yields
+  // `['']`, which would render a fabricated blank line (and a no-newline
+  // marker) into the patch, making it unable to reproduce the change.
+  if (text.length === 0) return { lines: [], endsWithNewline: false };
   const endsWithNewline = text.endsWith('\n');
   return { lines: (endsWithNewline ? text.slice(0, -1) : text).split('\n'), endsWithNewline };
 }
@@ -338,7 +342,11 @@ function renderModifiedFile(path: string, oldText: string, newText: string): str
   const hunk = `@@ -${oldStart},${oldSide.lines.length} +${newStart},${newSide.lines.length} @@\n`;
   const removed = oldSide.lines.map((line) => `-${line}\n`).join('');
   const added = newSide.lines.map((line) => `+${line}\n`).join('');
-  const oldNoNewline = oldSide.endsWithNewline ? '' : '\\ No newline at end of file\n';
-  const newNoNewline = newSide.endsWithNewline ? '' : '\\ No newline at end of file\n';
+  // A zero-line side cannot end without a newline: the marker describes a
+  // trailing line that does not exist.
+  const oldNoNewline =
+    oldSide.lines.length > 0 && !oldSide.endsWithNewline ? '\\ No newline at end of file\n' : '';
+  const newNoNewline =
+    newSide.lines.length > 0 && !newSide.endsWithNewline ? '\\ No newline at end of file\n' : '';
   return `${header}${hunk}${removed}${oldNoNewline}${added}${newNoNewline}`;
 }

@@ -186,6 +186,37 @@ describe('buildSeededPatch', () => {
     expect(patch.diff).toContain('-bye now\n');
   });
 
+  it('renders a modification from an empty file', async () => {
+    const { sourceDir, workspaceDir, baseline } = await fixture({
+      modify: { 'e.txt': { before: '', after: 'hello\n' } },
+    });
+
+    const patch = await buildSeededPatch(
+      { added: [], modified: ['e.txt'], deleted: [] },
+      { workspaceDir, sourceDir, baseline },
+      1024 * 1024,
+    );
+
+    // Zero old lines: no fabricated `-` line and no no-newline marker.
+    expect(patch.diff).toBe('--- e.txt\n+++ e.txt\n@@ -0,0 +1,1 @@\n+hello\n');
+    expect(patch.diagnostics).toEqual([]);
+  });
+
+  it('renders a modification into an empty file', async () => {
+    const { sourceDir, workspaceDir, baseline } = await fixture({
+      modify: { 'e.txt': { before: 'hello\n', after: '' } },
+    });
+
+    const patch = await buildSeededPatch(
+      { added: [], modified: ['e.txt'], deleted: [] },
+      { workspaceDir, sourceDir, baseline },
+      1024 * 1024,
+    );
+
+    expect(patch.diff).toBe('--- e.txt\n+++ e.txt\n@@ -1,1 +0,0 @@\n-hello\n');
+    expect(patch.diagnostics).toEqual([]);
+  });
+
   it('produces an empty diff for a no-change run', async () => {
     const { sourceDir, workspaceDir, baseline } = await fixture({});
     const patch = await buildSeededPatch(
