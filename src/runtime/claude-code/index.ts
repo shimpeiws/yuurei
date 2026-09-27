@@ -142,6 +142,7 @@ export class ClaudeCodeRuntime implements Runtime {
     const durationMs = new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime();
 
     let usage: Record<string, number | null> = {};
+    let cost: { amount: number; currency: string } | null = null;
     const warnings: string[] = [];
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
@@ -155,6 +156,9 @@ export class ClaudeCodeRuntime implements Runtime {
       if (parsed !== undefined) {
         if (typeof parsed === 'object' && parsed !== null) {
           const obj = parsed as Record<string, unknown>;
+          // Canonical usage keys (contract, `trace.json`): the runtime's own
+          // names map onto them — cache_creation_input_tokens is the
+          // cache-write quantity, thinking_tokens the reasoning-output one.
           const usageRaw = obj['usage'];
           if (typeof usageRaw === 'object' && usageRaw !== null) {
             const u = usageRaw as Record<string, unknown>;
@@ -162,14 +166,26 @@ export class ClaudeCodeRuntime implements Runtime {
               const v = u[key];
               return typeof v === 'number' ? v : null;
             };
+            const details = u['output_tokens_details'];
+            const thinking =
+              typeof details === 'object' && details !== null
+                ? (details as Record<string, unknown>)['thinking_tokens']
+                : undefined;
             usage = {
               input_tokens: pick('input_tokens'),
               output_tokens: pick('output_tokens'),
-              cache_creation_input_tokens: pick('cache_creation_input_tokens'),
+              cache_write_input_tokens: pick('cache_creation_input_tokens'),
               cache_read_input_tokens: pick('cache_read_input_tokens'),
+              reasoning_output_tokens: typeof thinking === 'number' ? thinking : null,
             };
           } else {
             warnings.push('claude-code: stdout JSON had no usage field — usage unobserved');
+          }
+          // `total_cost_usd` is the runtime's own figure for the run; record
+          // it as an observed cost rather than estimating one.
+          const totalCost = obj['total_cost_usd'];
+          if (typeof totalCost === 'number' && Number.isFinite(totalCost)) {
+            cost = { amount: totalCost, currency: 'USD' };
           }
         } else {
           warnings.push('claude-code: stdout JSON was not an object — usage unobserved');
@@ -194,6 +210,7 @@ export class ClaudeCodeRuntime implements Runtime {
       model: { requested: '', resolved: null, resolvedReason: 'unobserved' },
       execution: { exitCode: result.exitCode, signal: result.signal, durationMs },
       usage,
+      cost,
       ...(warnings.length > 0 ? { warnings } : {}),
     };
   }

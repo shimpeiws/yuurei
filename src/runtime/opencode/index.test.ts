@@ -51,8 +51,8 @@ describe('OpenCodeRuntime.normalize()', () => {
       reasoning_output_tokens: 0,
       cache_read_input_tokens: 1792,
       cache_write_input_tokens: 0,
-      cost_usd: 0,
     });
+    expect(fragment.cost).toEqual({ amount: 0, currency: 'USD' });
   });
 
   it('reports the model as unobserved with an explicit reason', async () => {
@@ -76,7 +76,7 @@ describe('OpenCodeRuntime.normalize()', () => {
 
     expect(fragment.usage['input_tokens']).toBe(15);
     expect(fragment.usage['output_tokens']).toBe(5);
-    expect(fragment.usage['cost_usd']).toBe(2);
+    expect(fragment.cost).toEqual({ amount: 2, currency: 'USD' });
   });
 
   it('records a missing metric as null rather than zero when a step omits it', async () => {

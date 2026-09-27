@@ -71,8 +71,22 @@ export interface NormalizedTraceFragment {
     resolvedReason?: ModelResolutionReason;
   };
   execution: { exitCode: number | null; signal: string | null; durationMs: number | null };
-  /** null = usage metric was not observed; never default to 0. */
+  /**
+   * Usage under the canonical key vocabulary documented in
+   * `docs/contract.md` — every adapter maps its runtime's own field names
+   * onto these keys. `null` = the metric was attempted but unobserved;
+   * absent = never even attempted. Never default to 0.
+   */
   usage: Record<string, number | null>;
+  /**
+   * A cost figure the runtime itself reported in the output the adapter
+   * already parses (e.g. Claude Code's `total_cost_usd`), when one was
+   * observed. Undefined and `null` are equivalent: no runtime-reported cost,
+   * in which case the pipeline falls back to the CostModel. This is the
+   * runtime's own number, not an estimate — the trace records it with
+   * `source: 'runtime'` so a recomputation knows what it is looking at.
+   */
+  cost?: { amount: number; currency: string } | null;
   /**
    * Non-fatal issues encountered during normalization (e.g. usage parse
    * failure). Empty array and absent are equivalent — the pipeline reports

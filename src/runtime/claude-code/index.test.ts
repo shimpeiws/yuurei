@@ -51,9 +51,20 @@ describe('ClaudeCodeRuntime.normalize()', () => {
     expect(fragment.usage).toEqual({
       input_tokens: 3,
       output_tokens: 4,
-      cache_creation_input_tokens: 0,
+      cache_write_input_tokens: 0,
       cache_read_input_tokens: 24335,
+      reasoning_output_tokens: 0,
     });
+  });
+
+  it('records the runtime-reported total_cost_usd as an observed cost', async () => {
+    const { result, stdoutPath } = makeResult();
+    await writeFile(stdoutPath, REAL_CLAUDE_STDOUT, 'utf8');
+
+    const runtime = new ClaudeCodeRuntime();
+    const fragment = await runtime.normalize(result, makeContext(null));
+
+    expect(fragment.cost).toEqual({ amount: 0.007369499999999999, currency: 'USD' });
   });
 
   it('threads runtimeVersion into the trace runtime field', async () => {

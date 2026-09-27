@@ -1030,7 +1030,84 @@ describe('run pipeline', () => {
       model: 'requested-model',
       tokensIn: 123,
       tokensOut: null,
+      cacheReadTokensIn: null,
+      cacheWriteTokensIn: null,
+      reasoningTokensOut: null,
     });
+  });
+
+  it('records a runtime-reported cost with source runtime and does not estimate', async () => {
+    const profile: ResolvedProfile = {
+      name: 'observed-cost',
+      runtime: 'observed-cost-runtime',
+      content: { profileYaml: { runtime: 'observed-cost-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+
+    const estimate = vi.spyOn(NoopCostModel.prototype, 'estimate');
+    const fake: Runtime = {
+      id: () => 'observed-cost-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
+        runtimeId: 'observed-cost-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialValuesToRedact: [],
+      }),
+      execute: async (run: PreparedRun) => {
+        const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+        const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+        await writeFile(stdoutPath, '', 'utf8');
+        await writeFile(stderrPath, '', 'utf8');
+        return {
+          exitCode: 0,
+          signal: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          stdoutPath,
+          stderrPath,
+          timedOut: false,
+        };
+      },
+      normalize: async () => ({
+        runtime: { id: 'observed-cost-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
+        usage: {},
+        cost: { amount: 0.42, currency: 'USD' },
+      }),
+    };
+
+    const result = await runPipeline({
+      runtimeId: profile.runtime,
+      requestedModel: '',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      resolveRuntime: () => fake,
+    });
+
+    expect(estimate).not.toHaveBeenCalled();
+    expect(result.trace.cost).toEqual({ amount: 0.42, currency: 'USD', source: 'runtime' });
+    const { TraceSchema } = await import('../../src/trace/schema.js');
+    expect(() => TraceSchema.parse(result.trace)).not.toThrow();
   });
 
   it('records signal in the trace when the runtime child is killed by a signal', async () => {

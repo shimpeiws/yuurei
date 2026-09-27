@@ -53,7 +53,7 @@ describe('CodexRuntime.normalize()', () => {
 
     expect(fragment.usage).toEqual({
       input_tokens: 21616,
-      cached_input_tokens: 9984,
+      cache_read_input_tokens: 9984,
       cache_write_input_tokens: 0,
       output_tokens: 8,
       reasoning_output_tokens: 0,

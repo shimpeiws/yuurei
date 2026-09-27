@@ -48,10 +48,10 @@ const USAGE_METRIC_PATHS: Record<string, readonly string[]> = {
   reasoning_output_tokens: ['tokens', 'reasoning'],
   cache_read_input_tokens: ['tokens', 'cache', 'read'],
   cache_write_input_tokens: ['tokens', 'cache', 'write'],
-  // OpenCode reports cost in USD per step. v0.3's CostModel is a no-op, so the
-  // observed value is kept here rather than silently dropped (design doc §20.7).
-  cost_usd: ['cost'],
 };
+
+/** Path to the per-step USD cost in a `step-finish` part. */
+const COST_PATH: readonly string[] = ['cost'];
 
 /**
  * Reads a nested field, distinguishing "absent" from "present but not a
@@ -168,6 +168,7 @@ export class OpenCodeRuntime implements Runtime {
     const durationMs = new Date(result.finishedAt).getTime() - new Date(result.startedAt).getTime();
 
     const usage: Record<string, number | null> = {};
+    let cost: { amount: number; currency: string } | null = null;
     const diagnostics: string[] = [];
     try {
       const stdout = await readFile(result.stdoutPath, 'utf8');
@@ -213,7 +214,9 @@ export class OpenCodeRuntime implements Runtime {
           continue;
         }
         sawStepFinish = true;
-        for (const [key, path] of Object.entries(USAGE_METRIC_PATHS)) {
+        // The runtime's per-step USD cost is summed like a usage metric but
+        // lands on the fragment's `cost`, not under a usage key.
+        for (const [key, path] of Object.entries({ ...USAGE_METRIC_PATHS, cost: COST_PATH })) {
           const entry = (metrics[key] ??= { sum: 0, problems: [] });
           const field = pickField(part, path);
           if (!field.found) {
@@ -248,6 +251,10 @@ export class OpenCodeRuntime implements Runtime {
           const entry = metrics[key];
           usage[key] = entry !== undefined && entry.problems.length === 0 ? entry.sum : null;
         }
+        const costEntry = metrics['cost'];
+        if (costEntry !== undefined && costEntry.problems.length === 0) {
+          cost = { amount: costEntry.sum, currency: 'USD' };
+        }
         for (const [key, entry] of Object.entries(metrics)) {
           if (entry.problems.length === 0) continue;
           const shown = entry.problems.slice(0, 3).join('; ');
@@ -275,6 +282,7 @@ export class OpenCodeRuntime implements Runtime {
       model: { requested: '', resolved: null, resolvedReason: 'unobserved' },
       execution: { exitCode: result.exitCode, signal: result.signal, durationMs },
       usage,
+      cost,
       // Durable notes only. `warnings` is a separate, operator-facing channel
       // (§6.3); normalization issues here are diagnostic, not actionable
       // warnings, so they are not mirrored into it.

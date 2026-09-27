@@ -127,7 +127,8 @@ describe('CLI end-to-end with a fixture OpenCode runtime', () => {
     expect(trace['runtime']).toMatchObject({ id: 'opencode', version: '1.18.30' });
     expect(trace['model']).toMatchObject({ resolved: null, resolved_reason: 'unobserved' });
     expect(trace['execution']).toMatchObject({ exit_code: 0, timed_out: false });
-    expect(trace['usage']).toMatchObject({ input_tokens: 3, output_tokens: 2, cost_usd: 0 });
+    expect(trace['usage']).toMatchObject({ input_tokens: 3, output_tokens: 2 });
+    expect(trace['cost']).toEqual({ amount: 0, currency: 'USD', source: 'runtime' });
     expect(
       await readFile(join(fixture.root, '.yuurei', 'runs', runId, 'stdout.log'), 'utf8'),
     ).toContain('fixture response');

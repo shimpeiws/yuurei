@@ -219,13 +219,34 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     const fragment = await runtime.normalize(result, { runtimeVersion: prepared.runtimeVersion });
     for (const w of fragment.warnings ?? []) warn(w);
 
+    // A cost the runtime itself reported wins over estimation: it is the
+    // provider's own figure for this run, not a derived one. The CostModel
+    // runs only when the adapter observed none, and its id is recorded as the
+    // source so a recomputation knows what produced the number.
+    const observedCost = fragment.cost ?? null;
     const costModel = new NoopCostModel();
-    const costEstimate = await costModel.estimate({
-      runtimeId: cell.runtimeId,
-      model: cell.requestedModel,
-      tokensIn: fragment.usage['input_tokens'] ?? null,
-      tokensOut: fragment.usage['output_tokens'] ?? null,
-    });
+    const costEstimate =
+      observedCost === null
+        ? await costModel.estimate({
+            runtimeId: cell.runtimeId,
+            model: cell.requestedModel,
+            tokensIn: fragment.usage['input_tokens'] ?? null,
+            tokensOut: fragment.usage['output_tokens'] ?? null,
+            cacheReadTokensIn: fragment.usage['cache_read_input_tokens'] ?? null,
+            cacheWriteTokensIn: fragment.usage['cache_write_input_tokens'] ?? null,
+            reasoningTokensOut: fragment.usage['reasoning_output_tokens'] ?? null,
+          })
+        : null;
+    const cost: Trace['cost'] =
+      observedCost !== null
+        ? { ...observedCost, source: 'runtime' }
+        : costEstimate !== null && costEstimate.amount !== null
+          ? {
+              amount: costEstimate.amount,
+              currency: costEstimate.currency ?? 'USD',
+              source: costModel.id(),
+            }
+          : null;
 
     const knownCredentialValues = prepared.credentialValuesToRedact;
     const maxArtifactBytes = input.maxArtifactBytes ?? DEFAULT_ARTIFACT_MAX_BYTES;
@@ -370,10 +391,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         timed_out: result.timedOut,
       },
       usage: fragment.usage,
-      cost:
-        costEstimate.amount === null
-          ? null
-          : { amount: costEstimate.amount, currency: costEstimate.currency ?? 'USD' },
+      cost,
       // The actual artifacts just collected — mirrors artifacts.json rather
       // than a placeholder empty list.
       artifacts: manifest.artifacts.map(({ path, kind }) => ({ path, kind })),

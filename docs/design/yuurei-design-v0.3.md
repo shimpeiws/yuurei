@@ -1056,9 +1056,9 @@ a non-zero exit code plus a stdout `error` event, not a clean stderr message.
   authoritative failure signal.
 - These notes go to `diagnostics` only. They are not mirrored into the
   operator-facing `warnings` channel, preserving the §6.3 distinction.
-- OpenCode's per-step cost is retained as `usage.cost_usd` because v0.3's
-  `CostModel` is a no-op and `trace.cost` is always null. When `CostModel` gains
-  a real implementation, cost should move there and this usage key be retired.
+- OpenCode's per-step USD cost is summed like a usage metric but lands on
+  `trace.cost` with `source: "runtime"` — it is the provider's own figure for
+  the run, not an estimate, and `usage` holds only token quantities.
 
 ### 20.8 Test strategy for the adapter
 

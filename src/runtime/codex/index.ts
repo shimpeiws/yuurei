@@ -307,7 +307,9 @@ export class CodexRuntime implements Runtime {
           usage = {
             input_tokens: pick('input_tokens'),
             output_tokens: pick('output_tokens'),
-            cached_input_tokens: pick('cached_input_tokens'),
+            // Canonical keys (contract, `trace.json`): the runtime's own
+            // `cached_input_tokens` is the cache-read quantity.
+            cache_read_input_tokens: pick('cached_input_tokens'),
             cache_write_input_tokens: pick('cache_write_input_tokens'),
             reasoning_output_tokens: pick('reasoning_output_tokens'),
           };

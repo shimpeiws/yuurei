@@ -130,6 +130,31 @@ A reader must treat an **absent** field as _unknown_, never as _different_.
 Fields landing in v0.3.0: `requested_cell` (`digest`, `inputs_version`),
 `yuurei_version`, `execution_options`, `definition` (`run`, `cli_overrides`).
 
+`usage` carries a canonical vocabulary every adapter maps its runtime's own
+field names onto, so two runtimes express the same quantity under the same
+key:
+
+- `input_tokens` — input (prompt) tokens, as the runtime accounts them.
+- `output_tokens` — output (completion) tokens.
+- `cache_read_input_tokens` — input tokens served from the runtime's cache.
+- `cache_write_input_tokens` — input tokens written into the runtime's cache.
+- `reasoning_output_tokens` — output tokens the runtime attributes to
+  reasoning or thinking.
+
+The mapping is adapter-owned: Claude Code's `cache_creation_input_tokens` is
+recorded under `cache_write_input_tokens` and its `thinking_tokens` under
+`reasoning_output_tokens`; Codex's `cached_input_tokens` under
+`cache_read_input_tokens`. A quantity the runtime does not report is `null`,
+never zero, and one the adapter never attempts is absent. A trace written
+before this vocabulary existed carries the runtimes' own key names instead.
+
+`cost` is `null` or `{ amount, currency, source }`. `source` identifies where
+the figure came from, so a later recomputation knows what it is looking at:
+`runtime` when the runtime itself reported it (Claude Code's
+`total_cost_usd`, OpenCode's per-step `cost`), otherwise the id of the
+`CostModel` that produced the estimate. A runtime-reported cost is the
+provider's own number for the run, not an estimate.
+
 ### The requested-cell digest
 
 `requested_cell.digest` identifies **what was requested of a cell**: the runtime
