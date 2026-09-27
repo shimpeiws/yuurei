@@ -23,6 +23,7 @@ function baseOptions(overrides: Partial<RunOptions>): RunOptions {
     isolation: undefined,
     bridgeCodexAuthFile: undefined,
     bridgeOpenCodeAuthFile: undefined,
+    seedRepo: undefined,
     ...overrides,
   };
 }
@@ -60,6 +61,7 @@ describe('yuurei run parameter resolution', () => {
         '    model: sonnet',
         '    timeout: 5000',
         '    isolation: level0',
+        '    seed_repo: ./seedrepo',
         '  plain:',
         '    profile: p',
         '    task: ./tasks/hello.md',
@@ -89,6 +91,23 @@ describe('yuurei run parameter resolution', () => {
     expect(input.timeoutMs).toBe(5000);
     expect(input.isolationStrategy).toBe('level0');
     expect(input.definition).toEqual({ run: 'hello', cli_overrides: [] });
+  });
+
+  it('resolves a definition seed_repo against the project root', async () => {
+    await runRun(workDir, baseOptions({ runName: 'hello' }), noopLogger);
+    expect(capturedInput().seedRepo).toBe(join(workDir, 'seedrepo'));
+  });
+
+  it('lets --seed-repo override the definition and records the override', async () => {
+    await runRun(workDir, baseOptions({ runName: 'hello', seedRepo: './elsewhere' }), noopLogger);
+    const input = capturedInput();
+    expect(input.seedRepo).toBe(join(workDir, 'elsewhere'));
+    expect(input.definition).toEqual({ run: 'hello', cli_overrides: ['seed_repo'] });
+  });
+
+  it('leaves seedRepo absent when nothing selects a seed', async () => {
+    await runRun(workDir, baseOptions({ runName: 'plain' }), noopLogger);
+    expect(capturedInput().seedRepo).toBeUndefined();
   });
 
   it('lets a CLI flag override the definition per field', async () => {

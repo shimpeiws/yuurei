@@ -27,6 +27,21 @@ What that covers is stated in [the public contract](docs/contract.md).
   Claude Code's `total_cost_usd` and the sum of OpenCode's per-step `cost` —
   taking precedence over the CostModel estimate, which is used only when the
   adapter observed none (#194).
+- `--seed-repo <dir>` on `yuurei run` (and `seed_repo` on a run definition)
+  seeds the cell workspace from one explicitly selected local Git repository
+  root, for coding tasks that need a real project as their starting tree
+  (#202, experimental). Only regular files tracked by Git in a clean worktree
+  are materialized — untracked and ignored files, `.git/` and `.yuurei/` are
+  never seeded — and the source repository is read-only. The baseline's
+  canonical manifest and whole-baseline digest are recorded in
+  `baseline-manifest.json` and bound into the requested cell
+  (`inputs_version` 2); after the run the retained `workspace/` holds only
+  files that differ from the baseline, `changes.json` records the added,
+  modified and deleted paths, and `patch.diff` is a unified diff relative to
+  the baseline with an explicit `trace.patch.state` of `complete`, `partial`
+  or `absent`. Seeded runs fail before the runtime starts on a dirty
+  worktree, a tracked symlink or submodule, an unsafe path, or a documented
+  size limit.
 
 ### Changed
 
