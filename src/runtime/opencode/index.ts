@@ -52,10 +52,6 @@ const USAGE_METRIC_PATHS: Record<string, readonly string[]> = {
   reasoning_output_tokens: ['tokens', 'reasoning'],
   cache_read_input_tokens: ['tokens', 'cache', 'read'],
   cache_write_input_tokens: ['tokens', 'cache', 'write'],
-  // Deprecated alias (contract, `trace.json`): 0.3 consumers read the observed
-  // USD cost from this usage key. The canonical value lands on the fragment's
-  // `cost`; the alias is removed in the next major.
-  cost_usd: COST_PATH,
 };
 
 /**
@@ -283,6 +279,11 @@ export class OpenCodeRuntime implements Runtime {
         if (costEntry !== undefined && costEntry.problems.length === 0) {
           cost = { amount: costEntry.sum, currency: 'USD' };
         }
+        // Deprecated alias (contract, `trace.json`): 0.3 consumers read the
+        // observed USD cost from this usage key. It derives from the same
+        // `cost` entry, so an omitted cost is reported as one problem, not two.
+        usage['cost_usd'] =
+          costEntry !== undefined && costEntry.problems.length === 0 ? costEntry.sum : null;
         for (const [key, entry] of Object.entries(metrics)) {
           if (entry.problems.length === 0) continue;
           const shown = entry.problems.slice(0, 3).join('; ');

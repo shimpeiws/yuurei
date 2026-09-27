@@ -180,6 +180,21 @@ describe('OpenCodeRuntime.normalize()', () => {
     expect(fragment.usage['cost_usd']).toBe(2);
   });
 
+  it('reports an omitted cost once, not once per key', async () => {
+    const result = makeResult();
+    await writeFile(
+      result.stdoutPath,
+      '{"type":"step_finish","part":{"type":"step-finish","tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}}}}',
+      'utf8',
+    );
+
+    const fragment = await new OpenCodeRuntime().normalize(result, context);
+
+    expect(fragment.cost).toBeNull();
+    expect(fragment.usage['cost_usd']).toBeNull();
+    expect((fragment.diagnostics ?? []).filter((d) => d.includes('cost'))).toHaveLength(1);
+  });
+
   it('records a missing metric as null rather than zero when a step omits it', async () => {
     const result = makeResult();
     const lines = [
