@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { PatchResult } from './workspace.js';
 import { hasForbiddenNameChar, renderNewFile, toPatchText } from './workspace.js';
@@ -194,14 +194,9 @@ async function readBaselineText(
   }
   // A blocking open would hang on a FIFO until a writer appears — and a
   // baseline path can legitimately become one between seed resolution and
-  // patch generation — so the entry's type is checked first and the open
-  // is made non-blocking in case it became a FIFO in between. Stat and
-  // read then go through the one handle: the fd pins the inode, so the
+  // patch generation — so the open is non-blocking and the descriptor
+  // itself is validated with fstat below: the fd pins the inode, so the
   // size check and the read cannot observe different files (TOCTOU).
-  const pathStat = await lstat(full).catch(() => null);
-  if (pathStat === null || !pathStat.isFile()) {
-    return { ok: false, reason: 'unavailable' };
-  }
   const handle = await open(full, constants.O_RDONLY | constants.O_NONBLOCK).catch(() => null);
   if (handle === null) return { ok: false, reason: 'unavailable' };
   try {

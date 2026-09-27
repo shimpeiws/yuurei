@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { chmod, lstat, mkdir, open, readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { chmod, mkdir, open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 import { decodeUtf8Strict, isPathWithin } from '../util/fs.js';
@@ -146,18 +146,10 @@ export async function resolveSeed(
       fail('a tracked path resolves outside the repository');
     }
     // A blocking open would hang on a FIFO until a writer appears, so the
-    // entry's type is checked first and the open is made non-blocking in
-    // case the path became a FIFO in between. Stat and read then go through
-    // the one handle: a check-then-read on the path could observe two
+    // open is non-blocking and the descriptor itself is validated with
+    // fstat below: a check-then-read on the path could observe two
     // different files, but the fd pins the inode — the bytes hashed below
     // are the bytes the stat described.
-    const pathStat = await lstat(sourcePath).catch(() => null);
-    if (pathStat === null) {
-      fail('cannot stat a tracked file');
-    }
-    if (!pathStat.isFile()) {
-      fail('a tracked path is not a regular file on disk');
-    }
     const sourceHandle = await open(sourcePath, constants.O_RDONLY | constants.O_NONBLOCK).catch(
       () => fail('cannot open a tracked file'),
     );
@@ -251,14 +243,10 @@ export async function materializeSeed(
       fail('refusing to write a tracked path: escapes the cell workspace');
     }
     // Same non-blocking discipline as resolveSeed: a blocking open would
-    // hang forever on a FIFO planted at the tracked path. lstat rejects
-    // non-regular entries up front, O_NONBLOCK covers the race window, and
-    // fstat on the descriptor proves the opened object is a regular file.
+    // hang forever on a FIFO planted at the tracked path, so the open is
+    // non-blocking and fstat on the descriptor proves the opened object is
+    // a regular file.
     const sourcePath = join(seed.sourceDir, path);
-    const pathStat = await lstat(sourcePath).catch(() => null);
-    if (pathStat === null || !pathStat.isFile()) {
-      fail('cannot read a tracked file from the source repository');
-    }
     const sourceHandle = await open(sourcePath, constants.O_RDONLY | constants.O_NONBLOCK).catch(
       () => fail('cannot read a tracked file from the source repository'),
     );
