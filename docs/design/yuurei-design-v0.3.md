@@ -467,6 +467,13 @@ implementation, since level0 and level1 give the runtime materially different
 `HOME` and configuration semantics (§9.3). The formula omitted it; the code did
 not.
 
+**A seeded workspace is a different input set, not a wider one (#202).** When
+`--seed-repo` supplies a baseline, the seed mode and the baseline's identity
+join the input set and the cell carries `inputs_version` 2; an unseeded run
+keeps version 1 and remains comparable with every digest computed before
+seeding existed. Two digests are never compared across versions, so a seeded
+cell can never be mistaken for an empty-workspace one.
+
 ---
 
 ## 8. CLI Surface
@@ -587,12 +594,16 @@ Execution results are saved as follows.
 ├── artifacts.json
 ├── patch.diff
 ├── result.txt
+├── baseline-manifest.json   (seeded runs only)
+├── changes.json             (seeded runs only)
 └── workspace/
 ```
 
 What is actually saved is configurable, and secrets or oversized files are not duplicated without limit.
 
 The runtime executes in a fresh `workspace/` inside the temporary cell, and after the run the pipeline copies its regular files (no-follow, symlinks skipped) into the run's `workspace/`. `patch.diff` is an all-additions unified diff of that copy against the empty base: it records what the agent produced, not changes to a supplied project, because none is copied in. Copy and patch are best-effort; on failure `patch.diff` is absent and the reason is a fixed-string entry in the trace's `diagnostics`. ADR-0016 and the contract state the scope, format, caps and accepted risks.
+
+With `--seed-repo` (#202, experimental) the cell workspace starts as the selected repository's tracked regular files instead of empty. The baseline is verified before the runtime starts and persisted as `baseline-manifest.json`; after the run the retained `workspace/` holds only files whose content differs from the baseline, `changes.json` records the added/modified/deleted paths, and `patch.diff` is a unified diff against the baseline rather than the empty base. `trace.patch.state` says whether the stored diff is `complete`, `partial` or `absent`. The contract's Section B entry defines the seed policy, limits and completeness semantics.
 
 `stdout.log`/`stderr.log` are not a byte-for-byte copy of what the runtime produced: known bridged credential values and generic secret-shaped patterns are redacted before persisting (§9.2, §10.2), so a run that printed a credential to its own output will not have that value recoverable from the durable run directory — but this is a best-effort text pass over whatever the runtime happened to emit, not a content-aware guarantee.
 

@@ -56,7 +56,8 @@ the same kind and a flat list produces promises that cannot be kept.
 | `run`                                                                                          | `--profile`, `--task`, `--model`, `--keep`, `--timeout`, `--isolation` |
 | all of the above, plus `doctor` / `profile list` / `inspect` / `runs` / `trace show` / `clean` | `--json`                                                               |
 
-The credential-bridge flags are **not** here; they are in Section B.
+The credential-bridge flags and `--seed-repo` are **not** here; they are in
+Section B.
 
 ### Resolution of a run's parameters
 
@@ -102,7 +103,8 @@ lines go to stderr, the rest to stdout. Adding a field is an additive change.
 
 `.yuurei/yuurei.yaml` — `version: 1`, a `profiles` map (`runtime`, `source`), and
 a `runs` map (`profile`, `task`). From v0.3.0 a `runs` entry also accepts
-`model`, `timeout` and `isolation`.
+`model`, `timeout` and `isolation`; `seed_repo` is accepted as the named-run
+form of the Section B `--seed-repo` flag and shares its experimental status.
 
 `profile.yaml` — `runtime`, and an optional `description`.
 
@@ -204,7 +206,8 @@ is a no.
 
 `.yuurei/runs/<run-id>/` contains `trace.json`, `resolved-profile.json`,
 `stdout.log`, `stderr.log`, `artifacts.json`, `patch.diff`, `result.txt` and
-`workspace/`.
+`workspace/`. A run seeded with `--seed-repo` additionally contains
+`baseline-manifest.json` and `changes.json` — see Section B.
 
 `trace.json` is written atomically and last, so its presence means the run
 reached its end and the identity-and-outcome record is complete. The **required**
@@ -221,6 +224,10 @@ Two concurrent `yuurei run` invocations never share a run directory: the
 directory is claimed atomically and the run id regenerated on collision.
 
 ### `patch.diff` and `workspace/`
+
+This section describes an **empty-workspace run**. A run seeded with
+`--seed-repo` retains and diffs differently; its semantics are defined under
+the flag in Section B.
 
 The runtime executes in a fresh workspace **inside the temporary cell**. After
 the run, the pipeline copies its regular files into `workspace/` in the run
@@ -400,6 +407,66 @@ argument changes and behaviour changes carry no notice promise.
 
 **Stated, not promised**: a credential refresh during a run can leave the real
 login stale, requiring a fresh login. See Section D.
+
+### `--seed-repo`
+
+Seeds the cell workspace from one explicitly selected project root instead of
+starting empty — the coding-task shape (#202). Also settable on a run
+definition as `seed_repo`, resolved against the project root (the directory
+holding `.yuurei/`).
+
+**Not promised**: the flag's existence, name or argument shape. It may change
+or be removed in a minor release.
+
+**Promised while the flag exists**:
+
+- **Input.** Exactly one local Git repository root, in a clean tracked state.
+  Nothing is cloned or fetched, and the source repository is never modified.
+  A subdirectory of a repository, a non-repository path, an unborn HEAD, or a
+  dirty tracked state (staged, unstaged or deleted tracked files) is a
+  configuration error — the runtime is not started.
+- **What is seeded.** Only regular files tracked by Git, at content verified
+  against the index. Untracked files, ignored files, `.git/` and `.yuurei/`
+  are never seeded; the policy is recorded as `git-tracked-files` in
+  `trace.seed.policy` and `baseline-manifest.json`. A tracked symlink,
+  submodule (gitlink), unresolved index stage, unsafe path, or tracked path
+  that is not a regular file on disk fails closed before the runtime starts,
+  as does exceeding a documented limit: 20,000 files, 8 MiB per file, 128 MiB
+  total.
+- **Baseline identity.** The seed is reduced to a canonical path-and-content
+  manifest and a whole-baseline digest. `baseline-manifest.json` records that
+  manifest, the requested and materialized baseline digests, the source path
+  and Git HEAD — non-secret provenance only. The materialized workspace is
+  verified against the requested baseline before the runtime starts; a
+  mismatch is a configuration error.
+- **Cell identity.** Seed mode and the baseline digest join the requested-cell
+  input set: a seeded run carries `requested_cell.inputs_version` 2, an
+  unseeded run keeps 1. An old digest is never recomputed (Section A).
+- **Result record.** After the run, `workspace/` retains only files whose
+  content differs from the baseline — added and modified files, as produced.
+  `changes.json` records the added, modified and deleted paths, bound to the
+  baseline digest. `trace.seed` records the policy, the provenance, both
+  baseline digests, the file and byte counts, and the change counts (the
+  `changes` object is absent when collection did not complete). The recorded
+  change set is by content digest; mode, owner and mtime differences are not
+  part of it.
+- **Patch and completeness.** `patch.diff` is a unified diff relative to the
+  baseline: an addition keeps the `--- /dev/null` / `+++ <path>` headers, a
+  deletion emits `--- <path>` / `+++ /dev/null` with a removal hunk, and a
+  modification emits a single hunk replacing every old line with every new
+  one. Baseline bytes for modified and deleted files are re-read from the
+  source repository and verified against the manifest; content that no longer
+  verifies is omitted with the fixed diagnostic
+  `patch: <n> file(s) omitted; baseline content unavailable`. `trace.patch`
+  records `base` (`seeded`, or `empty` on a run with no seed) and `state`:
+  `complete` (the stored diff describes every recorded change), `partial`
+  (redacted, truncated, or one or more omitted files), or `absent` (no
+  `patch.diff` was produced). A complete **empty** diff — a successful
+  no-change run — is distinct from an absent patch, and an incomplete record
+  is never reported `complete`.
+
+**Notice**: same rule as the credential-bridge flags — a removal is preceded
+by deprecation in the prior minor release.
 
 ---
 

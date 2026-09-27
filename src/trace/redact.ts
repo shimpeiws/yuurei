@@ -63,11 +63,11 @@ function redactAndCap(
   values: readonly string[],
   maxBytes: number,
   inputTruncated: boolean,
-): { text: string; truncated: boolean } {
+): { text: string; truncated: boolean; redacted: boolean } {
   let output = redactSecrets(redactKnownValues(buffered, values));
   output = redactTerminalKnownPrefix(output, values);
   const truncated = inputTruncated || Buffer.byteLength(output, 'utf8') > maxBytes;
-  return { text: utf8Prefix(output, maxBytes), truncated };
+  return { text: utf8Prefix(output, maxBytes), truncated, redacted: output !== buffered };
 }
 
 /**
@@ -85,7 +85,7 @@ export function redactText(
   text: string,
   values: readonly string[],
   maxBytes = DEFAULT_LOG_MAX_BYTES,
-): { text: string; truncated: boolean } {
+): { text: string; truncated: boolean; redacted: boolean } {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
     throw new RangeError('maxBytes must be a non-negative safe integer');
   }
@@ -100,13 +100,24 @@ export function redactText(
  * whole buffered prefix, so a known value or secret pattern that spans any
  * number of read chunks is still removed; when the byte cap cuts a stream
  * mid-credential, the surviving prefix is additionally redacted.
+ *
+ * The result reports whether the stored bytes were cut at the cap and
+ * whether the redaction pass changed them — a consumer that needs to know
+ * the stored text is a faithful record of the input (the patch
+ * completeness mark, #202) reads `redacted`; one that only needs the cap
+ * reads `truncated`.
  */
+export interface RedactFileResult {
+  truncated: boolean;
+  redacted: boolean;
+}
+
 export async function redactFile(
   inputPath: string,
   outputPath: string,
   values: readonly string[],
   maxBytes = DEFAULT_LOG_MAX_BYTES,
-): Promise<boolean> {
+): Promise<RedactFileResult> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
     throw new RangeError('maxBytes must be a non-negative safe integer');
   }
@@ -121,9 +132,9 @@ export async function redactFile(
     }
   }
 
-  const { text, truncated } = redactAndCap(output, values, maxBytes, stoppedEarly);
+  const { text, truncated, redacted } = redactAndCap(output, values, maxBytes, stoppedEarly);
   await writeFile(outputPath, text, 'utf8');
-  return truncated;
+  return { truncated, redacted };
 }
 
 function utf8Prefix(text: string, maxBytes: number): string {

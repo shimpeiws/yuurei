@@ -1,5 +1,6 @@
 import type { ProfileContent } from '../profile/types.js';
 import type { IsolationStrategy } from '../isolation/types.js';
+import type { ResolvedSeed } from '../seed/types.js';
 
 /**
  * A resolved profile bundled with its content digest. `content` is the
@@ -34,6 +35,23 @@ export interface ExecutionOptions {
 }
 
 /**
+ * The seed mode and baseline identity of a requested cell (#202). Present
+ * only on seeded runs: an unseeded run has no `seed` key at all, so its
+ * digest stays on the version-1 input contract and remains comparable with
+ * digests computed before seeding existed.
+ *
+ * Only the policy and the baseline's content identity participate. The seed
+ * source path and the Git HEAD are provenance recorded in the trace, not
+ * identity — same rule as `profile.name` and `task.source`: two checkouts
+ * with identical tracked content are the same request.
+ */
+export interface RequestedSeedInput {
+  policy: string;
+  /** Whole-baseline digest over the canonical seed manifest. */
+  baselineDigest: string;
+}
+
+/**
  * The requested-cell digest input set: exactly what identifies **what was
  * requested of a cell** (design doc §7.3, ADR-0011).
  *
@@ -57,6 +75,7 @@ export interface RequestedCellInput {
   profileContentDigest: string;
   /** Content digest of the resolved task. */
   taskContentDigest: string;
+  seed?: RequestedSeedInput;
 }
 
 /**
@@ -75,4 +94,11 @@ export interface ResolvedCell {
   yuureiVersion: string;
   /** sha256 digest over `RequestedCellInput` (design doc §7.3). */
   requestedCellDigest: string;
+  /** The input-set identifier this digest was computed under (ADR-0009). */
+  requestedCellInputsVersion: number;
+  /**
+   * The resolved seed for a seeded run: its canonical manifest, whole-baseline
+   * digest, and provenance. Absent on empty-workspace runs.
+   */
+  seed?: ResolvedSeed;
 }

@@ -121,6 +121,10 @@ cli
   )
   .option('--isolation <level>', 'Isolation strategy: level0 or level1 (default: level1)')
   .option(
+    '--seed-repo <dir>',
+    'Experimental: seed the cell workspace from this local Git repository root (clean worktree required)',
+  )
+  .option(
     '--bridge-codex-auth-file',
     'Experimental: bridge the real ~/.codex/auth.json into the isolated run (Codex only, off by default)',
   )
@@ -142,6 +146,7 @@ cli
           isolation?: string;
           bridgeCodexAuthFile?: boolean;
           bridgeOpenCodeAuthFile?: boolean;
+          seedRepo?: string;
           json?: boolean;
         },
       ) => {
@@ -157,6 +162,7 @@ cli
             isolation: flags.isolation,
             bridgeCodexAuthFile: flags.bridgeCodexAuthFile,
             bridgeOpenCodeAuthFile: flags.bridgeOpenCodeAuthFile,
+            seedRepo: flags.seedRepo,
           },
           loggerForFlags(flags),
         );

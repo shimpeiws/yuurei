@@ -4,8 +4,23 @@ import { join } from 'node:path';
 /** Characters in a path component that cannot be represented in a diff header. */
 const FORBIDDEN_NAME_CHARS = ['\u0000', '\n', '\r', '\t', '\\'];
 
-function hasForbiddenNameChar(component: string): boolean {
+export function hasForbiddenNameChar(component: string): boolean {
   return FORBIDDEN_NAME_CHARS.some((char) => component.includes(char));
+}
+
+/**
+ * The bytes of a patchable text file, or null when they cannot be
+ * represented: a NUL byte or invalid UTF-8 makes the file binary for patch
+ * purposes. A valid file may legitimately contain U+FFFD, so decoding must
+ * not treat that character as binary.
+ */
+export function toPatchText(content: Buffer): string | null {
+  if (content.includes(0)) return null;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(content);
+  } catch {
+    return null;
+  }
 }
 
 export interface CopyResult {
@@ -127,16 +142,8 @@ export async function buildPatch(workspaceDir: string, maxBytes: number): Promis
     // the cell after the runtime exited, so it holds no symlinks and is not
     // being written to. A plain read is safe under that assumption.
     const content = await readFile(join(workspaceDir, rel));
-    if (content.includes(0)) {
-      binary += 1;
-      continue;
-    }
-    let text: string;
-    try {
-      // `fatal` throws only on invalid UTF-8. A valid file may legitimately
-      // contain U+FFFD, so decoding must not treat that character as binary.
-      text = new TextDecoder('utf-8', { fatal: true }).decode(content);
-    } catch {
+    const text = toPatchText(content);
+    if (text === null) {
       binary += 1;
       continue;
     }
@@ -160,7 +167,7 @@ export async function buildPatch(workspaceDir: string, maxBytes: number): Promis
 }
 
 /** One file as an all-additions hunk, or headers only when it is empty. */
-function renderNewFile(path: string, text: string): string {
+export function renderNewFile(path: string, text: string): string {
   const header = `--- /dev/null\n+++ ${path}\n`;
   if (text.length === 0) return header;
   const endsWithNewline = text.endsWith('\n');
