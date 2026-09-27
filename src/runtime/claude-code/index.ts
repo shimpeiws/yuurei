@@ -206,6 +206,9 @@ export class ClaudeCodeRuntime implements Runtime {
               cache_write_input_tokens: pick('cache_creation_input_tokens'),
               cache_read_input_tokens: pick('cache_read_input_tokens'),
               reasoning_output_tokens: typeof thinking === 'number' ? thinking : null,
+              // Deprecated alias (contract, `trace.json`): 0.3 consumers read
+              // the runtime's own key name here; removed in the next major.
+              cache_creation_input_tokens: pick('cache_creation_input_tokens'),
             };
           } else {
             warnings.push('claude-code: stdout JSON had no usage field — usage unobserved');

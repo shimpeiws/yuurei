@@ -57,6 +57,8 @@ describe('CodexRuntime.normalize()', () => {
       cache_write_input_tokens: 0,
       output_tokens: 8,
       reasoning_output_tokens: 0,
+      // Deprecated alias for 0.3 consumers: the runtime's own key name.
+      cached_input_tokens: 9984,
     });
   });
 

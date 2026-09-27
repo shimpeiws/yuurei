@@ -341,6 +341,11 @@ export class CodexRuntime implements Runtime {
             cache_read_input_tokens: pick('cached_input_tokens'),
             cache_write_input_tokens: pick('cache_write_input_tokens'),
             reasoning_output_tokens: pick('reasoning_output_tokens'),
+            // Deprecated alias (contract, `trace.json`): 0.3 consumers read the
+            // runtime's own key name here and the trace schema version stays
+            // 0.3, so it keeps carrying the cache-read quantity until the next
+            // major. A new adapter does not add one.
+            cached_input_tokens: pick('cached_input_tokens'),
           };
         } else {
           warnings.push('codex: turn.completed event had no usage field — usage unobserved');

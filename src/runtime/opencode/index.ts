@@ -42,6 +42,9 @@ const OPENCODE_PROVIDER_ENV_KEYS = [
   'GROQ_API_KEY',
 ] as const;
 
+/** Path to the per-step USD cost in a `step-finish` part. */
+const COST_PATH: readonly string[] = ['cost'];
+
 /** Usage metric -> path into a `step-finish` part. */
 const USAGE_METRIC_PATHS: Record<string, readonly string[]> = {
   input_tokens: ['tokens', 'input'],
@@ -49,10 +52,11 @@ const USAGE_METRIC_PATHS: Record<string, readonly string[]> = {
   reasoning_output_tokens: ['tokens', 'reasoning'],
   cache_read_input_tokens: ['tokens', 'cache', 'read'],
   cache_write_input_tokens: ['tokens', 'cache', 'write'],
+  // Deprecated alias (contract, `trace.json`): 0.3 consumers read the observed
+  // USD cost from this usage key. The canonical value lands on the fragment's
+  // `cost`; the alias is removed in the next major.
+  cost_usd: COST_PATH,
 };
-
-/** Path to the per-step USD cost in a `step-finish` part. */
-const COST_PATH: readonly string[] = ['cost'];
 
 /**
  * Reads a nested field, distinguishing "absent" from "present but not a

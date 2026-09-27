@@ -144,7 +144,23 @@ describe('redactText', () => {
     const { text, truncated } = redactText(`${secret}${'w'.repeat(200_000)}`, [secret], 64);
 
     expect(truncated).toBe(true);
-    expect(text).toBe('[REDACTED]');
+    expect(text).not.toContain(secret);
+    expect(text.startsWith('[REDACTED]')).toBe(true);
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(64);
+  });
+
+  it('retains text that redaction brings under the cap', () => {
+    // The raw payload is far over the cap, but redaction removes most of it:
+    // the result fits, so the tail must survive and `truncated` must be false.
+    const secret = `sk-${'y'.repeat(4_096)}`;
+    const input = `${secret}\n`.repeat(20) + 'TAIL-MARKER';
+
+    const { text, truncated } = redactText(input, [secret], 1024);
+
+    expect(truncated).toBe(false);
+    expect(text).toContain('TAIL-MARKER');
+    expect(text).not.toContain(secret);
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(1024);
   });
 
   it('returns text under the cap unchanged and not truncated', () => {

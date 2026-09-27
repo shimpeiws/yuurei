@@ -148,6 +148,15 @@ recorded under `cache_write_input_tokens` and its `thinking_tokens` under
 never zero, and one the adapter never attempts is absent. A trace written
 before this vocabulary existed carries the runtimes' own key names instead.
 
+Consumers may already read those runtime names, and the vocabulary lands
+without a trace-schema bump, so the trace keeps emitting them as **deprecated
+aliases** until the next major: Codex writes `cached_input_tokens` alongside
+`cache_read_input_tokens`; Claude Code writes `cache_creation_input_tokens`
+alongside `cache_write_input_tokens`; OpenCode writes `cost_usd` alongside the
+`cost` fragment. An alias carries the same value — and the same `null` — as its
+canonical key, so a 0.3 consumer that reads it keeps working; a new adapter does
+not add one, and all of them are removed in the next major.
+
 `cost` is `null` or `{ amount, currency, source }`. `source` identifies where
 the figure came from, so a later recomputation knows what it is looking at:
 `runtime` when the runtime itself reported it (Claude Code's

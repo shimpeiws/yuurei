@@ -53,16 +53,8 @@ export function redactKnownValues(text: string, values: readonly string[]): stri
 }
 
 /**
- * Bytes of slack the streaming path may buffer beyond the cap (one read
- * chunk). `redactText` retains the same slack before redacting, so a
- * credential split by the byte cap is still seen whole and removed.
- */
-const CAP_SLACK_BYTES = 64 * 1024;
-
-/**
  * The shared redact-and-cap core: whole-buffer redaction, then a byte-exact
- * prefix. `inputTruncated` reports that the source exceeded the cap (the
- * stream's early stop, or a string longer than the cap) so the flag means
+ * prefix. `inputTruncated` reports the stream's early stop, so the flag means
  * "the artifact does not contain the complete input" regardless of how much
  * redaction removed.
  */
@@ -82,11 +74,12 @@ function redactAndCap(
  * The in-memory counterpart of `redactFile`, for payloads that already
  * exist as a string (the runtime's final message, the workspace patch).
  * Staging such a payload to disk only to read it back would write a second,
- * unredacted copy and spend disk proportional to the full input — more than
- * the artifact cap that is about to discard it. The same redact-and-cap
- * pipeline therefore runs on the string directly, bounded to the cap plus
- * the streaming path's slack, and the caller persists only the bounded,
- * redacted result.
+ * unredacted copy and spend disk proportional to the full input. The payload
+ * is redacted in full before the byte cap is applied: capping the raw string
+ * first would drop text the redacted result can still retain (a known
+ * credential repeated through the payload shrinks far below the cap) and
+ * report `truncated` for output that fits. The caller persists only the
+ * bounded, redacted result.
  */
 export function redactText(
   text: string,
@@ -96,9 +89,7 @@ export function redactText(
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
     throw new RangeError('maxBytes must be a non-negative safe integer');
   }
-  const exceedsCap = Buffer.byteLength(text, 'utf8') > maxBytes;
-  const buffered = exceedsCap ? utf8Prefix(text, maxBytes + CAP_SLACK_BYTES) : text;
-  return redactAndCap(buffered, values, maxBytes, exceedsCap);
+  return redactAndCap(text, values, maxBytes, false);
 }
 
 /**
