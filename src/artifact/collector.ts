@@ -9,6 +9,12 @@ export const DEFAULT_ARTIFACT_MAX_BYTES = 1024 * 1024;
 export interface CollectArtifactsOptions {
   maxBytes?: number;
   truncatedPaths?: readonly string[];
+  /**
+   * Paths digested whole and never rewritten in place — required outputs
+   * whose JSON would be corrupted by truncation (e.g. the seeded run's
+   * manifests). Their size is bounded by the seed limits, not `maxBytes`.
+   */
+  noTruncatePaths?: readonly string[];
 }
 
 /**
@@ -29,7 +35,7 @@ export async function collectArtifacts(
     const artifact = await collectArtifact(
       runDir,
       path,
-      maxBytes,
+      options.noTruncatePaths?.includes(path) ? Number.POSITIVE_INFINITY : maxBytes,
       options.truncatedPaths?.includes(path),
     );
     if (artifact) artifacts.push(artifact);

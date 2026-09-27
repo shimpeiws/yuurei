@@ -465,6 +465,11 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
             ...(patchTruncated ? ['patch.diff'] : []),
             ...(resultTruncated ? ['result.txt'] : []),
           ],
+          // The seeded run's manifests are required outputs: truncating
+          // them in place would leave corrupt JSON. Their size is bounded
+          // by the seed limits, so they are digested whole instead.
+          noTruncatePaths:
+            cell.seed !== undefined ? ['baseline-manifest.json', 'changes.json'] : [],
         },
       ),
     );

@@ -16,9 +16,15 @@ const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
  * variables — a git hook is the ordinary case — would make every seed check
  * run against the *caller's* repository instead of the selected one. Strip
  * every `GIT_*` variable so the seed sees only what `-C` names.
+ * `GIT_OPTIONAL_LOCKS=0` stops `git status`/`ls-files` from opportunistically
+ * refreshing `.git/index` (stat cache, fsmonitor data) — the seed must never
+ * write to the source repository.
  */
 function gitEnv(): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
+  return {
+    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
+    GIT_OPTIONAL_LOCKS: '0',
+  };
 }
 
 /** Runs `git` in `cwd`, returning raw stdout. Failures are configuration errors. */
@@ -59,7 +65,14 @@ export async function gitShowToplevel(dir: string): Promise<string | null> {
       env: gitEnv(),
     });
     return stdout.trim();
-  } catch {
+  } catch (error) {
+    // ENOENT is a missing git binary, not "not a repository".
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new YuureiError(
+        'git is required to seed a workspace but was not found on PATH',
+        EXIT_CODES.CONFIG_ERROR,
+      );
+    }
     return null;
   }
 }
@@ -73,7 +86,14 @@ export async function gitHead(dir: string): Promise<string | null> {
       env: gitEnv(),
     });
     return stdout.trim();
-  } catch {
+  } catch (error) {
+    // ENOENT is a missing git binary, not an unborn HEAD.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new YuureiError(
+        'git is required to seed a workspace but was not found on PATH',
+        EXIT_CODES.CONFIG_ERROR,
+      );
+    }
     return null;
   }
 }

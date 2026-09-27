@@ -109,7 +109,11 @@ export async function resolveSeed(
   }
 
   const indexEntries = await gitLsFiles(resolvedDir);
-  const files: SeedManifest = {};
+  // Null prototype: a tracked path literally named `__proto__` must land as
+  // an own key — assigning it onto `{}` invokes the prototype setter and
+  // silently drops the file from the baseline (same reason as
+  // canonicalJsonStringify's sort).
+  const files = Object.create(null) as SeedManifest;
   let excluded = 0;
   let fileCount = 0;
   let totalBytes = 0;
@@ -156,9 +160,15 @@ export async function resolveSeed(
     const content = await readFile(sourcePath).catch(() => fail(`cannot read ${entry.path}`));
     // The index blob id proves the bytes read are the bytes Git tracks; a
     // mismatch is a tracked local edit that slipped past the status check
-    // (or a race with one) and must not be silently included.
+    // (or a race with one) and must not be silently included. Repositories
+    // with clean filters (text=auto CRLF conversion, custom clean filters)
+    // fail here by design: raw worktree bytes are never equal to the index
+    // blob once a filter rewrites them.
     if (blobOid(content) !== entry.oid) {
-      fail(`tracked file ${entry.path} does not match the index`);
+      fail(
+        `tracked file ${entry.path} does not match the index ` +
+          '(content filters such as text=auto are not supported by seeding)',
+      );
     }
     files[entry.path] = {
       digest: sha256Digest(content),
@@ -228,7 +238,7 @@ export async function materializeSeed(
     }
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, content);
-    await chmod(target, entry.mode);
+    await chmod(target, entry.mode & 0o777);
   }
 
   const materialized = await manifestOf(workspaceDir);
@@ -245,7 +255,7 @@ export async function materializeSeed(
  * cell, a special file) is a verification failure, not a skip.
  */
 async function manifestOf(dir: string): Promise<SeedManifest> {
-  const files: SeedManifest = {};
+  const files = Object.create(null) as SeedManifest;
   async function walk(relativeDir: string): Promise<void> {
     const entries = await readdir(join(dir, relativeDir), { withFileTypes: true });
     for (const entry of entries) {

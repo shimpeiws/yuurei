@@ -229,6 +229,46 @@ describe('resolveSeed', () => {
     });
   });
 
+  it('keeps a tracked file literally named __proto__ as a manifest entry', async () => {
+    // `{}` + bracket assignment would invoke the prototype setter and drop
+    // the file from the baseline; the manifest must be a null-prototype map.
+    // (An object literal cannot carry `__proto__` as an own key either, so
+    // the file is committed separately rather than via `repoWith`.)
+    const dir = await repoWith({ 'a.txt': 'alpha\n' });
+    await writeFile(join(dir, '__proto__'), 'magic\n');
+    await gitIn(dir, ['add', '__proto__']);
+    await gitIn(dir, ['commit', '-qm', 'add __proto__']);
+
+    const seed = await resolveSeed(dir);
+
+    expect(Object.keys(seed.files).sort()).toEqual(['__proto__', 'a.txt']);
+    expect(Object.hasOwn(seed.files, '__proto__')).toBe(true);
+    expect(seed.files['__proto__']?.digest).toBe(sha256Digest(Buffer.from('magic\n')));
+
+    const cell = await mkdtemp(join(tmpdir(), 'yuurei-seed-cell-'));
+    dirs.push(cell);
+    const materialized = await materializeSeed(seed, cell);
+    expect(materialized.digest).toBe(seed.digest);
+    expect(await readFile(join(cell, '__proto__'), 'utf8')).toBe('magic\n');
+  });
+
+  it('is not redirected by an inherited GIT_DIR (git hook environment)', async () => {
+    const dir = await repoWith({ 'a.txt': 'alpha\n' });
+    const decoy = await initRepo({ 'decoy-only.txt': 'd\n' });
+    dirs.push(decoy);
+
+    const original = process.env['GIT_DIR'];
+    process.env['GIT_DIR'] = join(decoy, '.git');
+    try {
+      const seed = await resolveSeed(dir);
+      expect(Object.keys(seed.files)).toEqual(['a.txt']);
+      expect(seed.head).toBe((await gitIn(dir, ['rev-parse', 'HEAD'])).trim());
+    } finally {
+      if (original === undefined) delete process.env['GIT_DIR'];
+      else process.env['GIT_DIR'] = original;
+    }
+  });
+
   it('does not modify the source repository', async () => {
     const dir = await repoWith({ 'a.txt': 'alpha\n' });
     const before = await gitIn(dir, ['status', '--porcelain']);

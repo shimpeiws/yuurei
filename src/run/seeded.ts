@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import type { PatchResult } from './workspace.js';
 import { hasForbiddenNameChar, renderNewFile, toPatchText } from './workspace.js';
 import type { SeedManifest, WorkspaceChanges } from '../seed/types.js';
+import { isPathWithin } from '../util/fs.js';
 import { sha256Digest } from '../util/hash.js';
 
 /** Ascending order of a path's UTF-8 byte sequence, as `buildPatch` uses. */
@@ -161,6 +162,12 @@ async function readBaselineText(
   maxBytes: number,
 ): Promise<ReadResult> {
   const full = join(context.sourceDir, path);
+  // Paths come from the baseline manifest, validated at resolve time; this
+  // is defense in depth — a path that resolves outside the source root is
+  // never read.
+  if (!(await isPathWithin(context.sourceDir, full))) {
+    return { ok: false, reason: 'unavailable' };
+  }
   const fileStat = await lstat(full).catch(() => null);
   if (fileStat === null || !fileStat.isFile()) return { ok: false, reason: 'unavailable' };
   if (fileStat.size > maxBytes) return { ok: false, reason: 'oversized' };

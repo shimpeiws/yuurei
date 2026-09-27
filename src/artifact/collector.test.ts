@@ -49,6 +49,29 @@ describe('collectArtifacts', () => {
     });
   });
 
+  it('digests a noTruncatePaths file whole without rewriting it', async () => {
+    // Required outputs (e.g. the seeded run's manifests) must never be
+    // truncated in place — a capped prefix would leave corrupt JSON.
+    runDir = await mkdtemp(join(tmpdir(), 'yuurei-artifacts-'));
+    await writeFile(join(runDir, 'manifest.json'), '0123456789', 'utf8');
+
+    await expect(
+      collectArtifacts(runDir, ['manifest.json'], {
+        maxBytes: 4,
+        noTruncatePaths: ['manifest.json'],
+      }),
+    ).resolves.toEqual({
+      artifacts: [
+        {
+          path: 'manifest.json',
+          kind: 'file',
+          digest: sha256Digest('0123456789'),
+        },
+      ],
+    });
+    await expect(readFile(join(runDir, 'manifest.json'), 'utf8')).resolves.toBe('0123456789');
+  });
+
   it('preserves the existing manifest shape for normal-sized files', async () => {
     runDir = await mkdtemp(join(tmpdir(), 'yuurei-artifacts-'));
     await mkdir(join(runDir, 'nested'));
