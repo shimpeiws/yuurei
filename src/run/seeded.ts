@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { PatchResult } from './workspace.js';
 import { hasForbiddenNameChar, renderNewFile, toPatchText } from './workspace.js';
@@ -143,9 +143,18 @@ async function readResultText(
   maxBytes: number,
 ): Promise<ReadResult> {
   const full = join(workspaceDir, path);
-  if ((await stat(full)).size > maxBytes) return { ok: false, reason: 'oversized' };
-  const text = toPatchText(await readFile(full));
-  return text === null ? { ok: false, reason: 'binary' } : { ok: true, text };
+  // Stat and read through one handle so the size check and the read cannot
+  // observe different files (TOCTOU).
+  const handle = await open(full);
+  try {
+    const fileStat = await handle.stat();
+    if (!fileStat.isFile()) return { ok: false, reason: 'unavailable' };
+    if (fileStat.size > maxBytes) return { ok: false, reason: 'oversized' };
+    const text = toPatchText(await handle.readFile());
+    return text === null ? { ok: false, reason: 'binary' } : { ok: true, text };
+  } finally {
+    await handle.close();
+  }
 }
 
 /**
@@ -168,15 +177,23 @@ async function readBaselineText(
   if (!(await isPathWithin(context.sourceDir, full))) {
     return { ok: false, reason: 'unavailable' };
   }
-  const fileStat = await lstat(full).catch(() => null);
-  if (fileStat === null || !fileStat.isFile()) return { ok: false, reason: 'unavailable' };
-  if (fileStat.size > maxBytes) return { ok: false, reason: 'oversized' };
-  const content = await readFile(full).catch(() => null);
-  if (content === null || sha256Digest(content) !== context.baseline[path]?.digest) {
-    return { ok: false, reason: 'unavailable' };
+  // Stat and read through one handle: the fd pins the inode, so the size
+  // check and the read cannot observe different files (TOCTOU).
+  const handle = await open(full).catch(() => null);
+  if (handle === null) return { ok: false, reason: 'unavailable' };
+  try {
+    const fileStat = await handle.stat();
+    if (!fileStat.isFile()) return { ok: false, reason: 'unavailable' };
+    if (fileStat.size > maxBytes) return { ok: false, reason: 'oversized' };
+    const content = await handle.readFile();
+    if (sha256Digest(content) !== context.baseline[path]?.digest) {
+      return { ok: false, reason: 'unavailable' };
+    }
+    const text = toPatchText(content);
+    return text === null ? { ok: false, reason: 'binary' } : { ok: true, text };
+  } finally {
+    await handle.close();
   }
-  const text = toPatchText(content);
-  return text === null ? { ok: false, reason: 'binary' } : { ok: true, text };
 }
 
 /**

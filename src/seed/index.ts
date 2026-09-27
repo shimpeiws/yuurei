@@ -1,14 +1,5 @@
 import { createHash } from 'node:crypto';
-import {
-  chmod,
-  lstat,
-  mkdir,
-  readdir,
-  readFile,
-  realpath,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { chmod, mkdir, open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 import { isPathWithin } from '../util/fs.js';
@@ -138,26 +129,38 @@ export async function resolveSeed(
     }
 
     const sourcePath = join(resolvedDir, entry.path);
-    const sourceStat = await lstat(sourcePath).catch(() => fail(`cannot stat ${entry.path}`));
-    if (!sourceStat.isFile()) {
-      fail(`tracked path ${entry.path} is not a regular file on disk`);
-    }
-    // lstat covers the final component only. `git status` already reports a
-    // tracked path behind a symlinked directory as changed, so this is
-    // defense in depth for the race window: a source that resolves outside
-    // the repository root is never read into a cell.
+    // `git status` already reports a tracked path behind a symlinked
+    // directory as changed; this is defense in depth for the race window —
+    // a source that resolves outside the repository root is never read into
+    // a cell.
     if (!(await isPathWithin(resolvedDir, sourcePath))) {
       fail(`tracked path ${entry.path} resolves outside the repository`);
     }
-    if (sourceStat.size > limits.maxFileBytes) {
-      fail(`tracked file ${entry.path} exceeds the per-file limit of ${limits.maxFileBytes} bytes`);
+    // Stat and read through one open handle: a check-then-read on the path
+    // could observe two different files, but the fd pins the inode — the
+    // bytes hashed below are the bytes the stat described.
+    const sourceHandle = await open(sourcePath).catch(() =>
+      fail(`cannot open tracked file ${entry.path}`),
+    );
+    let content: Buffer;
+    try {
+      const sourceStat = await sourceHandle.stat();
+      if (!sourceStat.isFile()) {
+        fail(`tracked path ${entry.path} is not a regular file on disk`);
+      }
+      if (sourceStat.size > limits.maxFileBytes) {
+        fail(
+          `tracked file ${entry.path} exceeds the per-file limit of ${limits.maxFileBytes} bytes`,
+        );
+      }
+      totalBytes += sourceStat.size;
+      if (totalBytes > limits.maxTotalBytes) {
+        fail(`seed exceeds the documented total limit of ${limits.maxTotalBytes} bytes`);
+      }
+      content = await sourceHandle.readFile();
+    } finally {
+      await sourceHandle.close();
     }
-    totalBytes += sourceStat.size;
-    if (totalBytes > limits.maxTotalBytes) {
-      fail(`seed exceeds the documented total limit of ${limits.maxTotalBytes} bytes`);
-    }
-
-    const content = await readFile(sourcePath).catch(() => fail(`cannot read ${entry.path}`));
     // The index blob id proves the bytes read are the bytes Git tracks; a
     // mismatch is a tracked local edit that slipped past the status check
     // (or a race with one) and must not be silently included. Repositories
@@ -237,7 +240,15 @@ export async function materializeSeed(
       fail(`${path} changed between seed resolution and materialization`);
     }
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, content);
+    // Exclusive create: the workspace was verified empty, so an existing
+    // entry at `target` — planted between the check and this write — fails
+    // the materialization instead of being followed or overwritten.
+    const targetHandle = await open(target, 'wx');
+    try {
+      await targetHandle.writeFile(content);
+    } finally {
+      await targetHandle.close();
+    }
     await chmod(target, entry.mode & 0o777);
   }
 
