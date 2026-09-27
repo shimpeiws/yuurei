@@ -138,6 +138,13 @@ export async function resolveSeed(
     if (!sourceStat.isFile()) {
       fail(`tracked path ${entry.path} is not a regular file on disk`);
     }
+    // lstat covers the final component only. `git status` already reports a
+    // tracked path behind a symlinked directory as changed, so this is
+    // defense in depth for the race window: a source that resolves outside
+    // the repository root is never read into a cell.
+    if (!(await isPathWithin(resolvedDir, sourcePath))) {
+      fail(`tracked path ${entry.path} resolves outside the repository`);
+    }
     if (sourceStat.size > limits.maxFileBytes) {
       fail(`tracked file ${entry.path} exceeds the per-file limit of ${limits.maxFileBytes} bytes`);
     }
@@ -201,6 +208,12 @@ export async function materializeSeed(
   seed: ResolvedSeed,
   workspaceDir: string,
 ): Promise<MaterializedSeed> {
+  // The workspace is expected to be a fresh, empty directory — anything at
+  // all, including an empty directory, is an unexpected extra and fails
+  // before a single byte is written.
+  if ((await readdir(workspaceDir)).length > 0) {
+    fail('cell workspace is not empty before seeding');
+  }
   for (const [path, entry] of Object.entries(seed.files)) {
     assertSafeRelativePath(path);
     const target = join(workspaceDir, path);

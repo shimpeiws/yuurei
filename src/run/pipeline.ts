@@ -7,6 +7,7 @@ import { installSignalCleanup } from './signals.js';
 import { resolveCell, type CellResolutionInput } from '../cell/resolver.js';
 import type { ResolvedCell } from '../cell/types.js';
 import { materializeSeed, toBaselineManifest } from '../seed/index.js';
+import { SEED_POLICY } from '../seed/types.js';
 import type { WorkspaceChanges } from '../seed/types.js';
 import { buildPatch, copyWorkspace } from './workspace.js';
 import { buildSeededPatch, collectSeededWorkspace, toChangesManifest } from './seeded.js';
@@ -506,7 +507,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       ...(cell.seed !== undefined && seedMaterializedDigest !== undefined
         ? {
             seed: {
-              policy: 'git-tracked-files' as const,
+              policy: SEED_POLICY,
               source: cell.seed.sourceDir,
               head: cell.seed.head,
               baseline: {

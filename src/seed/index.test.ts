@@ -285,7 +285,7 @@ describe('materializeSeed', () => {
     });
   });
 
-  it('fails when the workspace already contains extra content', async () => {
+  it('fails when the workspace already contains content', async () => {
     const repo = await freshRepo({ 'a.txt': 'alpha\n' });
     const seed = await resolveSeed(repo);
     const cell = await freshWorkspace();
@@ -293,7 +293,23 @@ describe('materializeSeed', () => {
 
     await expect(materializeSeed(seed, cell)).rejects.toMatchObject({
       exitCode: EXIT_CODES.CONFIG_ERROR,
-      message: expect.stringContaining('does not match the requested baseline'),
+      message: expect.stringContaining('not empty'),
+    });
+  });
+
+  it('fails on a tracked file behind a symlinked directory', async () => {
+    // Commit dir/a.txt as a real file, then swap `dir` for a symlink whose
+    // target holds identical bytes: git reports the tracked path deleted
+    // rather than following the link, so the cleanliness check fails closed.
+    const repo = await freshRepo({ 'dir/a.txt': 'alpha\n' });
+    const outside = await mkdtemp(join(tmpdir(), 'yuurei-seed-outside-'));
+    dirs.push(outside);
+    await writeFile(join(outside, 'a.txt'), 'alpha\n');
+    await rm(join(repo, 'dir'), { recursive: true });
+    await symlink(outside, join(repo, 'dir'), 'dir');
+
+    await expect(resolveSeed(repo)).rejects.toMatchObject({
+      exitCode: EXIT_CODES.CONFIG_ERROR,
     });
   });
 
