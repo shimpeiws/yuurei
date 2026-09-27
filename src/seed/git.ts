@@ -10,12 +10,24 @@ const execFileAsync = promisify(execFile);
  */
 const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
 
+/**
+ * Git resolves repository identity from `GIT_DIR`/`GIT_INDEX_FILE`/
+ * `GIT_WORK_TREE` before it looks at `-C`. A caller that inherited those
+ * variables — a git hook is the ordinary case — would make every seed check
+ * run against the *caller's* repository instead of the selected one. Strip
+ * every `GIT_*` variable so the seed sees only what `-C` names.
+ */
+function gitEnv(): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
+}
+
 /** Runs `git` in `cwd`, returning raw stdout. Failures are configuration errors. */
 async function runGit(cwd: string, args: string[]): Promise<Buffer> {
   try {
     const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
       encoding: 'buffer',
       maxBuffer: MAX_GIT_OUTPUT_BYTES,
+      env: gitEnv(),
     });
     return stdout;
   } catch (error) {
@@ -44,6 +56,7 @@ export async function gitShowToplevel(dir: string): Promise<string | null> {
     const { stdout } = await execFileAsync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], {
       encoding: 'utf8',
       maxBuffer: MAX_GIT_OUTPUT_BYTES,
+      env: gitEnv(),
     });
     return stdout.trim();
   } catch {
@@ -57,6 +70,7 @@ export async function gitHead(dir: string): Promise<string | null> {
     const { stdout } = await execFileAsync('git', ['-C', dir, 'rev-parse', '--verify', 'HEAD'], {
       encoding: 'utf8',
       maxBuffer: MAX_GIT_OUTPUT_BYTES,
+      env: gitEnv(),
     });
     return stdout.trim();
   } catch {

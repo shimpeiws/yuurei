@@ -16,6 +16,13 @@ export const SEED_MAX_FILE_BYTES = 8 * 1024 * 1024;
 export const SEED_MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 export const SEED_MAX_FILES = 20_000;
 
+/** The three seed limits as one injectable set; the constants are the defaults. */
+export interface SeedLimits {
+  maxFileBytes: number;
+  maxTotalBytes: number;
+  maxFiles: number;
+}
+
 /**
  * One materializable seed entry: a regular file tracked by Git, recorded as
  * the canonical manifest's path-and-content identity. `mode` is the

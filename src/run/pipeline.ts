@@ -360,9 +360,13 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     let patchTruncated = false;
     let patchRedacted = false;
     let patchPublished = false;
-    if (workspaceComplete) {
-      // Redact and cap the diff in memory — buildPatch already returns it as
-      // a string, so staging it to disk would only write an unredacted copy
+    // A seeded run patches only when the change set exists — falling back to
+    // the empty-base patch over a partial durable tree would record an
+    // all-additions diff that misrepresents the baseline.
+    const canPatch = workspaceComplete && (cell.seed === undefined || changes !== undefined);
+    if (canPatch) {
+      // Redact and cap the diff in memory — the patch already exists as a
+      // string, so staging it to disk would only write an unredacted copy
       // the cap is about to discard — then publish via a temp file + rename
       // so a failed write never leaves a partial or unredacted patch.diff in
       // place.

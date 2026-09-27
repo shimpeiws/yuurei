@@ -21,8 +21,16 @@ import {
   SEED_MAX_TOTAL_BYTES,
   SEED_POLICY,
   type ResolvedSeed,
+  type SeedLimits,
   type SeedManifest,
 } from './types.js';
+
+/** The documented limits, as one object — the default `limits` for `resolveSeed`. */
+const DEFAULT_SEED_LIMITS: SeedLimits = {
+  maxFileBytes: SEED_MAX_FILE_BYTES,
+  maxTotalBytes: SEED_MAX_TOTAL_BYTES,
+  maxFiles: SEED_MAX_FILES,
+};
 
 /** Git index modes accepted for seeding: regular file, non-executable and executable. */
 const REGULAR_FILE_MODES = new Set(['100644', '100755']);
@@ -66,7 +74,10 @@ function blobOid(content: Buffer): string {
  * submodule, an unsafe path, a file that does not match its index blob, or a
  * documented limit — aborts the run before the cell exists.
  */
-export async function resolveSeed(sourceDir: string): Promise<ResolvedSeed> {
+export async function resolveSeed(
+  sourceDir: string,
+  limits: SeedLimits = DEFAULT_SEED_LIMITS,
+): Promise<ResolvedSeed> {
   const resolvedDir = await realpath(sourceDir).catch(() => fail(`cannot resolve ${sourceDir}`));
   if (!(await stat(resolvedDir).catch(() => null))?.isDirectory()) {
     fail(`${sourceDir} is not a directory`);
@@ -118,8 +129,8 @@ export async function resolveSeed(sourceDir: string): Promise<ResolvedSeed> {
       continue;
     }
     fileCount += 1;
-    if (fileCount > SEED_MAX_FILES) {
-      fail(`seed exceeds the documented limit of ${SEED_MAX_FILES} files`);
+    if (fileCount > limits.maxFiles) {
+      fail(`seed exceeds the documented limit of ${limits.maxFiles} files`);
     }
 
     const sourcePath = join(resolvedDir, entry.path);
@@ -127,12 +138,12 @@ export async function resolveSeed(sourceDir: string): Promise<ResolvedSeed> {
     if (!sourceStat.isFile()) {
       fail(`tracked path ${entry.path} is not a regular file on disk`);
     }
-    if (sourceStat.size > SEED_MAX_FILE_BYTES) {
-      fail(`tracked file ${entry.path} exceeds the per-file limit of ${SEED_MAX_FILE_BYTES} bytes`);
+    if (sourceStat.size > limits.maxFileBytes) {
+      fail(`tracked file ${entry.path} exceeds the per-file limit of ${limits.maxFileBytes} bytes`);
     }
     totalBytes += sourceStat.size;
-    if (totalBytes > SEED_MAX_TOTAL_BYTES) {
-      fail(`seed exceeds the documented total limit of ${SEED_MAX_TOTAL_BYTES} bytes`);
+    if (totalBytes > limits.maxTotalBytes) {
+      fail(`seed exceeds the documented total limit of ${limits.maxTotalBytes} bytes`);
     }
 
     const content = await readFile(sourcePath).catch(() => fail(`cannot read ${entry.path}`));
