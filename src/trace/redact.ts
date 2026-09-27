@@ -53,6 +53,55 @@ export function redactKnownValues(text: string, values: readonly string[]): stri
 }
 
 /**
+ * Bytes of slack the streaming path may buffer beyond the cap (one read
+ * chunk). `redactText` retains the same slack before redacting, so a
+ * credential split by the byte cap is still seen whole and removed.
+ */
+const CAP_SLACK_BYTES = 64 * 1024;
+
+/**
+ * The shared redact-and-cap core: whole-buffer redaction, then a byte-exact
+ * prefix. `inputTruncated` reports that the source exceeded the cap (the
+ * stream's early stop, or a string longer than the cap) so the flag means
+ * "the artifact does not contain the complete input" regardless of how much
+ * redaction removed.
+ */
+function redactAndCap(
+  buffered: string,
+  values: readonly string[],
+  maxBytes: number,
+  inputTruncated: boolean,
+): { text: string; truncated: boolean } {
+  let output = redactSecrets(redactKnownValues(buffered, values));
+  output = redactTerminalKnownPrefix(output, values);
+  const truncated = inputTruncated || Buffer.byteLength(output, 'utf8') > maxBytes;
+  return { text: utf8Prefix(output, maxBytes), truncated };
+}
+
+/**
+ * The in-memory counterpart of `redactFile`, for payloads that already
+ * exist as a string (the runtime's final message, the workspace patch).
+ * Staging such a payload to disk only to read it back would write a second,
+ * unredacted copy and spend disk proportional to the full input — more than
+ * the artifact cap that is about to discard it. The same redact-and-cap
+ * pipeline therefore runs on the string directly, bounded to the cap plus
+ * the streaming path's slack, and the caller persists only the bounded,
+ * redacted result.
+ */
+export function redactText(
+  text: string,
+  values: readonly string[],
+  maxBytes = DEFAULT_LOG_MAX_BYTES,
+): { text: string; truncated: boolean } {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new RangeError('maxBytes must be a non-negative safe integer');
+  }
+  const exceedsCap = Buffer.byteLength(text, 'utf8') > maxBytes;
+  const buffered = exceedsCap ? utf8Prefix(text, maxBytes + CAP_SLACK_BYTES) : text;
+  return redactAndCap(buffered, values, maxBytes, exceedsCap);
+}
+
+/**
  * Redacts and persists a log without retaining the complete input in
  * memory. Raw input is buffered only until the byte cap is exceeded (plus
  * at most one read chunk), so memory usage is bounded by `maxBytes`
@@ -81,11 +130,8 @@ export async function redactFile(
     }
   }
 
-  output = redactSecrets(redactKnownValues(output, values));
-  output = redactTerminalKnownPrefix(output, values);
-
-  const truncated = stoppedEarly || Buffer.byteLength(output, 'utf8') > maxBytes;
-  await writeFile(outputPath, utf8Prefix(output, maxBytes), 'utf8');
+  const { text, truncated } = redactAndCap(output, values, maxBytes, stoppedEarly);
+  await writeFile(outputPath, text, 'utf8');
   return truncated;
 }
 

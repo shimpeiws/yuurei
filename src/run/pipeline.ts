@@ -19,7 +19,7 @@ import { toProfileManifest } from '../profile/manifest.js';
 import { getRuntime } from '../runtime/registry.js';
 import type { PreparedRun, Runtime } from '../runtime/types.js';
 import { writeTrace } from '../trace/writer.js';
-import { redactFile } from '../trace/redact.js';
+import { redactFile, redactText } from '../trace/redact.js';
 import type { RunDefinition, Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
 import { createUniqueRunLayout } from './layout.js';
@@ -298,65 +298,53 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     let patchDiagnostics: string[] = [];
     let patchTruncated = false;
     if (workspaceComplete) {
-      // Redact to a temp file, then publish atomically, so a failed write never
-      // leaves a partial or unredacted patch.diff in place. The unredacted
-      // input is staged inside the cell root, which cleanup and the orphan
-      // sweep remove even after a hard kill — the durable run directory never
-      // holds unredacted content, only the already-redacted output temp.
-      const tempInput = join(context.rootDir, `.patch.in.tmp-${randomUUID()}`);
+      // Redact and cap the diff in memory — buildPatch already returns it as
+      // a string, so staging it to disk would only write an unredacted copy
+      // the cap is about to discard — then publish via a temp file + rename
+      // so a failed write never leaves a partial or unredacted patch.diff in
+      // place.
       const tempOutput = join(layout.runDir, `.patch.out.tmp-${randomUUID()}`);
       try {
         const patch = await buildPatch(layout.workspaceDir, maxArtifactBytes);
         patchDiagnostics = patch.diagnostics;
-        await writeFile(tempInput, patch.diff, 'utf8');
-        patchTruncated = await redactFile(
-          tempInput,
-          tempOutput,
-          knownCredentialValues,
-          maxArtifactBytes,
-        );
+        const redacted = redactText(patch.diff, knownCredentialValues, maxArtifactBytes);
+        patchTruncated = redacted.truncated;
+        await writeFile(tempOutput, redacted.text, 'utf8');
         await rename(tempOutput, layout.patchPath);
       } catch {
         // Reached only before the rename, so patch.diff was not published and
         // the "generation failed" note is accurate.
         patchDiagnostics.push('patch: generation failed; patch.diff not recorded');
       } finally {
-        // Both removals run regardless of one another; neither can change
-        // whether the patch was published. A stranded output temp is already
-        // redacted; a stranded input temp sits in the cell root and is swept
-        // with it (ADR-0016).
-        await Promise.allSettled([rm(tempInput, { force: true }), rm(tempOutput, { force: true })]);
+        // A stranded output temp is already redacted; no path through this
+        // block writes unredacted content to disk (ADR-0016).
+        await rm(tempOutput, { force: true }).catch(() => {});
       }
     } else {
       patchDiagnostics.push('patch: generation failed; patch.diff not recorded');
     }
 
     // The runtime's final message is a durable output like patch.diff —
-    // best-effort, redacted and capped through the same temp-file path, and
-    // never inlined into trace.json (runtime output is untrusted; §10.2).
-    // As with the patch, the unredacted input is staged inside the cell root
-    // so a hard kill cannot strand it in the durable run directory. A missing
-    // text is recorded with the reason the adapter reported so a consumer can
-    // tell "nothing was emitted" from "extraction failed".
+    // best-effort, redacted and capped in memory (it already exists as a
+    // string, so no unredacted copy ever reaches disk), published through the
+    // same temp-file + rename path, and never inlined into trace.json
+    // (runtime output is untrusted; §10.2). A missing text is recorded with
+    // the reason the adapter reported so a consumer can tell "nothing was
+    // emitted" from "extraction failed".
     const runResult = fragment.result;
     let resultTruncated = false;
     const resultDiagnostics: string[] = [];
     if (typeof runResult?.text === 'string') {
-      const tempInput = join(context.rootDir, `.result.in.tmp-${randomUUID()}`);
       const tempOutput = join(layout.runDir, `.result.out.tmp-${randomUUID()}`);
       try {
-        await writeFile(tempInput, runResult.text, 'utf8');
-        resultTruncated = await redactFile(
-          tempInput,
-          tempOutput,
-          knownCredentialValues,
-          maxArtifactBytes,
-        );
+        const redacted = redactText(runResult.text, knownCredentialValues, maxArtifactBytes);
+        resultTruncated = redacted.truncated;
+        await writeFile(tempOutput, redacted.text, 'utf8');
         await rename(tempOutput, layout.resultPath);
       } catch {
         resultDiagnostics.push('result: save failed; result.txt not recorded');
       } finally {
-        await Promise.allSettled([rm(tempInput, { force: true }), rm(tempOutput, { force: true })]);
+        await rm(tempOutput, { force: true }).catch(() => {});
       }
     } else if (runResult?.reason === 'parse_failed') {
       resultDiagnostics.push('result: final message could not be parsed');

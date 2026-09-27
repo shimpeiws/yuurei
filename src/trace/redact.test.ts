@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { redactFile, redactKnownValues, redactSecrets } from './redact.js';
+import { redactFile, redactKnownValues, redactSecrets, redactText } from './redact.js';
 
 let tempDir: string | undefined;
 
@@ -111,5 +111,46 @@ describe('redactFile', () => {
     await redactFile(inputPath, outputPath, [], 1);
 
     expect(await readFile(outputPath, 'utf8')).toBe('');
+  });
+});
+
+describe('redactText', () => {
+  it('redacts and caps an oversized payload to the byte cap', () => {
+    const secret = 'sk-oversized-final-message-secret';
+    const input = `${'a'.repeat(100)}${secret}${'b'.repeat(200_000)}`;
+
+    const { text, truncated } = redactText(input, [secret], 1024);
+
+    expect(truncated).toBe(true);
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(1024);
+    expect(text).not.toContain(secret);
+    expect(text).toContain('[REDACTED]');
+  });
+
+  it('redacts a known value that spans the byte cap', () => {
+    const secret = 'known-secret-crossing-the-cap';
+    const input = `${'x'.repeat(900)}${secret}${'y'.repeat(900)}`;
+
+    const { text, truncated } = redactText(input, [secret], 1024);
+
+    expect(truncated).toBe(true);
+    expect(text).not.toContain(secret);
+    expect(text).toContain('[REDACTED]');
+  });
+
+  it('redacts a known value cut short by the byte cap', () => {
+    const secret = `s-${'x'.repeat(100_000)}`;
+
+    const { text, truncated } = redactText(`${secret}${'w'.repeat(200_000)}`, [secret], 64);
+
+    expect(truncated).toBe(true);
+    expect(text).toBe('[REDACTED]');
+  });
+
+  it('returns text under the cap unchanged and not truncated', () => {
+    const { text, truncated } = redactText('short reply', [], 1024);
+
+    expect(text).toBe('short reply');
+    expect(truncated).toBe(false);
   });
 });

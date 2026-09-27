@@ -1200,6 +1200,88 @@ describe('run pipeline', () => {
     expect(() => TraceSchema.parse(result.trace)).not.toThrow();
   });
 
+  it('caps an oversized result.txt to maxArtifactBytes without staging a full copy', async () => {
+    // The final message already exists in memory, so the pipeline redacts
+    // and caps it there — the only file written is the bounded output.
+    const profile: ResolvedProfile = {
+      name: 'oversized-result',
+      runtime: 'oversized-result-runtime',
+      content: { profileYaml: { runtime: 'oversized-result-runtime' }, configFiles: {} },
+      digest: 'sha256:0000',
+    };
+
+    const fake: Runtime = {
+      id: () => 'oversized-result-runtime',
+      detect: async () => ({
+        installed: true,
+        version: null,
+        executablePath: null,
+        authUsable: null,
+      }),
+      prepare: async (
+        cell: ResolvedCell,
+        isolation: IsolationContext,
+        _registerCredentialPath: RegisterCredentialPath,
+      ): Promise<PreparedRun> => ({
+        runtimeId: 'oversized-result-runtime',
+        command: 'true',
+        args: [],
+        env: {},
+        cwd: isolation.rootDir,
+        isolation,
+        cell,
+        runtimeVersion: null,
+        credentialValuesToRedact: [],
+      }),
+      execute: async (run: PreparedRun) => {
+        const stdoutPath = join(run.isolation.rootDir, 'stdout.log');
+        const stderrPath = join(run.isolation.rootDir, 'stderr.log');
+        await writeFile(stdoutPath, '', 'utf8');
+        await writeFile(stderrPath, '', 'utf8');
+        return {
+          exitCode: 0,
+          signal: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          stdoutPath,
+          stderrPath,
+          timedOut: false,
+        };
+      },
+      normalize: async () => ({
+        runtime: { id: 'oversized-result-runtime', version: null },
+        model: { requested: '', resolved: null },
+        execution: { exitCode: 0, signal: null, durationMs: 0 },
+        usage: {},
+        result: { text: `answer ${'x'.repeat(500_000)}` },
+      }),
+    };
+
+    const result = await runPipeline({
+      runtimeId: profile.runtime,
+      requestedModel: '',
+      profile,
+      taskPath,
+      yuureiVersion: '0.0.1',
+      yuureiDir: workDir,
+      isolationStrategy: 'level1',
+      keep: false,
+      maxArtifactBytes: 1024,
+      resolveRuntime: () => fake,
+    });
+
+    const persisted = await readFile(join(result.runDir, 'result.txt'), 'utf8');
+    expect(Buffer.byteLength(persisted, 'utf8')).toBeLessThanOrEqual(1024);
+    const manifest = JSON.parse(await readFile(join(result.runDir, 'artifacts.json'), 'utf8')) as {
+      artifacts: { path: string; truncated?: boolean }[];
+    };
+    expect(manifest.artifacts.find((a) => a.path === 'result.txt')?.truncated).toBe(true);
+    // No unredacted staging temp or other scratch file survives in the run
+    // directory — the only temp write is the already-redacted output temp,
+    // which is removed on every path.
+    expect((await readdir(result.runDir)).filter((e) => e.includes('.tmp-'))).toEqual([]);
+  });
+
   it('records why no result.txt was persisted: unobserved vs parse_failed', async () => {
     const makeFake = (
       id: string,
