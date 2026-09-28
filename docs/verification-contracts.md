@@ -289,3 +289,34 @@ semantic contract unless that call shape is itself part of the public promise.
 Conversely, system-level evidence should be added where composition, runtime,
 OS, filesystem, or process behavior can violate a proposition that inner tests
 cannot establish.
+
+## Concrete evidence inventory
+
+The first pass against the current test suite shows that these propositions are
+already mostly covered. The main value of this document is therefore indexing
+existing evidence, not creating a second test suite.
+
+| Proposition | Existing evidence | Assessment |
+| --- | --- | --- |
+| VC-Y-01 | `test/integration/isolation-fail-closed.test.ts`; real-runtime E2E workflow | Covered at boundary and system levels. |
+| VC-Y-02 | `src/trace/schema.test.ts` covers recorded / partial / unavailable observation states; `src/observer/run.test.ts` covers observer result parsing and retained export normalization; the public `docs/contract-verification.md` already records the expected integration cases for missing/denied observers and ordering | Semantics are explicit and testable. Keep the concrete integration mapping in `contract-verification.md` authoritative; no new concept-level issue is needed. |
+| VC-Y-03 | `src/run/cell-id.test.ts`; `src/cell/digest.test.ts`; trace construction in the run pipeline; requested-cell E2E coverage | Covered for local identities. Cross-cell stable source identity is intentionally separate work in #214. |
+| VC-Y-04 | `src/run/seeded.test.ts`; `test/integration/seeded-workspace.test.ts` including the complete-empty-diff case | Covered. Downstream consumers still need to preserve this distinction. |
+| VC-Y-05 | `src/trace/schema.test.ts`; runtime adapter tests; `test/integration/run-pipeline.test.ts` for runtime-reported cost, usage inputs, result availability and persisted trace behavior | Covered across normalization and publication. |
+
+### Gaps / active work
+
+No new standalone verification gap was found in this five-card set.
+
+The open cross-repository gap is already represented by **#214**: stable
+source-project identity across independently prepared cells. It extends VC-Y-03
+without changing the meaning of `cell_id`, `run_id`, or
+`requested_cell.digest`.
+
+### Candidate de-emphasis during future test cleanup
+
+Tests that only pin identifier formatting, helper structure, or adapter call
+shape should be treated as maintenance tests unless the corresponding shape is
+part of the public contract. They can remain useful, but should not be counted
+as independent semantic coverage when deciding whether a proposition is
+protected.
