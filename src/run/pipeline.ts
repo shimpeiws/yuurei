@@ -314,7 +314,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         );
         // hardFailure: the observer process could not be confirmed dead.
         // Abort the run — continuing would risk residue in the cell.
+        // Force disposal regardless of --keep: an unsafe cell must not survive.
         if (observationResult.hardFailure) {
+          context.keep = false;
           throw new YuureiError(
             'observer process could not be confirmed terminated; aborting to prevent residue in the cell',
             EXIT_CODES.ISOLATION_VERIFICATION_FAILED,
