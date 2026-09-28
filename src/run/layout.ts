@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { generateRunId } from './id.js';
+import { generateCellId } from './cell-id.js';
 
 type RunIdGenerator = () => string;
 
@@ -51,16 +52,17 @@ export async function createUniqueRunLayout(
   yuureiDir: string,
   generateId: RunIdGenerator = generateRunId,
   maxAttempts = 5,
-): Promise<{ runId: string; layout: RunLayout }> {
+): Promise<{ runId: string; cellId: string; layout: RunLayout }> {
   const runsDir = join(yuureiDir, 'runs');
   await mkdir(runsDir, { recursive: true });
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const runId = generateId();
+    const cellId = generateCellId();
     const layout = runLayout(yuureiDir, runId);
     try {
       await mkdir(layout.runDir, { recursive: false });
       await mkdir(layout.workspaceDir, { recursive: true });
-      return { runId, layout };
+      return { runId, cellId, layout };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || attempt === maxAttempts) {
         throw error;

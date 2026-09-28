@@ -132,6 +132,7 @@ cli
     '--bridge-opencode-auth-file',
     'Experimental: bridge the real OpenCode auth.json into the isolated run (OpenCode only, off by default)',
   )
+  .option('--observe', 'Experimental: enable pre-run observation phase (#210)')
   .option('--json', 'Output as JSON')
   .action(
     withErrorHandling(
@@ -147,6 +148,7 @@ cli
           bridgeCodexAuthFile?: boolean;
           bridgeOpenCodeAuthFile?: boolean;
           seedRepo?: string;
+          observe?: boolean;
           json?: boolean;
         },
       ) => {
@@ -163,6 +165,7 @@ cli
             bridgeCodexAuthFile: flags.bridgeCodexAuthFile,
             bridgeOpenCodeAuthFile: flags.bridgeOpenCodeAuthFile,
             seedRepo: flags.seedRepo,
+            observe: flags.observe,
           },
           loggerForFlags(flags),
         );

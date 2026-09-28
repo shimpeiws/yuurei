@@ -101,4 +101,10 @@ export interface ResolvedCell {
    * digest, and provenance. Absent on empty-workspace runs.
    */
   seed?: ResolvedSeed;
+  /**
+   * The prepared cell's instance identity (ADR-0021): a freshly allocated,
+   * opaque identifier for each prepared isolation cell. Generated at cell
+   * creation time, recorded in trace.json, and passed to pfl via --cell-id.
+   */
+  cellId?: string;
 }
