@@ -502,6 +502,28 @@ See ADR-0021.
 It is a provenance field in `trace.json`, alongside `yuurei_version` and
 `runtime.version`.
 
+### 7.5 Source-project identity (`seed.source_project`)
+
+A seeded run declares a **stable source-project identity** (#214): the same
+selected repository yields the same identity in every prepared cell, while
+distinct sources never share one. It is derived from the source repository
+— `git-<hex16>` over the normalized remote URL in the repository-local
+`.git/config`, or `path-<hex16>` over the canonical source root when there
+is no local remote (a `.git` gitdir pointer of a linked worktree or
+submodule is never followed) — deliberately matching the observer's (pfl's)
+own project identity derivation, and never from the temporary cell
+workspace path, which is what made two real observed cells incomparable
+before.
+
+The identity is **declared provenance**: yuurei computes it from the
+operator-selected `--seed-repo` at cell resolution and hands it to the
+observer inside the verified cell — a versioned `source-project.json` at the
+cell root plus `YUUREI_SOURCE_PROJECT_ID` / `YUUREI_SOURCE_PROJECT_FILE` on
+the observer's environment — so the observer never reads the operator's host
+Git metadata. It is not a digest input, and it does not imply two
+observations or executions are identical: `cell_id`, `run_id`, the pfl
+snapshot IDs and `requested_cell.digest` remain distinct.
+
 ---
 
 ## 8. CLI Surface

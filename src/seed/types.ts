@@ -39,6 +39,33 @@ export interface SeedFileEntry {
 export type SeedManifest = Record<string, SeedFileEntry>;
 
 /**
+ * The stable source-project identity of a seeded run (#214): a declared,
+ * reproducible identity derived from the selected repository — never from
+ * the temporary cell path — so two cells prepared from the same source share
+ * it while distinct source projects do not. It is provenance, not an input
+ * to `requested_cell.digest`, and must not imply that two observations or
+ * executions are identical.
+ *
+ * The derivation deliberately matches the observer's (pfl's) own project
+ * identity: `git-<hex16>` over the normalized remote URL when the repository
+ * has one, else `path-<hex16>` over the canonical source root — so a
+ * host-side inspection and a prepared-cell observation of the same project
+ * carry the same id.
+ */
+export interface SourceProjectIdentity {
+  /** `git-<hex16>` or `path-<hex16>` — see `resolveSourceProjectIdentity`. */
+  id: string;
+  /** Which derivation produced the id. */
+  kind: 'git-remote' | 'local-path';
+  /** The normalized remote URL the `git-` id hashes; only for `git-remote`. */
+  remote?: string;
+  /** Absolute, symlink-resolved source repository root — the same value as `sourceDir`. */
+  source: string;
+  /** The source repository's HEAD commit at resolution time (provenance). */
+  head: string;
+}
+
+/**
  * The requested seed, resolved from the source repository before the cell
  * exists. `digest` is the whole-baseline digest over the canonical manifest;
  * `head` and `sourceDir` are non-secret provenance recorded in the trace and
@@ -57,6 +84,11 @@ export interface ResolvedSeed {
   totalBytes: number;
   /** Fixed-string notes for the trace's diagnostics (e.g. policy exclusions). */
   diagnostics: string[];
+  /**
+   * The declared source-project identity handed to the observer and recorded
+   * in the trace's `seed.source_project` (#214).
+   */
+  sourceProject: SourceProjectIdentity;
 }
 
 /**

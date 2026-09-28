@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { readdir, rename, rm } from 'node:fs/promises';
+import { readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { IsolationContext } from '../isolation/types.js';
+import type { SourceProjectIdentity } from '../seed/types.js';
 import type { ResolvedObserver } from './resolve.js';
 
 /** Credential key names to strip from the environment before spawning pfl. */
@@ -38,7 +39,8 @@ export type ObservationReason =
   | 'inspect-failed'
   | 'export-failed'
   | 'isolation-level0-unsupported'
-  | 'residue-removal-failed';
+  | 'residue-removal-failed'
+  | 'source-project-declaration-failed';
 
 /** Observation record from trace.json */
 export interface ObservationRecord {
@@ -78,6 +80,19 @@ export interface ObservationResult {
    */
   hardFailure?: boolean;
 }
+
+/**
+ * Hand-off channel for the declared source-project identity (#214): the
+ * identity value itself, and the absolute path of the versioned contract
+ * file materialized at the cell root. Both are yuurei-asserted declarations
+ * the observer may consume — the observer never reads the operator's host
+ * Git metadata or configuration to reconstruct them.
+ */
+export const SOURCE_PROJECT_ID_ENV = 'YUUREI_SOURCE_PROJECT_ID';
+export const SOURCE_PROJECT_FILE_ENV = 'YUUREI_SOURCE_PROJECT_FILE';
+
+const SOURCE_PROJECT_CONTRACT_VERSION = 1;
+const SOURCE_PROJECT_FILENAME = 'source-project.json';
 
 /** Strip credentials from environment */
 export function stripCredentials(env: Record<string, string>): Record<string, string> {
@@ -300,6 +315,8 @@ async function removePflResidue(homeDir: string | null): Promise<void> {
  * @param runtimeId - Runtime identifier (e.g. 'claude-code')
  * @param runDir - Run directory for output
  * @param timeoutMs - Timeout per pfl command in milliseconds
+ * @param sourceProject - Declared source-project identity to hand to the
+ *   observer (#214); absent on unseeded runs, which declare nothing.
  * @returns Observation result
  */
 export async function runObserver(
@@ -309,6 +326,7 @@ export async function runObserver(
   runtimeId: string,
   runDir: string,
   timeoutMs: number = 30000,
+  sourceProject?: SourceProjectIdentity,
 ): Promise<ObservationResult> {
   const observationDir = join(runDir, 'observation');
   await import('node:fs/promises').then((fs) => fs.mkdir(observationDir, { recursive: true }));
@@ -336,6 +354,62 @@ export async function runObserver(
   let inspectResult: SpawnResult | undefined;
 
   /**
+   * Declare the source-project identity inside the verified cell (#214): a
+   * versioned contract file at the cell root — outside the workspace, so it
+   * never masquerades as a seeded file — plus environment variables on the
+   * pfl processes. A declaration that cannot be materialized leaves the
+   * observation explicitly unavailable rather than silently unlabeled.
+   */
+  let observerEnv = cleanEnv;
+  if (sourceProject !== undefined) {
+    const contractPath = join(context.rootDir, SOURCE_PROJECT_FILENAME);
+    try {
+      await writeFile(
+        contractPath,
+        JSON.stringify(
+          {
+            version: SOURCE_PROJECT_CONTRACT_VERSION,
+            issuer: 'yuurei',
+            cell_id: cellId,
+            source_project: {
+              id: sourceProject.id,
+              kind: sourceProject.kind,
+              ...(sourceProject.remote !== undefined ? { remote: sourceProject.remote } : {}),
+              source: sourceProject.source,
+              head: sourceProject.head,
+            },
+          },
+          null,
+          2,
+        ) + '\n',
+        'utf8',
+      );
+    } catch (error) {
+      return {
+        record: {
+          observer: { id: 'pfl', version: null },
+          status: 'unavailable',
+          reason: 'source-project-declaration-failed',
+          completeness: null,
+          snapshot_ids: null,
+          artifacts: [],
+        },
+        observationDir,
+        exitCode: 1,
+        stdout: '',
+        stderr: `failed to materialize the source-project contract in the cell: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+    observerEnv = {
+      ...cleanEnv,
+      [SOURCE_PROJECT_ID_ENV]: sourceProject.id,
+      [SOURCE_PROJECT_FILE_ENV]: contractPath,
+    };
+  }
+
+  /**
    * Map a pfl command result to an observation reason, distinguishing
    * timeout and spawn failures from generic non-zero exits.
    */
@@ -360,7 +434,7 @@ export async function runObserver(
 
     inspectResult = await pflSpawn(binPath, inspectArgs, {
       cwd: context.workspaceDir,
-      env: cleanEnv,
+      env: observerEnv,
       timeoutMs,
     });
 
@@ -418,7 +492,7 @@ export async function runObserver(
 
     const exportResult = await pflSpawn(binPath, exportArgs, {
       cwd: context.workspaceDir,
-      env: cleanEnv,
+      env: observerEnv,
       timeoutMs,
     });
 

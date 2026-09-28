@@ -304,13 +304,17 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
           artifacts: [],
         };
       } else {
-        // Run the observer: inspect → export → normalize → residue removal
+        // Run the observer: inspect → export → normalize → residue removal.
+        // A seeded run also declares its stable source-project identity to
+        // the observer (#214); an unseeded run declares nothing.
         const observationResult = await runObserver(
           observer,
           context,
           cell.cellId ?? '',
           cell.runtimeId,
           layout.runDir,
+          undefined,
+          cell.seed?.sourceProject,
         );
         // hardFailure: the observer process could not be confirmed dead.
         // Abort the run — continuing would risk residue in the cell.
@@ -636,6 +640,16 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
                 materialized_digest: seedMaterializedDigest,
                 files: cell.seed.fileCount,
                 bytes: cell.seed.totalBytes,
+              },
+              // The declared source-project identity (#214): derived from
+              // the selected repository, stable across cells from the same
+              // source, never the temporary cell path.
+              source_project: {
+                id: cell.seed.sourceProject.id,
+                kind: cell.seed.sourceProject.kind,
+                ...(cell.seed.sourceProject.remote !== undefined
+                  ? { remote: cell.seed.sourceProject.remote }
+                  : {}),
               },
               ...(changes !== undefined
                 ? {

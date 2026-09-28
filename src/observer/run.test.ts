@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, writeFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, afterEach } from 'vitest';
-import { stripCredentials, parseEnvelope, normalizeObservationDir } from './run.js';
+import type { IsolationContext } from '../isolation/types.js';
+import { stripCredentials, parseEnvelope, normalizeObservationDir, runObserver } from './run.js';
 
 describe('stripCredentials', () => {
   it('removes known credential keys from environment', () => {
@@ -198,5 +199,52 @@ describe('normalizeObservationDir', () => {
 
     const artifacts = await normalizeObservationDir(observationDir);
     expect(artifacts).toEqual(['observation/export.json']);
+  });
+});
+
+describe('runObserver source-project declaration', () => {
+  let tmpDir: string | undefined;
+
+  afterEach(async () => {
+    if (tmpDir !== undefined) {
+      await rm(tmpDir, { recursive: true, force: true });
+      tmpDir = undefined;
+    }
+  });
+
+  it('records source-project-declaration-failed when the contract cannot be materialized', async () => {
+    tmpDir = await mkdtemp(join('/tmp', 'yuurei-obs-test-'));
+    const context: IsolationContext = {
+      strategy: 'level1',
+      // A cell root that does not exist makes the contract write fail.
+      rootDir: join(tmpDir, 'missing-cell-root'),
+      workspaceDir: tmpDir,
+      homeDir: null,
+      env: {},
+      keep: false,
+    };
+
+    const result = await runObserver(
+      { binPath: '/bin/true', reason: null },
+      context,
+      'cell_test',
+      'claude-code',
+      tmpDir,
+      5000,
+      {
+        id: 'git-deadbeefdeadbeef',
+        kind: 'git-remote',
+        remote: 'example.com/owner/repo',
+        source: '/src/repo',
+        head: 'deadbeef',
+      },
+    );
+
+    // The declaration is a hard prerequisite of a labeled observation: its
+    // failure is recorded as its own reason, and the observer binary is
+    // never spawned.
+    expect(result.record.status).toBe('unavailable');
+    expect(result.record.reason).toBe('source-project-declaration-failed');
+    expect(result.stdout).toBe('');
   });
 });

@@ -51,6 +51,47 @@ scope is deferred until proven cell-local under level1.
 **Consent**: with no grants, pfl exits 5 (`CONSENT_REQUIRED`) with
 `missingScopes`. `--allow-scope` is honoured headlessly and never persisted.
 
+## Source-project declaration (#214)
+
+A seeded run hands the observer a **declared** source-project identity before
+`pfl inspect` runs — needed because a cell's workspace has no `.git`, so pfl
+would otherwise derive a `data.project.id` from the temporary cell path and
+two observations of the same source project would compare as different
+projects.
+
+- The identity is derived at cell resolution from the operator-selected
+  `--seed-repo`: `git-<hex16>` over the normalized remote URL (`origin`, else
+  the first configured remote, read from the repository-local `.git/config`
+  only), or `path-<hex16>` over the canonical source root when the
+  repository has no local remote. A `.git` gitdir pointer — a linked
+  worktree or submodule — is never followed, matching pfl's consent-gated
+  derivation, so a host-side inspection and a prepared-cell observation of
+  the same project agree.
+- Hand-off: yuurei writes a versioned contract to `<cell>/source-project.json`
+  — `{ "version": 1, "issuer": "yuurei", "cell_id", "source_project": { "id",
+"kind", "remote"?, "source", "head" } }` — and passes
+  `YUUREI_SOURCE_PROJECT_ID` (the identity) and `YUUREI_SOURCE_PROJECT_FILE`
+  (the contract path) on the pfl process environment. The observer consumes
+  the declaration; it does not read the operator's host Git metadata to
+  reconstruct it.
+- The contract file is at the cell **root**, never in the workspace: it is
+  not part of the seeded baseline or the change record, and it is disposed
+  with the cell. Under `--keep` the cell — and with it the declaration —
+  is retained for debugging; the file carries only the non-secret
+  provenance (`source` path, `head`, `id`) already recorded in the run's
+  `trace.json` and `baseline-manifest.json`. The durable record is
+  `trace.seed.source_project` and `baseline-manifest.json`.
+- An unseeded run declares nothing: no contract file, no env vars, no
+  `source_project` in the trace. A missing declaration stays missing — it is
+  never substituted with the cell path.
+- A declaration that cannot be materialized records
+  `status: "unavailable"`, `reason: "source-project-declaration-failed"`.
+
+The declaration is asserted provenance, not observer-verified fact: an equal
+identity means "declared the same source project", not "the same bytes were
+observed" — the baseline digest, `cell_id` and snapshot IDs still carry
+those distinctions.
+
 ## Examples
 
 ### Success (`status: "recorded"`)
