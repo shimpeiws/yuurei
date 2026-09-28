@@ -71,6 +71,12 @@ export interface ObservationResult {
   stdout: string;
   /** stderr from pfl */
   stderr: string;
+  /**
+   * When true, the observer process could not be confirmed dead (e.g. a
+   * descendant escaped the process group kill). The pipeline MUST abort
+   * the run — continuing would risk residue in the cell the runtime inherits.
+   */
+  hardFailure?: boolean;
 }
 
 /** Strip credentials from environment */
@@ -125,12 +131,23 @@ interface InspectData {
  * When `timedOut` is true, the exit code is forced to nonzero regardless
  * of what the process returned — a process that exits 0 after SIGTERM
  * must not be treated as successful.
+ *
+ * When `processAlive` is true, the process could not be confirmed dead.
+ * The caller MUST abort the run — continuing would risk residue.
  */
+interface SpawnResult {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+  /** True when the fallback resolved but the process may still be alive. */
+  processAlive: boolean;
+}
+
 function pflSpawn(
   binPath: string,
   args: string[],
   options: { cwd: string; env: Record<string, string>; timeoutMs: number },
-): Promise<{ code: number | null; stdout: string; stderr: string }> {
+): Promise<SpawnResult> {
   return new Promise((resolve) => {
     const child: ChildProcess = spawn(binPath, args, {
       cwd: options.cwd,
@@ -143,17 +160,19 @@ function pflSpawn(
     let stderr = '';
     let timedOut = false;
     let resolved = false;
+    let processAlive = false;
 
-    const finalize = (code: number | null) => {
+    const finalize = (code: number | null, alive = false) => {
       if (!resolved) {
         resolved = true;
+        processAlive = alive;
         clearTimeout(timer);
         clearTimeout(killTimer);
         clearTimeout(fallbackTimer);
         // Force nonzero on timeout regardless of actual exit code
         const finalCode = timedOut ? (code ?? 1) || 1 : code;
         const suffix = timedOut ? '\ntimeout: pfl execution timed out' : '';
-        resolve({ code: finalCode, stdout, stderr: stderr + suffix });
+        resolve({ code: finalCode, stdout, stderr: stderr + suffix, processAlive });
       }
     };
 
@@ -182,8 +201,9 @@ function pflSpawn(
         }
       }, 3000);
       // Fallback: if close never fires (descendant holds pipe), force resolve
+      // with processAlive=true so the caller can abort the run.
       fallbackTimer = setTimeout(() => {
-        finalize(1);
+        finalize(1, true);
       }, 10000);
     }, options.timeoutMs);
     let killTimer: ReturnType<typeof setTimeout>;
@@ -313,7 +333,7 @@ export async function runObserver(
 
   const cleanEnv = stripCredentials(context.env);
   const binPath = observer.binPath;
-  let inspectResult: { code: number | null; stdout: string; stderr: string } | undefined;
+  let inspectResult: SpawnResult | undefined;
 
   /**
    * Map a pfl command result to an observation reason, distinguishing
@@ -343,6 +363,26 @@ export async function runObserver(
       env: cleanEnv,
       timeoutMs,
     });
+
+    // If the process couldn't be confirmed dead, abort the run entirely.
+    // Continuing would risk residue in the cell the runtime inherits.
+    if (inspectResult.processAlive) {
+      return {
+        record: {
+          observer: { id: 'pfl', version: null },
+          status: 'unavailable',
+          reason: 'timeout',
+          completeness: null,
+          snapshot_ids: null,
+          artifacts: [],
+        },
+        observationDir,
+        exitCode: 1,
+        stdout: inspectResult.stdout,
+        stderr: inspectResult.stderr,
+        hardFailure: true,
+      };
+    }
 
     // Map inspect failures to observation reasons
     if (inspectResult.code === 5) {
@@ -381,6 +421,25 @@ export async function runObserver(
       env: cleanEnv,
       timeoutMs,
     });
+
+    // If the process couldn't be confirmed dead, abort the run entirely.
+    if (exportResult.processAlive) {
+      return {
+        record: {
+          observer: { id: 'pfl', version: null },
+          status: 'unavailable',
+          reason: 'timeout',
+          completeness: null,
+          snapshot_ids: null,
+          artifacts: [],
+        },
+        observationDir,
+        exitCode: 1,
+        stdout: inspectResult.stdout + '\n' + exportResult.stdout,
+        stderr: inspectResult.stderr + '\n' + exportResult.stderr,
+        hardFailure: true,
+      };
+    }
 
     if (exportResult.code === 5) {
       return unavailableRecord('consent-required', exportResult, observationDir);

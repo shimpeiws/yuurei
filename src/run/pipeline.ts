@@ -312,6 +312,14 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
           cell.runtimeId,
           layout.runDir,
         );
+        // hardFailure: the observer process could not be confirmed dead.
+        // Abort the run — continuing would risk residue in the cell.
+        if (observationResult.hardFailure) {
+          throw new YuureiError(
+            'observer process could not be confirmed terminated; aborting to prevent residue in the cell',
+            EXIT_CODES.ISOLATION_VERIFICATION_FAILED,
+          );
+        }
         observation = observationResult.record;
       }
     }
