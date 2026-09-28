@@ -29,10 +29,11 @@ into the cell's config directory before the observer is spawned.
 
 ## Scope matrix
 
-What pfl can observe under level1, with `--allow-scope <rt>:user
---allow-scope <rt>:install`. "Observed" means pfl read the file; "opaque" means
-pfl did not read it; "denied" means pfl read it under a host-absolute path that
-does not respect cell isolation.
+What pfl can observe under level1, with `--allow-scope <rt>:user`.
+"Observed" means pfl read the file; "opaque" means pfl did not read it;
+"denied" means pfl read it under a host-absolute path that does not respect
+cell isolation. Yuurei grants only the `user` scope headlessly; `install`
+scope is deferred until proven cell-local under level1.
 
 | runtime     | observed                                                                                                | opaque                                                   | denied / limited                                                 |
 | ----------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------- |

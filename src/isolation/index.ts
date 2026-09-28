@@ -11,21 +11,51 @@ export function createIsolation(strategy: 'level0' | 'level1'): Isolation {
  * Fail-closed gate: throws if isolation cannot be verified. This is the
  * only place callers should call to get a verified context — never call
  * `isolation.verify()` directly and branch on the result elsewhere.
+ *
+ * Creates the isolation context and verifies it in one step.
  */
 export async function createVerifiedIsolation(
   isolation: Isolation,
   cell: Parameters<Isolation['create']>[0],
 ): Promise<IsolationContext> {
   const context = await isolation.create(cell);
-  const report: IsolationReport = await isolation.verify(context);
+  await assertVerifiedIsolation(isolation, context);
+  return context;
+}
+
+/**
+ * Fail-closed gate: verify an already-created isolation context. Throws if
+ * verification fails. Used when create() and verify() must be separated
+ * (ADR-0022: materialise before verify).
+ *
+ * On failure, forces disposal regardless of `context.keep` — an unverified
+ * cell must never survive (design doc §12.2).
+ */
+export async function assertVerifiedIsolation(
+  isolation: Isolation,
+  context: IsolationContext,
+): Promise<void> {
+  let report: IsolationReport;
+  try {
+    report = await isolation.verify(context);
+  } catch (error) {
+    // verify() threw — force disposal before rethrowing
+    const savedKeep = context.keep;
+    context.keep = false;
+    await isolation.dispose(context).catch(() => {});
+    context.keep = savedKeep;
+    throw error;
+  }
 
   if (!report.verified) {
-    await isolation.dispose(context);
+    // Force disposal: an unverified cell must not survive, even under --keep.
+    const savedKeep = context.keep;
+    context.keep = false;
+    await isolation.dispose(context).catch(() => {});
+    context.keep = savedKeep;
     throw new YuureiError(
       `isolation verification failed: ${report.findings.join('; ')}`,
       EXIT_CODES.ISOLATION_VERIFICATION_FAILED,
     );
   }
-
-  return context;
 }

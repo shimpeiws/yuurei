@@ -26,3 +26,6 @@ graft/
 .mcp.json
 opencode.json
 .ignore
+
+# Agent session state
+.letta/

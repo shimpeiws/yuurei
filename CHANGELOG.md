@@ -7,6 +7,32 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-28
+
+### Fixed
+
+- **Pre-run observation now works correctly** (#207). The observer previously
+  ran only `pfl export` (which requires an existing snapshot) and never passed
+  `--allow-scope`, so it could never produce a `recorded` observation. The
+  observer now runs `pfl inspect` then `pfl export`, passes
+  `--allow-scope <rt>:user` for headless consent, and correctly parses the
+  pfl JSON envelope (`pflVersion`, `completeness`, `data.observed.snapshotId`,
+  `data.resolved.snapshotId`).
+- **Observation ordering corrected** (ADR-0022). Isolation verification now
+  runs _after_ materialisation (`runtime.prepare`), so the observer sees the
+  materialised profile config. The full ordering is now: cell create →
+  materialise → verify → observe → execute.
+- **`~/.pfl` residue removal** (ADR-0022 hard requirement). After observation,
+  yuurei removes the pfl snapshot store from the cell HOME before runtime
+  execution. Removal failure aborts the run (exit 4) — this is a defect, not
+  a trade-off.
+- **Observation artifacts redacted and bounded**. Retained pfl output is now
+  redacted with the same credential/secret-pattern pass as logs and bounded
+  by `maxArtifactBytes` before being digested by the artifact collector.
+- **New reason codes**: `inspect-failed` (pfl inspect failed) and
+  `residue-removal-failed` (pfl residue could not be removed).
+- Removed accidentally committed `.letta/` session files from the repository.
+
 ### Added
 
 - `cell_id` in `trace.json`: a freshly allocated identifier for each prepared
@@ -19,6 +45,9 @@ What that covers is stated in [the public contract](docs/contract.md).
   `reason` (when unavailable), `completeness`, `snapshot_ids`, and artifact
   references under `observation/`. Opt-in via `--observe` (Section B,
   experimental). See ADR-0022 (#208).
+- `assertVerifiedIsolation()` in `src/isolation/index.ts` — a fail-closed
+  verification helper that can be called separately from `create()`, enabling
+  the ADR-0022 ordering (materialise before verify).
 
 ## [1.1.0] - 2026-09-28
 

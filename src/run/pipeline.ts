@@ -16,7 +16,7 @@ import {
   DEFAULT_ARTIFACT_MAX_BYTES,
   writeArtifactManifest,
 } from '../artifact/collector.js';
-import { createIsolation, createVerifiedIsolation } from '../isolation/index.js';
+import { createIsolation, assertVerifiedIsolation } from '../isolation/index.js';
 import type { Isolation, IsolationContext, IsolationStrategy } from '../isolation/types.js';
 import { toProfileManifest } from '../profile/manifest.js';
 import { getRuntime } from '../runtime/registry.js';
@@ -73,9 +73,10 @@ export interface RunPipelineResult {
 
 /**
  * The single place that orders a run's execution:
- * resolve → isolate → verify (fail-closed) → prepare → execute →
- * normalize → write trace → collect artifacts. No other module should
- * re-implement this ordering (design doc §12.2 fail-closed principle).
+ * resolve → isolate create → materialise → verify (fail-closed) →
+ * observe → execute → normalize → write trace → collect artifacts.
+ * No other module should re-implement this ordering
+ * (design doc §12.2 fail-closed principle, ADR-0022).
  */
 export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineResult> {
   let cell = await resolveCell(input);
@@ -100,12 +101,16 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   cell = { ...cell, cellId };
 
   const isolation = (input.createIsolation ?? createIsolation)(input.isolationStrategy);
+  // ADR-0022: create the isolation context early (sets up dirs + env), but
+  // defer verification until after materialisation so the observer sees the
+  // materialised profile. Verification remains fail-closed: a failure
+  // disposes the context and the finally block removes the run dir.
   let context: IsolationContext;
   try {
-    context = await createVerifiedIsolation(isolation, cell);
+    context = await isolation.create(cell);
   } catch (error) {
-    // Isolation verification failed (§12.2 fail-closed). The run dir was
-    // already created; remove it so no partial directory is left behind.
+    // Isolation creation failed before the cleanup lifecycle was set up.
+    // Remove the run directory manually (no trace will be written).
     await rm(layout.runDir, { recursive: true, force: true }).catch(() => {});
     throw error;
   }
@@ -268,6 +273,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
 
     prepared = await runtime.prepare(cell, context, (path) => registeredCredentialPaths.add(path));
 
+    // ADR-0022: verify isolation after materialisation. The observer must see
+    // the materialised profile; a verification failure still blocks execution.
+    await assertVerifiedIsolation(isolation, context);
+
     // Pre-run observation phase (ADR-0022): runs after isolation verification
     // and after materialization, before runtime execution.
     let observation: ObservationRecord | undefined;
@@ -295,14 +304,65 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
           artifacts: [],
         };
       } else {
-        // Run the observer
+        // Run the observer: inspect → export → normalize → residue removal
         const observationResult = await runObserver(
           observer,
           context,
           cell.cellId ?? '',
+          cell.runtimeId,
           layout.runDir,
         );
+        // hardFailure: the observer process could not be confirmed dead.
+        // Abort the run — continuing would risk residue in the cell.
+        // Force disposal regardless of --keep: an unsafe cell must not survive.
+        if (observationResult.hardFailure) {
+          context.keep = false;
+          throw new YuureiError(
+            'observer process could not be confirmed terminated; aborting to prevent residue in the cell',
+            EXIT_CODES.ISOLATION_VERIFICATION_FAILED,
+          );
+        }
         observation = observationResult.record;
+      }
+    }
+
+    // Redact observation artifacts before execution (ADR-0022): apply the
+    // same credential/secret-pattern pass as logs. The files are pfl-produced
+    // (already sanitized) but the contract requires a yuurei redaction pass.
+    // Write to a temp file first, then rename for atomicity. If redaction
+    // fails, remove the original to prevent unredacted content from being
+    // published by collectArtifacts.
+    const observationTruncatedPaths: string[] = [];
+    let observationRedactFailed = false;
+    if (observation?.artifacts && observation.artifacts.length > 0) {
+      const credentialValues = prepared?.credentialValuesToRedact ?? [];
+      for (const artifact of observation.artifacts) {
+        const inputPath = join(layout.runDir, artifact.path);
+        const tempPath = `${inputPath}.redact-${randomUUID()}`;
+        try {
+          const { truncated } = await redactFile(
+            inputPath,
+            tempPath,
+            credentialValues,
+            maxArtifactBytes,
+          );
+          await rename(tempPath, inputPath);
+          if (truncated) observationTruncatedPaths.push(artifact.path);
+        } catch {
+          // Redaction failed — remove original to prevent unredacted content
+          // from being published. This is a defect, not a trade-off.
+          await rm(inputPath, { force: true }).catch(() => {});
+          await rm(tempPath, { force: true }).catch(() => {});
+          observationRedactFailed = true;
+        }
+      }
+      // If redaction removed all artifacts, downgrade the observation status
+      if (observationRedactFailed) {
+        observation.artifacts = [];
+        observation.status = 'unavailable';
+        observation.reason = 'export-failed';
+        observation.completeness = null;
+        observation.snapshot_ids = null;
       }
     }
 
@@ -518,6 +578,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
             ...(stderrTruncated ? ['stderr.log'] : []),
             ...(patchTruncated ? ['patch.diff'] : []),
             ...(resultTruncated ? ['result.txt'] : []),
+            ...observationTruncatedPaths,
           ],
           // The seeded run's manifests are required outputs: truncating
           // them in place would leave corrupt JSON. Their size is bounded

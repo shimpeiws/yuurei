@@ -101,19 +101,20 @@ exits 0, per design §12.2.
 
 Entries added by #208 that will receive evidence in #210 (implementation):
 
-| Entry                                             | Evidence planned (TBD in #210)                                 |
-| ------------------------------------------------- | -------------------------------------------------------------- |
-| `cell_id` field in trace                          | Trace schema test: cell_id absent = unknown; format valid      |
-| `observation` field in trace                      | Trace schema test: status enum, reason codes, absent = unknown |
-| `cell_id` ≠ run_id ≠ requested_cell.digest        | ADR-0021 document; no code test (no code change)               |
-| Observation ordering (verify → observe → execute) | Pipeline integration test: observer sees materialised config   |
-| Observation failure never blocks execution        | Integration test: missing pfl + --observe → run succeeds       |
-| Observation failure = unavailable record          | Integration test: pfl denied → status unavailable              |
-| Isolation verify failure skips observation        | Integration test: bad isolation + --observe → no observation   |
-| `observation/` artifacts in artifacts.json        | Collector test: observation files attested in manifest         |
-| Residue removal before execute                    | Integration test: ~/.pfl absent from cell after observe        |
-| level0 unsupported                                | Integration test: level0 + --observe → unavailable             |
-| Section C invariant (observer never reads host)   | ADR-0022 document; no code test (no code change)               |
+| Entry                                                                    | Evidence planned (TBD in #210)                                 |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| `cell_id` field in trace                                                 | Trace schema test: cell_id absent = unknown; format valid      |
+| `observation` field in trace                                             | Trace schema test: status enum, reason codes, absent = unknown |
+| `cell_id` ≠ run_id ≠ requested_cell.digest                               | ADR-0021 document; no code test (no code change)               |
+| Observation ordering (create → materialise → verify → observe → execute) | Pipeline integration test: observer sees materialised config   |
+| Observation failure never blocks execution                               | Integration test: missing pfl + --observe → run succeeds       |
+| Observation failure = unavailable record                                 | Integration test: pfl denied → status unavailable              |
+| Isolation verify failure skips observation                               | Integration test: bad isolation + --observe → no observation   |
+| Residue removal failure aborts run                                       | Integration test: failed rm ~/.pfl → exit 4                    |
+| `observation/` artifacts in artifacts.json                               | Collector test: observation files attested in manifest         |
+| Residue removal before execute                                           | Integration test: ~/.pfl absent from cell after observe        |
+| level0 unsupported                                                       | Integration test: level0 + --observe → unavailable             |
+| Section C invariant (observer never reads host)                          | ADR-0022 document; no code test (no code change)               |
 
 ## Versioning, deprecation and Not covered
 
