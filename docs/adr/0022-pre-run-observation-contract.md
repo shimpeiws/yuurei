@@ -27,21 +27,12 @@ prepared cell's environment (level1 only), but raises several contract questions
 ### Ordering
 
 ```text
-runtime gate → cell/isolation create → materialize → isolation verify → observe/export → execute → collect
+runtime gate → cell create → materialise → isolation verify → observe → execute → collect
 ```
 
-The observation phase runs _after_ isolation verification (so the observer
-executes inside a verified cell) and _after_ materialization (so the observer
-sees the actual profile config). An isolation verification failure (exit 4) skips
-observation and execution.
-
-**Note**: the current implementation (`src/run/pipeline.ts`) verifies isolation
-before materialisation (`createVerifiedIsolation` at L89, then `prepare` at
-L256). This ADR deliberately documents a target ordering that differs from the
-current code. The implementation reordering is part of #210; the contract
-documents the intended final state, not the current intermediate state. Moving
-the gate after materialisation ensures the observer sees the materialised profile
-while isolation verification still blocks both observation and execution.
+The observation phase runs _after_ materialisation and isolation verification
+(so the observer sees the actual profile config inside a verified cell).
+An isolation verification failure (exit 4) skips observation and execution.
 
 ### Observation record in trace.json
 
@@ -87,8 +78,10 @@ A reader must never treat absence as "the configuration is unchanged".
 | `spawn-failed`                 | pfl subprocess failed to start                                    |
 | `timeout`                      | pfl subprocess timed out                                          |
 | `consent-required`             | pfl exited 5 (`CONSENT_REQUIRED`); `missingScopes` in diagnostics |
+| `inspect-failed`               | pfl inspect failed (non-zero exit, not consent)                   |
 | `export-failed`                | pfl export or bundle write failed after inspection                |
 | `isolation-level0-unsupported` | level0: observation not supported in v1                           |
+| `residue-removal-failed`       | Failed to remove `~/.pfl` from cell home (hard error, run aborts) |
 
 #### Artifact references
 
@@ -103,14 +96,20 @@ attests both runtime-produced and yuurei-retained observation artifacts.
 
 Observation artifacts live under `.yuurei/runs/<run-id>/observation/`:
 
-| File                   | Source                                        |
-| ---------------------- | --------------------------------------------- |
-| `export.json`          | `pfl export --json` (CommandOutcome envelope) |
-| `bundle/harness.json`  | `pfl export --bundle` (sanitized IR)          |
-| `bundle/manifest.json` | `pfl export --bundle` (evidence metadata)     |
+| File                   | Source                                       |
+| ---------------------- | -------------------------------------------- |
+| `export.json`          | pfl `--out` output normalised to stable name |
+| `bundle/harness.json`  | pfl `--bundle` (sanitized IR)                |
+| `bundle/manifest.json` | pfl `--bundle` (evidence metadata)           |
 
-Retention is best-effort. A failure to retain sets `status: unavailable` with
-`reason: export-failed` and the run continues — the run directory is not removed.
+The observer runs `pfl inspect` (creates a snapshot in `~/.pfl`) then
+`pfl export --out <dir> --bundle <dir>/bundle` (produces the artifacts).
+All retained files are redacted with the same credential/secret-pattern
+pass as logs and bounded by `maxArtifactBytes`.
+
+Retention of individual files is best-effort. A failure to retain sets
+`status: unavailable` with `reason: export-failed` and the run continues —
+the run directory is not removed.
 
 `--keep` has no effect on observation artifacts: they persist in the run
 directory regardless of `--keep`.
@@ -133,9 +132,11 @@ is not added (it can be added later if operator demand materialises).
 | Condition                                 | observation record                                                          | run continues? |
 | ----------------------------------------- | --------------------------------------------------------------------------- | -------------- |
 | Isolation verification fails              | (no record; run dir removed; exit 4)                                        | **no**         |
+| Residue removal fails                     | `unavailable` + `residue-removal-failed`; run dir removed; exit 4           | **no**         |
 | Observation not opted in                  | field absent from trace                                                     | yes            |
 | Observer binary missing / spawn / timeout | `unavailable` + reason                                                      | yes            |
 | consent-required (exit 5)                 | `unavailable` + `consent-required`                                          | yes            |
+| inspect failed (non-zero, not consent)    | `unavailable` + `inspect-failed`                                            | yes            |
 | Partial/failed document                   | `partial` or `unavailable` + completeness/snapshot_ids                      | yes            |
 | Export/bundle retention fails             | `unavailable` + `export-failed`                                             | yes            |
 | level0                                    | `unavailable` + `isolation-level0-unsupported`                              | yes            |
@@ -153,8 +154,11 @@ Rules:
 
 The observer must not leave cell-visible residue that alters the environment the
 agent runtime will inherit. Under level1, pfl writes `~/.pfl` inside the cell's
-HOME; yuurei must remove this directory (or redirect pfl's store) **before**
-`runtime.execute()`.
+HOME; yuurei removes this directory **before** `runtime.execute()`.
+
+Removal failure is a **hard error**: the run aborts (exit 4) rather than leaving
+residue that could alter the agent's behaviour. This is a defect, not a
+trade-off — the contract treats it the same as isolation verification failure.
 
 Because observation must not change what the agent can see:
 

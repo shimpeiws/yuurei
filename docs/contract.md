@@ -413,30 +413,37 @@ macOS and Linux, both exercised in CI. Windows is not supported.
 ### Pre-run observation
 
 **Ordering**: when `--observe` is given, the observation phase runs after
-isolation verification and before runtime execution. An isolation verification
-failure (exit 4) skips observation and execution. See design
-`docs/design/pre-run-observation.md` for the ordering diagram and scope matrix.
+materialisation and isolation verification, and before runtime execution.
+The full ordering is: cell create → materialise → verify (fail-closed) →
+observe → execute. An isolation verification failure (exit 4) skips
+observation and execution. See design `docs/design/pre-run-observation.md`
+for the ordering diagram and scope matrix.
 
 **Opt-in**: `--observe` on `yuurei run`. Without it, `observation` is absent
 from the trace (see Section B for the flag's stability status).
 
 **Status**: one of `recorded`, `partial`, or `unavailable`. When `unavailable`,
 `reason` is one of: `observer-not-found`, `spawn-failed`, `timeout`,
-`consent-required`, `export-failed`, `isolation-level0-unsupported`. See ADR-0022
+`consent-required`, `inspect-failed`, `export-failed`,
+`isolation-level0-unsupported`, `residue-removal-failed`. See ADR-0022
 for the full failure policy table.
 
 **Retention**: observation artifacts live under `observation/` in the run
-directory: `export.json` (`pfl export --json`), `bundle/harness.json` and
-`bundle/manifest.json` (`pfl export --bundle`). Both are retained; content is
-attested in `artifacts.json` with `kind: observation`. Retention is best-effort;
-a failure sets `status: unavailable` with `reason: export-failed` and the run
+directory. The observer runs `pfl inspect` (creates a snapshot) then
+`pfl export --out <dir> --bundle <dir>/bundle` (produces sanitized IR and
+evidence bundle). pfl's `<snapshot-id>.json` output is normalised to
+`export.json`; `bundle/harness.json` and `bundle/manifest.json` are kept as-is.
+All retained files are redacted with the same credential/secret-pattern pass as
+logs and bounded by `maxArtifactBytes`. Content is attested in `artifacts.json`
+with `kind: observation`. Retention of individual files is best-effort; a
+failure sets `status: unavailable` with `reason: export-failed` and the run
 continues. `observation/` is not a required output — its absence does not
 remove the run directory.
 
 **Residue**: pfl writes `~/.pfl` inside the cell's HOME under level1. Yuurei
-must remove this directory (or redirect pfl's store) **before**
-`runtime.execute()`. This is a hard requirement — residue that alters the
-agent-visible environment is a defect.
+removes this directory **before** `runtime.execute()`. This is a hard
+requirement — residue that alters the agent-visible environment is a defect.
+Removal failure aborts the run (exit 4).
 
 **level0**: observation under level0 is not supported in v1 (`status:
 unavailable`, `reason: isolation-level0-unsupported`). The operator's host

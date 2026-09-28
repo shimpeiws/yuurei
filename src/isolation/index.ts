@@ -11,12 +11,27 @@ export function createIsolation(strategy: 'level0' | 'level1'): Isolation {
  * Fail-closed gate: throws if isolation cannot be verified. This is the
  * only place callers should call to get a verified context — never call
  * `isolation.verify()` directly and branch on the result elsewhere.
+ *
+ * Creates the isolation context and verifies it in one step.
  */
 export async function createVerifiedIsolation(
   isolation: Isolation,
   cell: Parameters<Isolation['create']>[0],
 ): Promise<IsolationContext> {
   const context = await isolation.create(cell);
+  await assertVerifiedIsolation(isolation, context);
+  return context;
+}
+
+/**
+ * Fail-closed gate: verify an already-created isolation context. Throws if
+ * verification fails. Used when create() and verify() must be separated
+ * (ADR-0022: materialise before verify).
+ */
+export async function assertVerifiedIsolation(
+  isolation: Isolation,
+  context: IsolationContext,
+): Promise<void> {
   const report: IsolationReport = await isolation.verify(context);
 
   if (!report.verified) {
@@ -26,6 +41,4 @@ export async function createVerifiedIsolation(
       EXIT_CODES.ISOLATION_VERIFICATION_FAILED,
     );
   }
-
-  return context;
 }

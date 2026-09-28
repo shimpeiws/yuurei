@@ -160,8 +160,10 @@ export const TraceSchema = z.object({
           'spawn-failed',
           'timeout',
           'consent-required',
+          'inspect-failed',
           'export-failed',
           'isolation-level0-unsupported',
+          'residue-removal-failed',
         ])
         .nullable(),
       completeness: z.string().nullable(),
