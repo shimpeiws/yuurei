@@ -7,6 +7,8 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-28
+
 ### Added
 
 - **Stable source-project identity for seeded runs** (#214). `resolveSeed`
@@ -461,7 +463,9 @@ First published release. It implements the v0.3 design scope: single-runtime
 - `trace.json` is written atomically and last, so it is a reliable completion
   marker and can never be read half-written.
 
-[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/shimpeiws/yuurei/releases/tag/v1.3.0
+[1.2.0]: https://github.com/shimpeiws/yuurei/releases/tag/v1.2.0
 [1.1.0]: https://github.com/shimpeiws/yuurei/releases/tag/v1.1.0
 [1.0.0]: https://github.com/shimpeiws/yuurei/releases/tag/v1.0.0
 [1.0.0-rc.1]: https://github.com/shimpeiws/yuurei/releases/tag/v1.0.0-rc.1
