@@ -7,6 +7,23 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Stable source-project identity for seeded runs** (#214). `resolveSeed`
+  now derives a declared source-project identity from the selected
+  repository — `git-<hex16>` over the normalized remote URL (`origin`, else
+  the first configured remote) when the repository-local `.git/config` has
+  one, else `path-<hex16>` over the canonical source root — deliberately
+  matching pfl's project-identity derivation. The identity is recorded in
+  `trace.json` as `seed.source_project` and in `baseline-manifest.json`, and
+  handed to the observer as a versioned `source-project.json` at the cell
+  root plus `YUUREI_SOURCE_PROJECT_ID` / `YUUREI_SOURCE_PROJECT_FILE`
+  environment variables, so two cells prepared from the same source project
+  carry the same identity while keeping distinct `cell_id`s. Unseeded runs
+  declare nothing.
+- New observation reason code: `source-project-declaration-failed` — the
+  source-project contract could not be materialized in the verified cell.
+
 ## [1.2.0] - 2026-09-28
 
 ### Fixed

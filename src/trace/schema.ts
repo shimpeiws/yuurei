@@ -94,6 +94,17 @@ export const TraceSchema = z.object({
         files: z.number().int().nonnegative(),
         bytes: z.number().int().nonnegative(),
       }),
+      // The declared source-project identity (#214): stable across cells
+      // prepared from the same source repository and derived from it —
+      // never from the temporary cell path. Absent on traces written
+      // before this field existed; absence means unknown, never "same".
+      source_project: z
+        .object({
+          id: z.string(),
+          kind: z.enum(['git-remote', 'local-path']),
+          remote: z.string().optional(),
+        })
+        .optional(),
       // Absent when the run's change collection did not complete — the
       // diagnostics say why; a missing `changes` is never "no changes".
       changes: z
@@ -164,6 +175,7 @@ export const TraceSchema = z.object({
           'export-failed',
           'isolation-level0-unsupported',
           'residue-removal-failed',
+          'source-project-declaration-failed',
         ])
         .nullable(),
       completeness: z.string().nullable(),

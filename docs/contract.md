@@ -133,7 +133,8 @@ Fields landing in v0.3.0: `requested_cell` (`digest`, `inputs_version`),
 `yuurei_version`, `execution_options`, `definition` (`run`, `cli_overrides`).
 
 Fields added after v0.3.0 (additive, optional): `cell_id`, `observation`
-(`observer`, `status`, `reason`, `completeness`, `snapshot_ids`, `artifacts`).
+(`observer`, `status`, `reason`, `completeness`, `snapshot_ids`, `artifacts`),
+`seed.source_project` (`id`, `kind`, `remote`).
 
 `usage` carries a canonical vocabulary every adapter maps its runtime's own
 field names onto, so two runtimes express the same quantity under the same
@@ -219,6 +220,40 @@ distinct from `run_id` (a run-scoped directory name) and
 - Optional in the trace: absent on older runs, treated as unknown.
 
 See ADR-0021.
+
+### `seed.source_project`
+
+A seeded run's **declared source-project identity** (#214): derived from the
+selected `--seed-repo` repository, stable across cells prepared from the same
+source, and never derived from the temporary cell's workspace path. It is what
+lets two real observed cells of one project be recognized as the same project.
+
+- `id` is `git-<hex16>` over the repository's normalized remote URL —
+  `origin` if configured, else the first remote, read from the
+  repository-local `.git/config` only (global/system Git configuration and
+  `include` directives are not consulted, and a `.git` gitdir pointer of a
+  linked worktree or submodule is never followed); the equivalent spellings
+  `ssh://git@github.com/o/r.git`, `git@github.com:o/r.git` and
+  `https://github.com/o/r` normalize to `github.com/o/r` — or, for a
+  repository with no local remote, `path-<hex16>` over the canonical source
+  root.
+- `kind` names the derivation (`git-remote` or `local-path`); `remote`
+  carries the normalized URL and is present only for `git-remote`.
+- The derivation matches the observer's own project identity, so a host-side
+  `pfl inspect` and a prepared-cell observation of the same project carry
+  the same id.
+- It is **declared provenance**: yuurei asserts it; the observer does not
+  independently verify it. It is not an input to `requested_cell.digest`,
+  and equal ids do not imply identical observations or executions —
+  `cell_id`, `run_id` and the pfl snapshot IDs remain distinct per run.
+- An unseeded run has no source project: `seed` (and with it
+  `source_project`) is absent, and a consumer must treat that as "no
+  declared identity" — never substitute the cell-local workspace path or any
+  other value as a comparison identity.
+
+The same identity and its provenance (`source`, `head`) are recorded in
+`baseline-manifest.json` and handed to the observer — see "Source-project
+declaration" under Pre-run observation.
 
 ### `observation`
 
@@ -425,7 +460,8 @@ from the trace (see Section B for the flag's stability status).
 **Status**: one of `recorded`, `partial`, or `unavailable`. When `unavailable`,
 `reason` is one of: `observer-not-found`, `spawn-failed`, `timeout`,
 `consent-required`, `inspect-failed`, `export-failed`,
-`isolation-level0-unsupported`, `residue-removal-failed`. See ADR-0022
+`isolation-level0-unsupported`, `residue-removal-failed`,
+`source-project-declaration-failed`. See ADR-0022
 for the full failure policy table.
 
 **Retention**: observation artifacts live under `observation/` in the run
@@ -448,6 +484,20 @@ Removal failure aborts the run (exit 4).
 **level0**: observation under level0 is not supported in v1 (`status:
 unavailable`, `reason: isolation-level0-unsupported`). The operator's host
 HOME is shared, and pfl reads the host `~/.pfl` store, which is a leak.
+
+**Source-project declaration** (#214): on a seeded run, before spawning the
+observer yuurei materializes a versioned contract file at the cell root —
+`<cell>/source-project.json`, shaped
+`{ "version": 1, "issuer": "yuurei", "cell_id", "source_project": { "id",
+"kind", "remote"?, "source", "head" } }` — and exposes the declaration to the
+pfl process as `YUUREI_SOURCE_PROJECT_ID` (the identity) and
+`YUUREI_SOURCE_PROJECT_FILE` (the contract's absolute path). Both are
+yuurei-asserted declarations the observer may consume; the observer never
+reads the operator's host Git metadata or configuration to reconstruct them.
+The file sits outside the cell workspace — it is never part of the seeded
+baseline or the change record — and is disposed with the cell. A declaration
+that cannot be materialized records `status: unavailable` with
+`reason: source-project-declaration-failed`.
 
 **Identity exclusion**: observation is **not** an input to
 `requested_cell.digest`. If a future observer cannot guarantee no residue,
@@ -513,6 +563,11 @@ or be removed in a minor release.
   and Git HEAD — non-secret provenance only. The materialized workspace is
   verified against the requested baseline before the runtime starts; a
   mismatch is a configuration error.
+- **Source-project identity.** The run declares a stable identity for the
+  selected repository — `trace.seed.source_project` and
+  `baseline-manifest.json` record `id`, `kind` and, for `git-remote`, the
+  normalized `remote`. See `seed.source_project` in Section A for the
+  derivation and semantics.
 - **Cell identity.** Seed mode and the baseline digest join the requested-cell
   input set: a seeded run carries `requested_cell.inputs_version` 2, an
   unseeded run keeps 1. An old digest is never recomputed (Section A).

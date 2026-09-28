@@ -72,16 +72,17 @@ A reader must never treat absence as "the configuration is unchanged".
 
 #### Reason codes (when status = `unavailable`)
 
-| Reason                         | Cause                                                             |
-| ------------------------------ | ----------------------------------------------------------------- |
-| `observer-not-found`           | pfl binary not on PATH or not installed                           |
-| `spawn-failed`                 | pfl subprocess failed to start                                    |
-| `timeout`                      | pfl subprocess timed out                                          |
-| `consent-required`             | pfl exited 5 (`CONSENT_REQUIRED`); `missingScopes` in diagnostics |
-| `inspect-failed`               | pfl inspect failed (non-zero exit, not consent)                   |
-| `export-failed`                | pfl export or bundle write failed after inspection                |
-| `isolation-level0-unsupported` | level0: observation not supported in v1                           |
-| `residue-removal-failed`       | Failed to remove `~/.pfl` from cell home (hard error, run aborts) |
+| Reason                              | Cause                                                                                              |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `observer-not-found`                | pfl binary not on PATH or not installed                                                            |
+| `spawn-failed`                      | pfl subprocess failed to start                                                                     |
+| `timeout`                           | pfl subprocess timed out                                                                           |
+| `consent-required`                  | pfl exited 5 (`CONSENT_REQUIRED`); `missingScopes` in diagnostics                                  |
+| `inspect-failed`                    | pfl inspect failed (non-zero exit, not consent)                                                    |
+| `export-failed`                     | pfl export or bundle write failed after inspection                                                 |
+| `isolation-level0-unsupported`      | level0: observation not supported in v1                                                            |
+| `residue-removal-failed`            | Failed to remove `~/.pfl` from cell home (hard error, run aborts)                                  |
+| `source-project-declaration-failed` | The versioned `source-project.json` contract could not be materialized in the verified cell (#214) |
 
 #### Artifact references
 
@@ -135,6 +136,7 @@ is not added (it can be added later if operator demand materialises).
 | Residue removal fails                     | `unavailable` + `residue-removal-failed`; run dir removed; exit 4           | **no**         |
 | Observation not opted in                  | field absent from trace                                                     | yes            |
 | Observer binary missing / spawn / timeout | `unavailable` + reason                                                      | yes            |
+| Source-project declaration write fails    | `unavailable` + `source-project-declaration-failed`                         | yes            |
 | consent-required (exit 5)                 | `unavailable` + `consent-required`                                          | yes            |
 | inspect failed (non-zero, not consent)    | `unavailable` + `inspect-failed`                                            | yes            |
 | Partial/failed document                   | `partial` or `unavailable` + completeness/snapshot_ids                      | yes            |

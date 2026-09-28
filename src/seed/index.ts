@@ -7,6 +7,7 @@ import { decodeUtf8Strict, isPathWithin } from '../util/fs.js';
 import { sha256Digest } from '../util/hash.js';
 import { canonicalJsonStringify } from '../util/json.js';
 import { gitHead, gitLsFiles, gitShowToplevel, gitStatusPorcelain } from './git.js';
+import { resolveSourceProjectIdentity } from './project-identity.js';
 import {
   SEED_MAX_FILE_BYTES,
   SEED_MAX_FILES,
@@ -202,6 +203,7 @@ export async function resolveSeed(
     fileCount,
     totalBytes,
     diagnostics,
+    sourceProject: await resolveSourceProjectIdentity(resolvedDir, head),
   };
 }
 
@@ -338,6 +340,13 @@ export function toBaselineManifest(
     policy: SEED_POLICY,
     source: seed.sourceDir,
     head: seed.head,
+    // The declared source-project identity (#214): stable across cells
+    // prepared from the same source, never derived from the cell path.
+    source_project: {
+      id: seed.sourceProject.id,
+      kind: seed.sourceProject.kind,
+      ...(seed.sourceProject.remote !== undefined ? { remote: seed.sourceProject.remote } : {}),
+    },
     requested_digest: seed.digest,
     materialized_digest: materializedDigest,
     files: seed.files,

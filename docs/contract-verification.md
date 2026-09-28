@@ -63,16 +63,18 @@ exits 0, per design §12.2.
 
 ## B. Experimental surface
 
-| Entry                                       | Evidence                                                                                                                                                                        |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bridge flags never modify the real file     | `test/integration/global-config-untouched.test.ts`                                                                                                                              |
-| Bridge copy scrubbed, including `--keep`    | `test/integration/signal-cleanup.test.ts`, `test/integration/profile-materialization.test.ts`, `test/integration/opencode-materialization.test.ts`                              |
-| Auth method reaches the digest              | `test/integration/global-config-untouched.test.ts`, `test/integration/opencode-materialization.test.ts`                                                                         |
-| `--seed-repo` input validation, fail closed | `src/seed/index.test.ts` (non-repo/sub-root/unborn/dirty/symlink/gitlink/limits rejections), `test/integration/seeded-workspace.test.ts` (runtime never starts on a dirty seed) |
-| Seed policy exclusions and source untouched | `src/seed/index.test.ts` (untracked/ignored/`.yuurei` exclusion; `status` and HEAD unchanged)                                                                                   |
-| Baseline identity bound to cell             | `src/seed/index.test.ts`, `test/integration/seeded-workspace.test.ts` (`baseline-manifest.json`, `trace.seed`, `inputs_version` 2)                                              |
-| Seeded result record and patch completeness | `src/run/seeded.test.ts`, `test/integration/seeded-workspace.test.ts` (add/modify/delete, no-change complete empty diff, retention of changed files only)                       |
-| Empty-workspace runs unchanged              | `test/integration/seeded-workspace.test.ts` (`inputs_version` 1, `patch.base: empty`, no seed fields)                                                                           |
+| Entry                                       | Evidence                                                                                                                                                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bridge flags never modify the real file     | `test/integration/global-config-untouched.test.ts`                                                                                                                                         |
+| Bridge copy scrubbed, including `--keep`    | `test/integration/signal-cleanup.test.ts`, `test/integration/profile-materialization.test.ts`, `test/integration/opencode-materialization.test.ts`                                         |
+| Auth method reaches the digest              | `test/integration/global-config-untouched.test.ts`, `test/integration/opencode-materialization.test.ts`                                                                                    |
+| `--seed-repo` input validation, fail closed | `src/seed/index.test.ts` (non-repo/sub-root/unborn/dirty/symlink/gitlink/limits rejections), `test/integration/seeded-workspace.test.ts` (runtime never starts on a dirty seed)            |
+| Seed policy exclusions and source untouched | `src/seed/index.test.ts` (untracked/ignored/`.yuurei` exclusion; `status` and HEAD unchanged)                                                                                              |
+| Baseline identity bound to cell             | `src/seed/index.test.ts`, `test/integration/seeded-workspace.test.ts` (`baseline-manifest.json`, `trace.seed`, `inputs_version` 2)                                                         |
+| Seeded result record and patch completeness | `src/run/seeded.test.ts`, `test/integration/seeded-workspace.test.ts` (add/modify/delete, no-change complete empty diff, retention of changed files only)                                  |
+| Empty-workspace runs unchanged              | `test/integration/seeded-workspace.test.ts` (`inputs_version` 1, `patch.base: empty`, no seed fields)                                                                                      |
+| `seed.source_project` identity              | `src/seed/project-identity.test.ts` (remote/path derivation, stability, distinctness), `test/integration/observed-source-identity.test.ts` (same id, distinct `cell_id`s; absent unseeded) |
+| Source-project declaration hand-off         | `test/integration/observed-source-identity.test.ts` (contract file + env vars reach the observer after verify, before execute; failure distinct from isolation failure)                    |
 
 ## C. Security invariants
 
