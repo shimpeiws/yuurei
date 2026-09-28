@@ -117,7 +117,10 @@ interface InspectData {
 }
 
 /**
- * Spawn a pfl command, collect stdout/stderr, and clear the timeout on exit.
+ * Spawn a pfl command and collect stdout/stderr. On timeout, sends SIGTERM
+ * then SIGKILL after a short grace period, and waits for the process to
+ * exit before resolving. This prevents the caller from proceeding while
+ * the child is still running and potentially writing residue.
  */
 function pflSpawn(
   binPath: string,
@@ -129,20 +132,34 @@ function pflSpawn(
       cwd: options.cwd,
       env: options.env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: options.timeoutMs,
+      // Do NOT use Node's timeout option — it kills the child but doesn't
+      // wait for exit, creating a race with residue cleanup.
     });
 
     let stdout = '';
     let stderr = '';
-    let settled = false;
+    let timedOut = false;
+    let resolved = false;
+
+    const finalize = (code: number | null) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        clearTimeout(killTimer);
+        const suffix = timedOut ? '\ntimeout: pfl execution timed out' : '';
+        resolve({ code, stdout, stderr: stderr + suffix });
+      }
+    };
 
     const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        child.kill('SIGTERM');
-        resolve({ code: 1, stdout, stderr: stderr + '\ntimeout: pfl execution timed out' });
-      }
+      timedOut = true;
+      child.kill('SIGTERM');
+      // Escalate to SIGKILL after 3 seconds if SIGTERM is ignored
+      killTimer = setTimeout(() => {
+        child.kill('SIGKILL');
+      }, 3000);
     }, options.timeoutMs);
+    let killTimer: ReturnType<typeof setTimeout>;
 
     child.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString();
@@ -153,19 +170,14 @@ function pflSpawn(
     });
 
     child.on('error', (error: Error) => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timer);
-        resolve({ code: 1, stdout, stderr: stderr + `\nspawn error: ${error.message}` });
+      if (!resolved) {
+        finalize(1);
+        stderr += `\nspawn error: ${error.message}`;
       }
     });
 
     child.on('close', (code) => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timer);
-        resolve({ code, stdout, stderr });
-      }
+      finalize(code);
     });
   });
 }
