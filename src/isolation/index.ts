@@ -35,7 +35,17 @@ export async function assertVerifiedIsolation(
   isolation: Isolation,
   context: IsolationContext,
 ): Promise<void> {
-  const report: IsolationReport = await isolation.verify(context);
+  let report: IsolationReport;
+  try {
+    report = await isolation.verify(context);
+  } catch (error) {
+    // verify() threw — force disposal before rethrowing
+    const savedKeep = context.keep;
+    context.keep = false;
+    await isolation.dispose(context).catch(() => {});
+    context.keep = savedKeep;
+    throw error;
+  }
 
   if (!report.verified) {
     // Force disposal: an unverified cell must not survive, even under --keep.

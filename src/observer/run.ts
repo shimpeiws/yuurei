@@ -275,6 +275,16 @@ export async function runObserver(
   const binPath = observer.binPath;
   let inspectResult: { code: number | null; stdout: string; stderr: string } | undefined;
 
+  /**
+   * Map a pfl command result to an observation reason, distinguishing
+   * timeout and spawn failures from generic non-zero exits.
+   */
+  function reasonForExit(result: { code: number | null; stderr: string }): ObservationReason {
+    if (result.stderr.includes('timeout:')) return 'timeout';
+    if (result.stderr.includes('spawn error:')) return 'spawn-failed';
+    return 'inspect-failed';
+  }
+
   try {
     // Phase 1: inspect — creates a snapshot in the cell's ~/.pfl store
     const inspectArgs = [
@@ -299,7 +309,7 @@ export async function runObserver(
       return unavailableRecord('consent-required', inspectResult, observationDir);
     }
     if (inspectResult.code !== 0) {
-      return unavailableRecord('inspect-failed', inspectResult, observationDir);
+      return unavailableRecord(reasonForExit(inspectResult), inspectResult, observationDir);
     }
 
     const inspectEnvelope = parseEnvelope<InspectData>(inspectResult.stdout);
@@ -336,7 +346,12 @@ export async function runObserver(
       return unavailableRecord('consent-required', exportResult, observationDir);
     }
     if (exportResult.code !== 0) {
-      return unavailableRecord('export-failed', exportResult, observationDir);
+      const reason = exportResult.stderr.includes('timeout:')
+        ? 'timeout'
+        : exportResult.stderr.includes('spawn error:')
+          ? 'spawn-failed'
+          : 'export-failed';
+      return unavailableRecord(reason, exportResult, observationDir);
     }
 
     // Phase 3: normalize filenames and collect artifact paths

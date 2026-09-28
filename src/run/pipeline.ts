@@ -323,6 +323,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // fails, remove the original to prevent unredacted content from being
     // published by collectArtifacts.
     const observationTruncatedPaths: string[] = [];
+    let observationRedactFailed = false;
     if (observation?.artifacts && observation.artifacts.length > 0) {
       const credentialValues = prepared?.credentialValuesToRedact ?? [];
       for (const artifact of observation.artifacts) {
@@ -342,7 +343,16 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
           // from being published. This is a defect, not a trade-off.
           await rm(inputPath, { force: true }).catch(() => {});
           await rm(tempPath, { force: true }).catch(() => {});
+          observationRedactFailed = true;
         }
+      }
+      // If redaction removed all artifacts, downgrade the observation status
+      if (observationRedactFailed) {
+        observation.artifacts = [];
+        observation.status = 'unavailable';
+        observation.reason = 'export-failed';
+        observation.completeness = null;
+        observation.snapshot_ids = null;
       }
     }
 
