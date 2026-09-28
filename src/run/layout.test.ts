@@ -70,4 +70,15 @@ describe('createUniqueRunLayout', () => {
     expect(new Set([a.runId, b.runId]).size).toBe(2);
     expect(a.layout.runDir).not.toBe(b.layout.runDir);
   });
+
+  it('returns a unique cell_id for each run', async () => {
+    const results = await Promise.all(Array.from({ length: 8 }, () => createUniqueRunLayout(dir)));
+    const cellIds = results.map((r) => r.cellId);
+    expect(new Set(cellIds).size).toBe(cellIds.length);
+  });
+
+  it('generates cell_id with the correct format', async () => {
+    const { cellId } = await createUniqueRunLayout(dir);
+    expect(cellId).toMatch(/^cell_\d{8}T\d{6}Z-[a-f0-9]{8}$/);
+  });
 });

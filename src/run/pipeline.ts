@@ -26,6 +26,9 @@ import { redactFile, redactText } from '../trace/redact.js';
 import type { RunDefinition, Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
 import { createUniqueRunLayout } from './layout.js';
+import { resolvePflBinary, runObserver } from '../observer/index.js';
+import type { ObservationRecord } from '../observer/index.js';
+import { loadYuureiConfig } from '../config/yuurei-config.js';
 
 export interface RunPipelineInput extends CellResolutionInput {
   yuureiDir: string;
@@ -43,6 +46,13 @@ export interface RunPipelineInput extends CellResolutionInput {
    * prove the signal handler waits for the shared cleanup lifecycle.
    */
   createIsolation?: (strategy: IsolationStrategy) => Isolation;
+  /**
+   * Opt-in, experimental (#210): enable the pre-run observation phase.
+   * When enabled, the observer stage runs after isolation verification
+   * and before runtime execution. Without it, observation is absent from
+   * the trace.
+   */
+  observe?: boolean;
   /**
    * Called synchronously for each non-fatal warning as it occurs (e.g. a
    * credential file that could not be scrubbed on cleanup). This is the
@@ -68,7 +78,7 @@ export interface RunPipelineResult {
  * re-implement this ordering (design doc §12.2 fail-closed principle).
  */
 export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineResult> {
-  const cell = await resolveCell(input);
+  let cell = await resolveCell(input);
   // A runtime that is not installed, or is below its declared minimum, is a
   // configuration error, not an execution failure (contract, Exit codes: 3).
   // Checked before any run directory or temp cell is created.
@@ -84,7 +94,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     );
   }
 
-  const { runId, layout } = await createUniqueRunLayout(input.yuureiDir);
+  const { runId, cellId, layout } = await createUniqueRunLayout(input.yuureiDir);
+
+  // Assign the cell_id to the resolved cell for downstream use (ADR-0021).
+  cell = { ...cell, cellId };
 
   const isolation = (input.createIsolation ?? createIsolation)(input.isolationStrategy);
   let context: IsolationContext;
@@ -254,6 +267,45 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     }
 
     prepared = await runtime.prepare(cell, context, (path) => registeredCredentialPaths.add(path));
+
+    // Pre-run observation phase (ADR-0022): runs after isolation verification
+    // and after materialization, before runtime execution.
+    let observation: ObservationRecord | undefined;
+    if (input.observe) {
+      const config = await loadYuureiConfig(input.yuureiDir);
+      const observer = await resolvePflBinary(config);
+
+      // Check if level0 - observation not supported in v1
+      if (context.strategy === 'level0') {
+        observation = {
+          observer: { id: 'pfl', version: null },
+          status: 'unavailable',
+          reason: 'isolation-level0-unsupported',
+          completeness: null,
+          snapshot_ids: null,
+          artifacts: [],
+        };
+      } else if (!observer.binPath) {
+        observation = {
+          observer: { id: 'pfl', version: null },
+          status: 'unavailable',
+          reason: observer.reason as 'observer-not-found',
+          completeness: null,
+          snapshot_ids: null,
+          artifacts: [],
+        };
+      } else {
+        // Run the observer
+        const observationResult = await runObserver(
+          observer,
+          context,
+          cell.cellId ?? '',
+          layout.runDir,
+        );
+        observation = observationResult.record;
+      }
+    }
+
     const result = await runtime.execute(prepared, cell.executionOptions.timeout_ms);
     const fragment = await runtime.normalize(result, { runtimeVersion: prepared.runtimeVersion });
     for (const w of fragment.warnings ?? []) warn(w);
@@ -447,6 +499,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // which cleanup removes and `yuurei trace show` cannot consume. The
     // artifact list in the trace is derived from the manifest, so the two can
     // never disagree (#111).
+    const observationArtifactPaths = observation?.artifacts.map((a) => a.path) ?? [];
     const manifest = await save(() =>
       collectArtifacts(
         layout.runDir,
@@ -456,6 +509,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
           'patch.diff',
           'result.txt',
           ...(cell.seed !== undefined ? ['baseline-manifest.json', 'changes.json'] : []),
+          ...observationArtifactPaths,
         ],
         {
           maxBytes: maxArtifactBytes,
@@ -488,6 +542,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       schema_version: TRACE_SCHEMA_VERSION,
       yuurei_version: cell.yuureiVersion,
       run_id: runId,
+      ...(cell.cellId !== undefined ? { cell_id: cell.cellId } : {}),
       started_at: result.startedAt,
       finished_at: result.finishedAt,
       runtime: fragment.runtime,
@@ -561,6 +616,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       // Durable non-fatal notes. Omitted when empty so traces without
       // diagnostics keep their previous shape.
       ...(diagnostics.length > 0 ? { diagnostics } : {}),
+      // Pre-run observation record (ADR-0022). Absent when observation was not
+      // opted in; present even on failure (never interpreted as "no change").
+      ...(observation !== undefined ? { observation } : {}),
     };
 
     await save(() => writeTrace(layout.runDir, trace));

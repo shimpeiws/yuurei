@@ -33,6 +33,9 @@ export const TraceSchema = z.object({
   // traces written before v0.3.0; a reader treats absence as unknown.
   yuurei_version: z.string().optional(),
   run_id: z.string(),
+  // The prepared cell's instance identity (ADR-0021). Absent on older traces;
+  // a reader treats absence as unknown.
+  cell_id: z.string().optional(),
   started_at: z.string(),
   finished_at: z.string(),
   runtime: z.object({
@@ -142,6 +145,40 @@ export const TraceSchema = z.object({
       kind: z.string(),
     }),
   ),
+  // Pre-run observation record (ADR-0022). Absent when observation was not
+  // opted in; present even on failure (never interpreted as "no change").
+  observation: z
+    .object({
+      observer: z.object({
+        id: z.string(),
+        version: z.string().nullable(),
+      }),
+      status: z.enum(['recorded', 'partial', 'unavailable']),
+      reason: z
+        .enum([
+          'observer-not-found',
+          'spawn-failed',
+          'timeout',
+          'consent-required',
+          'export-failed',
+          'isolation-level0-unsupported',
+        ])
+        .nullable(),
+      completeness: z.string().nullable(),
+      snapshot_ids: z
+        .object({
+          observed: z.string(),
+          resolved: z.string(),
+        })
+        .nullable(),
+      artifacts: z.array(
+        z.object({
+          path: z.string(),
+          kind: z.string(),
+        }),
+      ),
+    })
+    .optional(),
   // Durable, secret-free non-fatal notes (e.g. malformed runtime output). The
   // adapter's `warnings` remain operator-only and are not persisted (§6.3);
   // this is the durable record. Additive and optional.

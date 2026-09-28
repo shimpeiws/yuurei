@@ -21,6 +21,16 @@ export const YuureiConfigSchema = z.object({
       seed_repo: z.string().optional(),
     }),
   ),
+  /**
+   * Observer configuration for pre-run observation (#210).
+   * Resolution order: config observer.pfl_path → PFL_BIN env → pfl on PATH.
+   */
+  observer: z
+    .object({
+      /** Path to the pfl binary. If not set, falls back to PFL_BIN env or pfl on PATH. */
+      pfl_path: z.string().optional(),
+    })
+    .optional(),
 });
 
 export type YuureiConfig = z.infer<typeof YuureiConfigSchema>;

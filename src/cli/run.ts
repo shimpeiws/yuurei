@@ -54,6 +54,13 @@ export interface RunOptions {
    * in its tracked state; untracked and ignored files are never seeded.
    */
   seedRepo: string | undefined;
+  /**
+   * Opt-in, experimental (#210): enable the pre-run observation phase.
+   * When enabled, the observer stage runs after isolation verification
+   * and before runtime execution. Without it, observation is absent from
+   * the trace.
+   */
+  observe: boolean | undefined;
 }
 
 const YUUREI_VERSION = packageVersion;
@@ -168,6 +175,7 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     keep: options.keep ?? false,
     timeoutMs,
     ...(seedRepo !== undefined ? { seedRepo } : {}),
+    observe: options.observe ?? false,
     executionOptions: {
       bridge_codex_auth_file: options.bridgeCodexAuthFile ?? false,
       bridge_opencode_auth_file: options.bridgeOpenCodeAuthFile ?? false,
