@@ -269,13 +269,18 @@ Runtime adapter, trace normalization, or trace publication.
 
 ## Initial inventory
 
-| Proposition | Inner observation | Boundary / integration | Real-system observation | Current confidence |
-| --- | --- | --- | --- | --- |
-| VC-Y-01 isolation before execution | verifier / pipeline | fail-closed integration | real runtime E2E | strong |
-| VC-Y-02 observation failure != no change | status model | observer orchestration | observed cell | medium: verify concrete test mapping |
-| VC-Y-03 identities stay distinct | digest / id logic | observer hand-off | trace + observed cell | strong |
-| VC-Y-04 incomplete != empty diff | seed / result semantics | seeded workspace | seeded run | strong |
-| VC-Y-05 requested != observed provenance | schema / adapters | trace publication | real runtime E2E | strong |
+- **VC-Y-01:** verifier/pipeline internally, fail-closed integration at the
+  boundary, and real-runtime E2E at the system boundary. Coverage is strong.
+- **VC-Y-02:** observation status model internally, observer orchestration at
+  the boundary, and an observed cell at the system boundary. The semantics are
+  strong; the concrete test mapping is indexed below.
+- **VC-Y-03:** digest and identifier logic internally, observer hand-off at the
+  boundary, and trace plus observed-cell evidence at the system boundary.
+  Coverage is strong.
+- **VC-Y-04:** seeded result semantics internally and seeded-workspace
+  integration at the boundary. Coverage is strong.
+- **VC-Y-05:** trace schema and adapters internally, trace publication at the
+  boundary, and real-runtime E2E at the system boundary. Coverage is strong.
 
 ## Review rule
 
@@ -296,13 +301,24 @@ The first pass against the current test suite shows that these propositions are
 already mostly covered. The main value of this document is therefore indexing
 existing evidence, not creating a second test suite.
 
-| Proposition | Existing evidence | Assessment |
-| --- | --- | --- |
-| VC-Y-01 | `test/integration/isolation-fail-closed.test.ts`; real-runtime E2E workflow | Covered at boundary and system levels. |
-| VC-Y-02 | `src/trace/schema.test.ts` covers recorded / partial / unavailable observation states; `src/observer/run.test.ts` covers observer result parsing and retained export normalization; the public `docs/contract-verification.md` already records the expected integration cases for missing/denied observers and ordering | Semantics are explicit and testable. Keep the concrete integration mapping in `contract-verification.md` authoritative; no new concept-level issue is needed. |
-| VC-Y-03 | `src/run/cell-id.test.ts`; `src/cell/digest.test.ts`; trace construction in the run pipeline; requested-cell E2E coverage | Covered for local identities. Cross-cell stable source identity is intentionally separate work in #214. |
-| VC-Y-04 | `src/run/seeded.test.ts`; `test/integration/seeded-workspace.test.ts` including the complete-empty-diff case | Covered. Downstream consumers still need to preserve this distinction. |
-| VC-Y-05 | `src/trace/schema.test.ts`; runtime adapter tests; `test/integration/run-pipeline.test.ts` for runtime-reported cost, usage inputs, result availability and persisted trace behavior | Covered across normalization and publication. |
+- **VC-Y-01:** `test/integration/isolation-fail-closed.test.ts` plus the
+  real-runtime E2E workflow. Covered at boundary and system levels.
+- **VC-Y-02:** `src/trace/schema.test.ts` covers recorded, partial, and
+  unavailable observation states. `src/observer/run.test.ts` covers observer
+  result parsing and retained export normalization.
+  `docs/contract-verification.md` records the expected integration cases for
+  missing or denied observers and ordering. Keep that file authoritative for
+  the concrete mapping.
+- **VC-Y-03:** `src/run/cell-id.test.ts`, `src/cell/digest.test.ts`, trace
+  construction in the run pipeline, and requested-cell E2E coverage. Covered
+  for local identities; cross-cell stable source identity remains #214.
+- **VC-Y-04:** `src/run/seeded.test.ts` and
+  `test/integration/seeded-workspace.test.ts`, including the complete empty
+  diff case. Covered.
+- **VC-Y-05:** `src/trace/schema.test.ts`, runtime adapter tests, and
+  `test/integration/run-pipeline.test.ts` for cost, usage, result
+  availability, and persisted trace behavior. Covered across normalization and
+  publication.
 
 ### Gaps / active work
 
