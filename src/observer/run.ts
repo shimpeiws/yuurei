@@ -118,9 +118,13 @@ interface InspectData {
 
 /**
  * Spawn a pfl command and collect stdout/stderr. On timeout, sends SIGTERM
- * then SIGKILL after a short grace period, and waits for the process to
- * exit before resolving. This prevents the caller from proceeding while
- * the child is still running and potentially writing residue.
+ * to the process group (including descendants that inherit pipes), then
+ * SIGKILL after a grace period. A fallback timer ensures the promise
+ * resolves even if `close` never fires (e.g. a descendant holds stdout).
+ *
+ * When `timedOut` is true, the exit code is forced to nonzero regardless
+ * of what the process returned — a process that exits 0 after SIGTERM
+ * must not be treated as successful.
  */
 function pflSpawn(
   binPath: string,
@@ -132,8 +136,7 @@ function pflSpawn(
       cwd: options.cwd,
       env: options.env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      // Do NOT use Node's timeout option — it kills the child but doesn't
-      // wait for exit, creating a race with residue cleanup.
+      detached: true,
     });
 
     let stdout = '';
@@ -146,20 +149,45 @@ function pflSpawn(
         resolved = true;
         clearTimeout(timer);
         clearTimeout(killTimer);
+        clearTimeout(fallbackTimer);
+        // Force nonzero on timeout regardless of actual exit code
+        const finalCode = timedOut ? (code ?? 1) || 1 : code;
         const suffix = timedOut ? '\ntimeout: pfl execution timed out' : '';
-        resolve({ code, stdout, stderr: stderr + suffix });
+        resolve({ code: finalCode, stdout, stderr: stderr + suffix });
       }
     };
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
-      // Escalate to SIGKILL after 3 seconds if SIGTERM is ignored
+      // Kill the entire process group (wrapper + descendants)
+      if (child.pid !== undefined && child.pid > 0) {
+        try {
+          process.kill(-child.pid, 'SIGTERM');
+        } catch {
+          child.kill('SIGTERM');
+        }
+      } else {
+        child.kill('SIGTERM');
+      }
+      // Escalate to SIGKILL after 3 seconds
       killTimer = setTimeout(() => {
-        child.kill('SIGKILL');
+        if (child.pid !== undefined && child.pid > 0) {
+          try {
+            process.kill(-child.pid, 'SIGKILL');
+          } catch {
+            child.kill('SIGKILL');
+          }
+        } else {
+          child.kill('SIGKILL');
+        }
       }, 3000);
+      // Fallback: if close never fires (descendant holds pipe), force resolve
+      fallbackTimer = setTimeout(() => {
+        finalize(1);
+      }, 10000);
     }, options.timeoutMs);
     let killTimer: ReturnType<typeof setTimeout>;
+    let fallbackTimer: ReturnType<typeof setTimeout>;
 
     child.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString();
@@ -171,8 +199,8 @@ function pflSpawn(
 
     child.on('error', (error: Error) => {
       if (!resolved) {
-        finalize(1);
         stderr += `\nspawn error: ${error.message}`;
+        finalize(1);
       }
     });
 
