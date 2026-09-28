@@ -63,6 +63,9 @@ document is right.
   credential material written to disk is scrubbed on cleanup even under
   `--keep` (§9.2).
 - If isolation verification fails, the runtime is not started (§12.2).
+- Pre-run observation never reads the operator's host configuration, never
+  weakens isolation or credentials, and an observer failure is recorded as
+  unavailable, never silently substituted with a host fallback (§C, ADR-0022).
 - Path validation, isolation verification, and credential bridging fail closed:
   a failure never falls back to "allow". Credential bridging failing leaves the
   run _unauthenticated_ rather than aborting — that is deliberate (§12.2), and

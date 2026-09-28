@@ -260,6 +260,7 @@ At minimum, it holds the following.
   "schema_version": "0.3",
   "yuurei_version": "...",
   "run_id": "...",
+  "cell_id": "cell_20260928T120000Z-a1b2",
   "started_at": "...",
   "finished_at": "...",
   "runtime": {
@@ -306,7 +307,15 @@ At minimum, it holds the following.
   "usage": {},
   "cost": null,
   "artifacts": [],
-  "diagnostics": []
+  "diagnostics": [],
+  "observation": {
+    "observer": { "id": "pfl", "version": "1.1.0" },
+    "status": "recorded",
+    "reason": null,
+    "completeness": "complete",
+    "snapshot_ids": { "observed": "obs_...", "resolved": "res_..." },
+    "artifacts": [{ "path": "observation/export.json", "kind": "observation" }]
+  }
 }
 ```
 
@@ -474,6 +483,25 @@ keeps version 1 and remains comparable with every digest computed before
 seeding existed. Two digests are never compared across versions, so a seeded
 cell can never be mistaken for an empty-workspace one.
 
+### 7.4 Cell instance identity (`cell_id`)
+
+A `cell_id` is a freshly allocated, opaque identifier for each prepared isolation
+cell. It is distinct from `run_id` (a run-scoped directory name) and
+`requested_cell.digest` (a hash of the input set).
+
+| Dimension    | `run_id`                | `cell_id`                      | `requested_cell.digest`         |
+| ------------ | ----------------------- | ------------------------------ | ------------------------------- |
+| Identifies   | The run directory       | The prepared cell              | The input set                   |
+| Generated at | `createUniqueRunLayout` | Cell creation (before observe) | Cell resolution (before create) |
+| Per retry    | New                     | New                            | Same                            |
+
+Format: `cell_<UTC timestamp>-<suffix>` — e.g. `cell_20260928T120000Z-a1b2`.
+See ADR-0021.
+
+`cell_id` is not a digest input. It does not affect `requested_cell.digest`.
+It is a provenance field in `trace.json`, alongside `yuurei_version` and
+`runtime.version`.
+
 ---
 
 ## 8. CLI Surface
@@ -596,7 +624,12 @@ Execution results are saved as follows.
 ├── result.txt
 ├── baseline-manifest.json   (seeded runs only)
 ├── changes.json             (seeded runs only)
-└── workspace/
+├── workspace/
+└── observation/             (--observe only)
+    ├── export.json          (pfl export --json)
+    └── bundle/
+        ├── harness.json     (pfl export --bundle)
+        └── manifest.json    (pfl export --bundle evidence metadata)
 ```
 
 What is actually saved is configurable, and secrets or oversized files are not duplicated without limit.
@@ -626,6 +659,12 @@ With `--seed-repo` (#202, experimental) the cell workspace starts as the selecte
 - Exit code
 - Observable usage
 - The artifacts the run produced, and where they are
+- Cell instance identity (`cell_id`) (§7.4) — the prepared cell's identity,
+  distinct from `run_id` and `requested_cell.digest`
+- Pre-run observation record (when `--observe`): observer id/version, status
+  (`recorded` / `partial` / `unavailable`), reason code (when unavailable),
+  completeness, pfl snapshot IDs, and references to retained observation
+  artifacts under `observation/`
 
 Two entries above were narrowed from an earlier, broader wording; the reasoning
 is recorded in `docs/adr/` and summarized here so this section is not read as the
@@ -720,6 +759,10 @@ Execution failure is also retained in the trace as an observed result.
 - User interruption
 - Runtime abnormal termination
 - Artifact collection failure
+- Observation failure (when `--observe`): observer absent, spawn failure,
+  timeout, consent denied, export failure, or level0 unsupported. Recorded as
+  `observation.status: "unavailable"` with a reason code; never blocks
+  execution.
 
 However, if isolation verification fails, the runtime is not started.
 

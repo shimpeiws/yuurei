@@ -7,6 +7,19 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+### Added
+
+- `cell_id` in `trace.json`: a freshly allocated identifier for each prepared
+  isolation cell, distinct from `run_id` (run directory) and
+  `requested_cell.digest` (input identity). Format `cell_<timestamp>-<suffix>`.
+  One per run; a retry of the same definition produces a new `cell_id`. See
+  ADR-0021 (#208).
+- `observation` in `trace.json`: optional pre-run pfl observation record with
+  `observer` (id/version), `status` (`recorded` / `partial` / `unavailable`),
+  `reason` (when unavailable), `completeness`, `snapshot_ids`, and artifact
+  references under `observation/`. Opt-in via `--observe` (Section B,
+  experimental). See ADR-0022 (#208).
+
 ## [1.1.0] - 2026-09-28
 
 ### Added
