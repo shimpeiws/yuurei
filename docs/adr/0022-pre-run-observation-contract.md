@@ -35,6 +35,14 @@ executes inside a verified cell) and _after_ materialization (so the observer
 sees the actual profile config). An isolation verification failure (exit 4) skips
 observation and execution.
 
+**Note**: the current implementation (`src/run/pipeline.ts`) verifies isolation
+before materialisation (`createVerifiedIsolation` at L89, then `prepare` at
+L256). This ADR deliberately documents a target ordering that differs from the
+current code. The implementation reordering is part of #210; the contract
+documents the intended final state, not the current intermediate state. Moving
+the gate after materialisation ensures the observer sees the materialised profile
+while isolation verification still blocks both observation and execution.
+
 ### Observation record in trace.json
 
 Add an optional top-level `observation` object:
