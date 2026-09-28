@@ -17,7 +17,7 @@ import {
   writeArtifactManifest,
 } from '../artifact/collector.js';
 import { createIsolation, assertVerifiedIsolation } from '../isolation/index.js';
-import type { Isolation, IsolationStrategy } from '../isolation/types.js';
+import type { Isolation, IsolationContext, IsolationStrategy } from '../isolation/types.js';
 import { toProfileManifest } from '../profile/manifest.js';
 import { getRuntime } from '../runtime/registry.js';
 import type { PreparedRun, Runtime } from '../runtime/types.js';
@@ -105,7 +105,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   // defer verification until after materialisation so the observer sees the
   // materialised profile. Verification remains fail-closed: a failure
   // disposes the context and the finally block removes the run dir.
-  const context = await isolation.create(cell);
+  let context: IsolationContext;
+  try {
+    context = await isolation.create(cell);
+  } catch (error) {
+    // Isolation creation failed before the cleanup lifecycle was set up.
+    // Remove the run directory manually (no trace will be written).
+    await rm(layout.runDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
   context.keep = input.keep;
 
   let prepared: PreparedRun | undefined;
@@ -311,19 +319,28 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // Redact observation artifacts before execution (ADR-0022): apply the
     // same credential/secret-pattern pass as logs. The files are pfl-produced
     // (already sanitized) but the contract requires a yuurei redaction pass.
-    // Redact in place so collectArtifacts digests the redacted content.
+    // Write to a temp file first, then rename for atomicity. If redaction
+    // fails, remove the original to prevent unredacted content from being
+    // published by collectArtifacts.
+    const observationTruncatedPaths: string[] = [];
     if (observation?.artifacts && observation.artifacts.length > 0) {
       const credentialValues = prepared?.credentialValuesToRedact ?? [];
       for (const artifact of observation.artifacts) {
         const inputPath = join(layout.runDir, artifact.path);
         const tempPath = `${inputPath}.redact-${randomUUID()}`;
         try {
-          await redactFile(inputPath, tempPath, credentialValues, maxArtifactBytes);
+          const { truncated } = await redactFile(
+            inputPath,
+            tempPath,
+            credentialValues,
+            maxArtifactBytes,
+          );
           await rename(tempPath, inputPath);
+          if (truncated) observationTruncatedPaths.push(artifact.path);
         } catch {
-          // Best-effort: if redaction fails, the file remains unredacted.
-          // collectArtifacts will still digest it; the trace records the
-          // original content. This is a non-fatal condition.
+          // Redaction failed — remove original to prevent unredacted content
+          // from being published. This is a defect, not a trade-off.
+          await rm(inputPath, { force: true }).catch(() => {});
           await rm(tempPath, { force: true }).catch(() => {});
         }
       }
@@ -541,6 +558,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
             ...(stderrTruncated ? ['stderr.log'] : []),
             ...(patchTruncated ? ['patch.diff'] : []),
             ...(resultTruncated ? ['result.txt'] : []),
+            ...observationTruncatedPaths,
           ],
           // The seeded run's manifests are required outputs: truncating
           // them in place would leave corrupt JSON. Their size is bounded

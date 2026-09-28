@@ -27,6 +27,9 @@ export async function createVerifiedIsolation(
  * Fail-closed gate: verify an already-created isolation context. Throws if
  * verification fails. Used when create() and verify() must be separated
  * (ADR-0022: materialise before verify).
+ *
+ * On failure, forces disposal regardless of `context.keep` — an unverified
+ * cell must never survive (design doc §12.2).
  */
 export async function assertVerifiedIsolation(
   isolation: Isolation,
@@ -35,7 +38,11 @@ export async function assertVerifiedIsolation(
   const report: IsolationReport = await isolation.verify(context);
 
   if (!report.verified) {
-    await isolation.dispose(context);
+    // Force disposal: an unverified cell must not survive, even under --keep.
+    const savedKeep = context.keep;
+    context.keep = false;
+    await isolation.dispose(context).catch(() => {});
+    context.keep = savedKeep;
     throw new YuureiError(
       `isolation verification failed: ${report.findings.join('; ')}`,
       EXIT_CODES.ISOLATION_VERIFICATION_FAILED,

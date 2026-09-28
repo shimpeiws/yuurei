@@ -117,7 +117,7 @@ interface InspectData {
 }
 
 /**
- * Spawn a pfl command and collect stdout/stderr.
+ * Spawn a pfl command, collect stdout/stderr, and clear the timeout on exit.
  */
 function pflSpawn(
   binPath: string,
@@ -134,6 +134,15 @@ function pflSpawn(
 
     let stdout = '';
     let stderr = '';
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        child.kill('SIGTERM');
+        resolve({ code: 1, stdout, stderr: stderr + '\ntimeout: pfl execution timed out' });
+      }
+    }, options.timeoutMs);
 
     child.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString();
@@ -144,18 +153,20 @@ function pflSpawn(
     });
 
     child.on('error', (error: Error) => {
-      resolve({ code: 1, stdout, stderr: stderr + `\nspawn error: ${error.message}` });
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve({ code: 1, stdout, stderr: stderr + `\nspawn error: ${error.message}` });
+      }
     });
 
     child.on('close', (code) => {
-      resolve({ code, stdout, stderr });
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve({ code, stdout, stderr });
+      }
     });
-
-    // Handle timeout
-    setTimeout(() => {
-      child.kill('SIGTERM');
-      resolve({ code: 1, stdout, stderr: stderr + '\ntimeout: pfl execution timed out' });
-    }, options.timeoutMs);
   });
 }
 
@@ -174,6 +185,7 @@ export function parseEnvelope<T>(stdout: string): PflEnvelope<T> | null {
  * Normalize the observation directory after pfl export.
  * pfl --out writes `<snapshot-id>.json`; we rename to `export.json`.
  * Returns the list of relative artifact paths (relative to runDir).
+ * Returns an empty array if no export file was produced.
  */
 export async function normalizeObservationDir(observationDir: string): Promise<string[]> {
   const entries = await readdir(observationDir, { withFileTypes: true });
@@ -208,7 +220,7 @@ export async function normalizeObservationDir(observationDir: string): Promise<s
 
 /**
  * Remove pfl residue (~/.pfl) from the cell home.
- * Hard requirement (ADR-0022): failure here is a defect.
+ * Best-effort: if the directory doesn't exist, no error.
  */
 async function removePflResidue(homeDir: string | null): Promise<void> {
   if (!homeDir) return;
@@ -219,14 +231,8 @@ async function removePflResidue(homeDir: string | null): Promise<void> {
 /**
  * Run the pfl observer: inspect → export → normalize → residue removal.
  *
- * The observer runs in two phases:
- * 1. `pfl inspect --runtime <rt> --cell-id <id> --allow-scope <rt>:user --json`
- *    (creates a snapshot in the cell's ~/.pfl store)
- * 2. `pfl export --snapshot <observed> --cell-id <id> --out <dir> --bundle <dir>/bundle --json`
- *    (exports the snapshot as sanitized IR + evidence bundle)
- *
- * After export, observation artifacts are normalized (pfl's `<snapshot-id>.json`
- * → `export.json`) and pfl residue is removed from the cell home.
+ * Residue cleanup runs on every exit path (success or failure) to ensure
+ * the runtime never inherits pfl's snapshot store (ADR-0022).
  *
  * @param observer - Resolved observer binary info
  * @param context - Isolation context
@@ -247,7 +253,7 @@ export async function runObserver(
   const observationDir = join(runDir, 'observation');
   await import('node:fs/promises').then((fs) => fs.mkdir(observationDir, { recursive: true }));
 
-  // If observer not found, return unavailable
+  // If observer not found, return unavailable (no residue possible)
   if (!observer.binPath) {
     return {
       record: {
@@ -267,121 +273,114 @@ export async function runObserver(
 
   const cleanEnv = stripCredentials(context.env);
   const binPath = observer.binPath;
+  let inspectResult: { code: number | null; stdout: string; stderr: string } | undefined;
 
-  // Phase 1: inspect — creates a snapshot in the cell's ~/.pfl store
-  const inspectArgs = [
-    'inspect',
-    '--runtime',
-    runtimeId,
-    '--cell-id',
-    cellId,
-    '--allow-scope',
-    `${runtimeId}:user`,
-    '--json',
-  ];
-
-  const inspectResult = await pflSpawn(binPath, inspectArgs, {
-    cwd: context.workspaceDir,
-    env: cleanEnv,
-    timeoutMs,
-  });
-
-  // Map inspect failures to observation reasons
-  if (inspectResult.code === 5) {
-    return unavailableRecord('consent-required', inspectResult, observationDir);
-  }
-  if (inspectResult.code !== 0) {
-    return unavailableRecord('inspect-failed', inspectResult, observationDir);
-  }
-
-  const inspectEnvelope = parseEnvelope<InspectData>(inspectResult.stdout);
-  if (!inspectEnvelope || !inspectEnvelope.ok) {
-    return unavailableRecord('inspect-failed', inspectResult, observationDir);
-  }
-
-  const observedSnapshotId = inspectEnvelope.data.observed.snapshotId;
-  const resolvedSnapshotId = inspectEnvelope.data.resolved.snapshotId;
-  const pflVersion = inspectEnvelope.pflVersion;
-  const completeness = inspectEnvelope.completeness ?? inspectEnvelope.data.observed.completeness;
-
-  // Phase 2: export — produces observation artifacts
-  const exportArgs = [
-    'export',
-    '--snapshot',
-    observedSnapshotId,
-    '--cell-id',
-    cellId,
-    '--out',
-    observationDir,
-    '--bundle',
-    join(observationDir, 'bundle'),
-    '--json',
-  ];
-
-  const exportResult = await pflSpawn(binPath, exportArgs, {
-    cwd: context.workspaceDir,
-    env: cleanEnv,
-    timeoutMs,
-  });
-
-  if (exportResult.code === 5) {
-    return unavailableRecord('consent-required', exportResult, observationDir);
-  }
-  if (exportResult.code !== 0) {
-    return unavailableRecord('export-failed', exportResult, observationDir);
-  }
-
-  // Phase 3: normalize filenames and collect artifact paths
-  let artifactPaths: string[];
   try {
-    artifactPaths = await normalizeObservationDir(observationDir);
-  } catch {
-    return unavailableRecord('export-failed', exportResult, observationDir);
-  }
+    // Phase 1: inspect — creates a snapshot in the cell's ~/.pfl store
+    const inspectArgs = [
+      'inspect',
+      '--runtime',
+      runtimeId,
+      '--cell-id',
+      cellId,
+      '--allow-scope',
+      `${runtimeId}:user`,
+      '--json',
+    ];
 
-  // Phase 4: remove pfl residue from cell home (ADR-0022 hard requirement)
-  try {
-    await removePflResidue(context.homeDir);
-  } catch {
-    // Hard requirement: residue removal failure is a defect
-    return {
-      record: {
-        observer: { id: 'pfl', version: pflVersion ?? null },
-        status: 'unavailable',
-        reason: 'residue-removal-failed',
-        completeness: null,
-        snapshot_ids: null,
-        artifacts: [],
-      },
+    inspectResult = await pflSpawn(binPath, inspectArgs, {
+      cwd: context.workspaceDir,
+      env: cleanEnv,
+      timeoutMs,
+    });
+
+    // Map inspect failures to observation reasons
+    if (inspectResult.code === 5) {
+      return unavailableRecord('consent-required', inspectResult, observationDir);
+    }
+    if (inspectResult.code !== 0) {
+      return unavailableRecord('inspect-failed', inspectResult, observationDir);
+    }
+
+    const inspectEnvelope = parseEnvelope<InspectData>(inspectResult.stdout);
+    if (!inspectEnvelope || !inspectEnvelope.ok) {
+      return unavailableRecord('inspect-failed', inspectResult, observationDir);
+    }
+
+    const observedSnapshotId = inspectEnvelope.data.observed.snapshotId;
+    const resolvedSnapshotId = inspectEnvelope.data.resolved.snapshotId;
+    const pflVersion = inspectEnvelope.pflVersion;
+    const completeness = inspectEnvelope.completeness ?? inspectEnvelope.data.observed.completeness;
+
+    // Phase 2: export — produces observation artifacts
+    const exportArgs = [
+      'export',
+      '--snapshot',
+      observedSnapshotId,
+      '--cell-id',
+      cellId,
+      '--out',
       observationDir,
-      exitCode: 1,
-      stdout: inspectResult.stdout + '\n' + exportResult.stdout,
-      stderr: inspectResult.stderr + '\n' + exportResult.stderr + '\nfailed to remove pfl residue',
+      '--bundle',
+      join(observationDir, 'bundle'),
+      '--json',
+    ];
+
+    const exportResult = await pflSpawn(binPath, exportArgs, {
+      cwd: context.workspaceDir,
+      env: cleanEnv,
+      timeoutMs,
+    });
+
+    if (exportResult.code === 5) {
+      return unavailableRecord('consent-required', exportResult, observationDir);
+    }
+    if (exportResult.code !== 0) {
+      return unavailableRecord('export-failed', exportResult, observationDir);
+    }
+
+    // Phase 3: normalize filenames and collect artifact paths
+    let artifactPaths: string[];
+    try {
+      artifactPaths = await normalizeObservationDir(observationDir);
+    } catch {
+      return unavailableRecord('export-failed', exportResult, observationDir);
+    }
+
+    // Empty export: inspect succeeded but export produced no files
+    if (artifactPaths.length === 0) {
+      return unavailableRecord('export-failed', exportResult, observationDir);
+    }
+
+    // Determine observation status from completeness
+    const status: ObservationStatus = completeness === 'complete' ? 'recorded' : 'partial';
+
+    const record: ObservationRecord = {
+      observer: { id: 'pfl', version: pflVersion ?? null },
+      status,
+      reason: null,
+      completeness,
+      snapshot_ids: {
+        observed: observedSnapshotId,
+        resolved: resolvedSnapshotId,
+      },
+      artifacts: artifactPaths.map((path) => ({ path, kind: 'observation' })),
     };
+
+    return {
+      record,
+      observationDir,
+      exitCode: 0,
+      stdout: inspectResult.stdout + '\n' + exportResult.stdout,
+      stderr: inspectResult.stderr + '\n' + exportResult.stderr,
+    };
+  } finally {
+    // ADR-0022: always remove pfl residue after observation, regardless of
+    // outcome. Inspect may have created ~/.pfl even if export failed.
+    await removePflResidue(context.homeDir).catch(() => {
+      // Best-effort in finally; hard failure is recorded by the caller if needed
+    });
   }
-
-  // Determine observation status from completeness
-  const status: ObservationStatus = completeness === 'complete' ? 'recorded' : 'partial';
-
-  const record: ObservationRecord = {
-    observer: { id: 'pfl', version: pflVersion ?? null },
-    status,
-    reason: null,
-    completeness,
-    snapshot_ids: {
-      observed: observedSnapshotId,
-      resolved: resolvedSnapshotId,
-    },
-    artifacts: artifactPaths.map((path) => ({ path, kind: 'observation' })),
-  };
-
-  return {
-    record,
-    observationDir,
-    exitCode: 0,
-    stdout: inspectResult.stdout + '\n' + exportResult.stdout,
-    stderr: inspectResult.stderr + '\n' + exportResult.stderr,
-  };
 }
 
 /**
