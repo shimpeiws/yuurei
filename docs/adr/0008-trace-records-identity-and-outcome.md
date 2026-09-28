@@ -3,6 +3,7 @@
 - **Status**: Accepted
 - **Date**: 2026-09-14
 - **Amended by**: [ADR-0013](./0013-resolve-run-parameters-cli-first.md) — the trace also records provenance
+- **Amended by**: [ADR-0022](./0022-pre-run-observation-contract.md) — the manifest attests yuurei-retained observation artifacts, not only runtime-produced output
 
 ## Context
 
@@ -108,5 +109,12 @@ contract document, because neither is visible from the data alone:
   alternative, dropping it, would oblige every consumer to reimplement `kindFor`
   from the path. Documenting it as non-authoritative is the cheaper trade.
 - This mirrors the test used for `cell_digest` membership — does the option
-  change what is executed, or only how the result is stored — so the project has
+  change what is executed, or only how it is stored — so the project has
   one habit for both questions rather than two.
+- **[ADR-0022 amendment]** The manifest now also attests yuurei-retained
+  observation artifacts (`observation/export.json`, `observation/bundle/*`), not
+  only runtime-produced output. The `trace.artifacts[]` projection continues to
+  include these entries via the manifest, so the derivation invariant holds. The
+  wording "what the run produced" is broadened to "what the run produced or
+  retained" for observation artifacts. This is an additive change to the manifest
+  scope; existing runtime-produced artifacts are unaffected.

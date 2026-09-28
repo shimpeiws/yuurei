@@ -132,6 +132,9 @@ A reader must treat an **absent** field as _unknown_, never as _different_.
 Fields landing in v0.3.0: `requested_cell` (`digest`, `inputs_version`),
 `yuurei_version`, `execution_options`, `definition` (`run`, `cli_overrides`).
 
+Fields added after v0.3.0 (additive, optional): `cell_id`, `observation`
+(`observer`, `status`, `reason`, `completeness`, `snapshot_ids`, `artifacts`).
+
 `usage` carries a canonical vocabulary every adapter maps its runtime's own
 field names onto, so two runtimes express the same quantity under the same
 key:
@@ -202,12 +205,39 @@ behaviour, the termination condition, the environment, the inputs, the outputs
 or the side effects? `timeout` is a yes; `--keep`, which changes only retention,
 is a no.
 
+### `cell_id`
+
+`cell_id` identifies the **prepared cell instance**: the directory that was
+created, verified, and observed, before the runtime executed inside it. It is
+distinct from `run_id` (a run-scoped directory name) and
+`requested_cell.digest` (a hash of the input set).
+
+- Format: `cell_<UTC timestamp>-<suffix>` — e.g. `cell_20260928T120000Z-a1b2`.
+- One per `createUniqueRunLayout` invocation. A retry of the same definition
+  produces a new `cell_id`.
+- Transported to pfl via `--cell-id` flag.
+- Optional in the trace: absent on older runs, treated as unknown.
+
+See ADR-0021.
+
+### `observation`
+
+`observation` records the result of a pre-run pfl observation phase, when
+`--observe` is given. See "Pre-run observation" below for the full contract.
+
+Optional in the trace: absent when observation is not opted in, treated as
+unknown. When present, `status` is one of `recorded`, `partial`, or
+`unavailable`. An absent `observation` must never be interpreted as "no
+configuration change".
+
 ### The run directory
 
 `.yuurei/runs/<run-id>/` contains `trace.json`, `resolved-profile.json`,
 `stdout.log`, `stderr.log`, `artifacts.json`, `patch.diff`, `result.txt` and
 `workspace/`. A run seeded with `--seed-repo` additionally contains
-`baseline-manifest.json` and `changes.json` — see Section B.
+`baseline-manifest.json` and `changes.json` — see Section B. A run with
+`--observe` may additionally contain `observation/` — see "Pre-run observation"
+below.
 
 `trace.json` is written atomically and last, so its presence means the run
 reached its end and the identity-and-outcome record is complete. The **required**
@@ -380,6 +410,43 @@ minimum boundary itself is pinned by a test.
 
 macOS and Linux, both exercised in CI. Windows is not supported.
 
+### Pre-run observation
+
+**Ordering**: when `--observe` is given, the observation phase runs after
+isolation verification and before runtime execution. An isolation verification
+failure (exit 4) skips observation and execution. See design
+`docs/design/pre-run-observation.md` for the ordering diagram and scope matrix.
+
+**Opt-in**: `--observe` on `yuurei run`. Without it, `observation` is absent
+from the trace (see Section B for the flag's stability status).
+
+**Status**: one of `recorded`, `partial`, or `unavailable`. When `unavailable`,
+`reason` is one of: `observer-not-found`, `spawn-failed`, `timeout`,
+`consent-required`, `export-failed`, `isolation-level0-unsupported`. See ADR-0022
+for the full failure policy table.
+
+**Retention**: observation artifacts live under `observation/` in the run
+directory: `export.json` (`pfl export --json`), `bundle/harness.json` and
+`bundle/manifest.json` (`pfl export --bundle`). Both are retained; content is
+attested in `artifacts.json` with `kind: observation`. Retention is best-effort;
+a failure sets `status: unavailable` with `reason: export-failed` and the run
+continues. `observation/` is not a required output — its absence does not
+remove the run directory.
+
+**Residue**: pfl writes `~/.pfl` inside the cell's HOME under level1. Yuurei
+must remove this directory (or redirect pfl's store) **before**
+`runtime.execute()`. This is a hard requirement — residue that alters the
+agent-visible environment is a defect.
+
+**level0**: observation under level0 is not supported in v1 (`status:
+unavailable`, `reason: isolation-level0-unsupported`). The operator's host
+HOME is shared, and pfl reads the host `~/.pfl` store, which is a leak.
+
+**Identity exclusion**: observation is **not** an input to
+`requested_cell.digest`. If a future observer cannot guarantee no residue,
+observation becomes an identity input (`inputs_version` incremented). This is
+stated in ADR-0022 as a hard requirement.
+
 ---
 
 ## B. Experimental surface
@@ -468,6 +535,21 @@ or be removed in a minor release.
 **Notice**: same rule as the credential-bridge flags — a removal is preceded
 by deprecation in the prior minor release.
 
+### `--observe`
+
+Enables the pre-run pfl observation phase. See "Pre-run observation" in Section A
+for the full contract, retention, failure policy, and residue requirements.
+
+**Not promised**: the flag's existence, name or argument shape. Any of these may
+change or be removed in a minor release.
+
+**Promised while the flag exists**:
+
+- The operator's real global configuration is never read by the observer.
+  _(Also Section C.)_
+- Observation failure never blocks runtime execution.
+- Observation is never an input to `requested_cell.digest`.
+
 ---
 
 ## C. Security invariants
@@ -495,6 +577,9 @@ described in the changelog's `Security` section.
   `SIGKILL` and hard crashes are outside this — see Section D.
 - **Path validation, isolation verification and credential bridging fail
   closed.** A failure never falls back to "allow".
+- **Pre-run observation never reads the operator's host configuration, never
+  weakens isolation or credentials, and an observer failure is recorded as
+  unavailable, never silently substituted with a host fallback.**
 
 ---
 
