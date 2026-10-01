@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/shin/.hermes/scripts/devin_dangerous_guard.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
