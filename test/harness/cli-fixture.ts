@@ -16,6 +16,7 @@ export async function runCli(
   args: string[],
   env: NodeJS.ProcessEnv,
   cwd: string = repoRoot,
+  stdin?: string,
 ): Promise<CliResult> {
   const child = spawn(
     process.execPath,
@@ -31,6 +32,10 @@ export async function runCli(
   const stderr: Buffer[] = [];
   child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
   child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+  // A run that reads stdin (`--task -`) needs EOF to finish; passing content
+  // is how a test hands the CLI a task held as a string. Callers that do not
+  // read stdin are unaffected — their stdin is left exactly as before.
+  if (stdin !== undefined) child.stdin.end(stdin);
   return new Promise<CliResult>((resolve, reject) => {
     child.on('error', reject);
     child.on('close', (code) =>
@@ -139,7 +144,7 @@ export async function cleanupFixtures(): Promise<void> {
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 }
 
-function runIdFrom(stdout: string): string {
+export function runIdFrom(stdout: string): string {
   const id = stdout.match(/run ([^ ]+) finished/)?.[1];
   if (!id) throw new Error(`run id missing in output: ${stdout}`);
   return id;

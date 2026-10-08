@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -69,6 +69,20 @@ describe('resolveCell requested-cell identity', () => {
     const b = await resolveCell(input({ taskPath: taskB }));
 
     expect(b.requestedCellDigest).not.toBe(a.requestedCellDigest);
+  });
+
+  it('gives inline task content the same identity as a file with the same bytes', async () => {
+    const content = await readFile(taskA, 'utf8');
+
+    const fromFile = await resolveCell(input({ taskPath: taskA }));
+    const fromContent = await resolveCell(
+      input({ taskPath: undefined, taskContent: content, taskSource: 'stdin' }),
+    );
+
+    expect(fromContent.resolvedTask.digest).toBe(fromFile.resolvedTask.digest);
+    expect(fromContent.requestedCellDigest).toBe(fromFile.requestedCellDigest);
+    // No path to record, so the provenance is the declared origin.
+    expect(fromContent.resolvedTask.source).toBe('stdin');
   });
 
   it('rejects an execution option that JSON would silently rewrite', async () => {
