@@ -376,7 +376,7 @@ describe('contract verification: configuration errors', () => {
 
   it('rejects a stdin task larger than the argument bound', async () => {
     const project = await createFixtureProject(CLAUDE);
-    const oversized = 'x'.repeat(1024 * 1024 + 1);
+    const oversized = 'x'.repeat(128 * 1024 + 1);
 
     const result = await runCli(
       ['run', '--profile', 'fixture', '--task', '-'],
@@ -386,6 +386,6 @@ describe('contract verification: configuration errors', () => {
     );
 
     expect(result.code).toBe(2);
-    expect(result.stderr).toContain('exceeds');
+    expect(result.stderr).toContain('argument bound');
   });
 });

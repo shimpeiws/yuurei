@@ -1,12 +1,13 @@
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 
 /**
- * Upper bound for a task read from stdin. The content is passed to the
- * runtime as a single positional argument, so a task beyond the platform
- * argument-size limit can never run; bounding the read keeps a pipe that
- * never ends from exhausting memory before that limit is even reached.
+ * Upper bound for a task read from stdin: 128 KiB, Linux's per-argument
+ * limit (MAX_ARG_STRLEN = 32 pages), the strictest of the supported
+ * platforms. The content is passed to the runtime as a single positional
+ * argument, so a task beyond this bound can never run; bounding the read
+ * also keeps a pipe that never ends from exhausting memory first.
  */
-const MAX_STDIN_TASK_BYTES = 1024 * 1024;
+const MAX_STDIN_TASK_BYTES = 128 * 1024;
 
 /**
  * Reads all of `process.stdin` as UTF-8, up to MAX_STDIN_TASK_BYTES. Used by
@@ -20,9 +21,9 @@ export async function readStdin(): Promise<string> {
   let total = 0;
   for await (const chunk of process.stdin) {
     total += (chunk as Buffer).length;
-    if (total > MAX_STDIN_TASK_BYTES) {
+    if (total >= MAX_STDIN_TASK_BYTES) {
       throw new YuureiError(
-        `task from stdin exceeds ${MAX_STDIN_TASK_BYTES} bytes; the runtime receives the task as a single argument and cannot run a task this large`,
+        `task from stdin reaches the ${MAX_STDIN_TASK_BYTES}-byte argument bound; the runtime receives the task as a single argument and cannot run a task this large`,
         EXIT_CODES.CONFIG_ERROR,
       );
     }
