@@ -105,6 +105,16 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     }
   }
 
+  // Reject a missing profile/task before touching stdin: `--task -` would
+  // otherwise block on an interactive stdin that the operator never meant
+  // to type a task into.
+  if (!profileName || !taskPath) {
+    throw new YuureiError(
+      'either a run name or both --profile and --task are required',
+      EXIT_CODES.CONFIG_ERROR,
+    );
+  }
+
   // `--task -` reads the task from stdin instead of a file: a caller that holds
   // the task as a string (e.g. an agent) passes the bytes directly, with no
   // file written into the operator's project or a temp dir to clean up. The
@@ -114,13 +124,6 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     taskContent = await readStdin();
     taskSource = 'stdin';
     taskPath = undefined;
-  }
-
-  if (!profileName || (taskPath === undefined && taskContent === undefined)) {
-    throw new YuureiError(
-      'either a run name or both --profile and --task are required',
-      EXIT_CODES.CONFIG_ERROR,
-    );
   }
 
   // Per field, CLI first: the flag if given, else the run definition's entry,

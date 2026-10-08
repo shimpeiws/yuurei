@@ -7,6 +7,15 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+### Added
+
+- **`yuurei run --task -` reads the task from standard input** (#195), so a
+  caller that holds the task as a string can run it without writing a file
+  into the project. A task read from stdin records `task.source: stdin` and
+  produces the same task digest as a file holding identical bytes. Tasks
+  larger than the 1 MiB bound are rejected before the run, matching the
+  platform argument-size limit that applies to task content either way.
+
 ## [1.3.0] - 2026-09-28
 
 ### Added

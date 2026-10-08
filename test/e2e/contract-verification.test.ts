@@ -361,4 +361,31 @@ describe('contract verification: configuration errors', () => {
 
     expect(result.code).toBe(3);
   });
+
+  it('rejects --task - without a profile before reading stdin', async () => {
+    const project = await createFixtureProject(CLAUDE);
+
+    // stdin carries a task, yet the missing --profile is diagnosed first: the
+    // CLI must not consume a stream meant for a different purpose, nor block
+    // an interactive caller on input it will discard.
+    const result = await runCli(['run', '--task', '-'], project.env, project.root, 'do anything\n');
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('--profile');
+  });
+
+  it('rejects a stdin task larger than the argument bound', async () => {
+    const project = await createFixtureProject(CLAUDE);
+    const oversized = 'x'.repeat(1024 * 1024 + 1);
+
+    const result = await runCli(
+      ['run', '--profile', 'fixture', '--task', '-'],
+      project.env,
+      project.root,
+      oversized,
+    );
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('exceeds');
+  });
 });
