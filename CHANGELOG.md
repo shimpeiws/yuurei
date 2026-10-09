@@ -17,6 +17,13 @@ What that covers is stated in [the public contract](docs/contract.md).
   `task_path_escapes`, `no_trace`, `isolation_failed`, `save_failed`, or
   `internal_error` without reading the message. The codes are a new Section A
   surface in `docs/contract.md` (issue #192).
+- **`yuurei run --task -` reads the task from standard input** (#195), so a
+  caller that holds the task as a string can run it without writing a file
+  into the project. A task read from stdin records `task.source: stdin` and
+  produces the same task digest as a file holding identical bytes. Tasks
+  reaching the 128 KiB bound are rejected before the run, matching the
+  strictest per-argument limit (Linux MAX_ARG_STRLEN) that applies to task
+  content either way.
 
 ## [1.3.0] - 2026-09-28
 

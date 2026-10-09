@@ -9,6 +9,7 @@ import {
   digestOf,
   runAndReadTrace,
   runCli,
+  runIdFrom,
   writeRunConfig,
 } from '../harness/cli-fixture.js';
 
@@ -80,6 +81,47 @@ describe('contract verification: requested-cell digest', () => {
     const kept = digestOf(await runAndReadTrace(project, ['--keep']));
 
     expect(kept).toBe(plain);
+  });
+
+  it('(f) reads the task from stdin and records the file form digest', async () => {
+    const project = await createFixtureProject(CLAUDE);
+    const taskFile = join(project.root, '.yuurei', 'tasks', 'smoke.md');
+    const content = await readFile(taskFile, 'utf8');
+
+    const fromFile = await runCli(
+      ['run', '--profile', 'fixture', '--task', taskFile],
+      project.env,
+      project.root,
+    );
+    expect(fromFile.code).toBe(0);
+
+    // The task is passed as a string with no file written into the project.
+    const fromStdin = await runCli(
+      ['run', '--profile', 'fixture', '--task', '-'],
+      project.env,
+      project.root,
+      content,
+    );
+    expect(fromStdin.code).toBe(0);
+
+    const readRunTrace = async (stdout: string) =>
+      JSON.parse(
+        await readFile(
+          join(project.root, '.yuurei', 'runs', runIdFrom(stdout), 'trace.json'),
+          'utf8',
+        ),
+      ) as { task: { source: string; digest: string }; requested_cell: { digest: string } };
+
+    const fileTrace = await readRunTrace(fromFile.stdout);
+    const stdinTrace = await readRunTrace(fromStdin.stdout);
+
+    // A task's path is provenance, not identity: identical content produces the
+    // same task digest and the same requested-cell digest either way.
+    expect(stdinTrace.task.digest).toBe(fileTrace.task.digest);
+    expect(stdinTrace.requested_cell.digest).toBe(fileTrace.requested_cell.digest);
+    // With no path, the trace names the real origin instead of inventing one.
+    expect(stdinTrace.task.source).toBe('stdin');
+    expect(fileTrace.task.source).toBe(taskFile);
   });
 
   it('(e) pins the CLI-over-definition precedence per field', async () => {
@@ -319,6 +361,33 @@ describe('contract verification: configuration errors', () => {
     const result = await runCli(['run', 'smoke'], env, project.root);
 
     expect(result.code).toBe(3);
+  });
+
+  it('rejects --task - without a profile before reading stdin', async () => {
+    const project = await createFixtureProject(CLAUDE);
+
+    // stdin carries a task, yet the missing --profile is diagnosed first: the
+    // CLI must not consume a stream meant for a different purpose, nor block
+    // an interactive caller on input it will discard.
+    const result = await runCli(['run', '--task', '-'], project.env, project.root, 'do anything\n');
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('--profile');
+  });
+
+  it('rejects a stdin task larger than the argument bound', async () => {
+    const project = await createFixtureProject(CLAUDE);
+    const oversized = 'x'.repeat(128 * 1024 + 1);
+
+    const result = await runCli(
+      ['run', '--profile', 'fixture', '--task', '-'],
+      project.env,
+      project.root,
+      oversized,
+    );
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('argument bound');
   });
 });
 

@@ -137,6 +137,13 @@ form of the Section B `--seed-repo` flag and shares its experimental status.
 A named run's `task` path must stay inside `.yuurei/`. A `--task` path given
 directly is an explicit operator choice and may point elsewhere.
 
+`--task -` reads the task from standard input instead of a file, for a caller
+that already holds the task as a string. The task's content forms cell identity,
+so the digest is over the same bytes and matches a file holding that content; a
+task with no path records `task.source` as `stdin`. The content is passed to the
+runtime as a positional argument, so a task larger than the platform's
+argument-size limit cannot run either way.
+
 ### `trace.json`
 
 The fields and their meanings. `schema_version` is a **compatibility token,

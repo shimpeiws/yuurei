@@ -129,7 +129,7 @@ cli
 cli
   .command('run [run-name]', 'Execute a run')
   .option('--profile <profile>', 'Profile name (used with --task instead of a run name)')
-  .option('--task <task>', 'Task file path (used with --profile instead of a run name)')
+  .option('--task <task>', 'Task file path, or "-" to read the task from stdin')
   .option('--model <model>', 'Requested model')
   .option('--keep', 'Keep the isolated workspace for debugging')
   .option(
@@ -217,8 +217,29 @@ cli
 
 cli.help();
 cli.version(packageVersion);
+
+/**
+ * cac (via mri) reads a lone `-` after `--task` as a flag rather than a value,
+ * so the documented `--task -` spelling fails with "value is missing". Rewrite
+ * that one spelling to `--task=-`, which mri does accept, so both reach the
+ * same option value and a task can be read from stdin.
+ */
+function normalizeTaskStdinArgv(argv: string[]): string[] {
+  const normalized: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === '--task' && argv[index + 1] === '-') {
+      normalized.push('--task=-');
+      index += 1;
+      continue;
+    }
+    const arg = argv[index];
+    if (arg !== undefined) normalized.push(arg);
+  }
+  return normalized;
+}
+
 try {
-  cli.parse();
+  cli.parse(normalizeTaskStdinArgv(process.argv));
 } catch (error) {
   // `cli.parse()` runs outside the action wrappers above, so an invalid
   // invocation (unknown option, missing required argument, unused argument)

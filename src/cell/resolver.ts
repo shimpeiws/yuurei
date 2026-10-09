@@ -16,7 +16,25 @@ export interface CellResolutionInput {
   runtimeId: string;
   requestedModel: string;
   profile: ResolvedProfile;
-  taskPath: string;
+  /**
+   * Path to a task file. Exactly one of `taskPath` and `taskContent` is
+   * supplied: the `--task -` / inline form omits the path and provides the
+   * content directly, so a caller holding a task as a string never has to
+   * write a file before it can run.
+   */
+  taskPath?: string;
+  /**
+   * Inline task content for a task with no file. The digest is computed over
+   * this content exactly as for a file, so identical bytes produce the same
+   * `requested_cell.digest` either way.
+   */
+  taskContent?: string;
+  /**
+   * Provenance recorded as `task.source` when the task is inline (for example
+   * `stdin`). A task path is its own provenance; inline content has none, so
+   * this names where the bytes came from instead of inventing a path.
+   */
+  taskSource?: string;
   yuureiVersion: string;
   /**
    * Adapter-owned execution contracts, before normalization. Adapters read
@@ -34,8 +52,27 @@ export interface CellResolutionInput {
   seedRepo?: string;
 }
 
-/** Resolves a task file into its content plus a content digest. */
-async function resolveTask(taskPath: string): Promise<ResolvedTaskRef> {
+/**
+ * Resolves a task into its content, a content digest, and the provenance
+ * recorded as `task.source`. A task given as inline content has no path; its
+ * source is the caller-declared origin (`stdin`), never a fabricated path, and
+ * its digest covers the same bytes a file would hold.
+ */
+async function resolveTask(input: CellResolutionInput): Promise<ResolvedTaskRef> {
+  if (input.taskContent !== undefined) {
+    return {
+      source: input.taskSource ?? 'inline',
+      content: input.taskContent,
+      digest: sha256Digest(input.taskContent),
+    };
+  }
+  if (input.taskPath === undefined) {
+    throw new YuureiError(
+      'a task path or inline task content is required',
+      EXIT_CODES.CONFIG_ERROR,
+    );
+  }
+  const taskPath = input.taskPath;
   let content: string;
   try {
     content = await readFile(taskPath, 'utf8');
@@ -105,7 +142,7 @@ function assertJsonSafeExecutionOptions(options: Record<string, unknown>): void 
  * representation here, so the same intent never produces two digests.
  */
 export async function resolveCell(input: CellResolutionInput): Promise<ResolvedCell> {
-  const resolvedTask = await resolveTask(input.taskPath);
+  const resolvedTask = await resolveTask(input);
   const resolvedProfile = {
     name: input.profile.name,
     content: input.profile.content,

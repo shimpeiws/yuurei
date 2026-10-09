@@ -7,6 +7,7 @@ import { runPipeline } from '../run/pipeline.js';
 import { MAX_TIMEOUT_MS } from '../runtime/exec.js';
 import { getRuntime } from '../runtime/registry.js';
 import { isPathWithin } from '../util/fs.js';
+import { readStdin } from '../util/stdin.js';
 import { YuureiError, ERROR_CODES, EXIT_CODES } from './exit-codes.js';
 import { exitCodeForSignal } from '../run/signals.js';
 import { packageVersion } from '../version.js';
@@ -24,6 +25,10 @@ function isIsolationStrategy(value: string): value is IsolationStrategy {
 export interface RunOptions {
   runName: string | undefined;
   profile: string | undefined;
+  /**
+   * Task file path, or `-` to read the task content from stdin (direct
+   * `--profile`/`--task` form only). The content forms the digest either way.
+   */
   task: string | undefined;
   keep: boolean | undefined;
   model: string | undefined;
@@ -80,6 +85,8 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
   let runEntry: YuureiConfig['runs'][string] | undefined;
   let profileName = options.profile;
   let taskPath = options.task;
+  let taskContent: string | undefined;
+  let taskSource: string | undefined;
 
   if (options.runName) {
     runEntry = config.runs[options.runName];
@@ -108,12 +115,26 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     }
   }
 
+  // Reject a missing profile/task before touching stdin: `--task -` would
+  // otherwise block on an interactive stdin that the operator never meant
+  // to type a task into.
   if (!profileName || !taskPath) {
     throw new YuureiError(
       'either a run name or both --profile and --task are required',
       EXIT_CODES.CONFIG_ERROR,
       ERROR_CODES.INVALID_INPUT,
     );
+  }
+
+  // `--task -` reads the task from stdin instead of a file: a caller that holds
+  // the task as a string (e.g. an agent) passes the bytes directly, with no
+  // file written into the operator's project or a temp dir to clean up. The
+  // content is what forms cell identity, so the digest is unchanged; the
+  // provenance recorded as `task.source` is `stdin` rather than a path.
+  if (taskPath === '-') {
+    taskContent = await readStdin();
+    taskSource = 'stdin';
+    taskPath = undefined;
   }
 
   // Per field, CLI first: the flag if given, else the run definition's entry,
@@ -185,7 +206,9 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     runtimeId: profile.runtime,
     requestedModel,
     profile,
-    taskPath,
+    ...(taskPath !== undefined ? { taskPath } : {}),
+    ...(taskContent !== undefined ? { taskContent } : {}),
+    ...(taskSource !== undefined ? { taskSource } : {}),
     yuureiVersion: YUUREI_VERSION,
     yuureiDir,
     isolationStrategy,
