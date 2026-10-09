@@ -99,6 +99,32 @@ One JSON object per line. Every line has `level` (`info`, `warn` or `error`) and
 `message`; command-specific fields sit alongside them at the top level. `error`
 lines go to stderr, the rest to stdout. Adding a field is an additive change.
 
+### `--json` error codes
+
+Every `error` line carries a stable `code` and the `exit_code` beside `level`
+and `message`. The `code`, not the prose `message`, is the contract: an agent
+branches on it to decide retry / fix config / authenticate / give up, and the
+message stays free to change. Each code names a distinct failure an agent must
+be able to tell apart without reading `message`. The initial vocabulary is:
+
+| `code`                | Meaning                                                              |
+| --------------------- | -------------------------------------------------------------------- |
+| `no_project`          | No `.yuurei/` directory was found from the working directory.        |
+| `unknown_run`         | The named run is not defined in `yuurei.yaml`.                       |
+| `unknown_profile`     | The named profile is not defined in `yuurei.yaml`.                   |
+| `unknown_runtime`     | A runtime id is not one of the supported adapters.                   |
+| `runtime_unavailable` | A supported runtime is not installed or is below its minimum.        |
+| `invalid_config`      | A configuration file or profile is unreadable, malformed, or unsafe. |
+| `invalid_input`       | A CLI argument or run parameter has an invalid value.                |
+| `task_path_escapes`   | A named run's task path would escape `.yuurei/`.                     |
+| `no_trace`            | No trace exists for the requested run id.                            |
+| `isolation_failed`    | Isolation verification failed (fail closed).                         |
+| `save_failed`         | A required run output could not be saved.                            |
+| `internal_error`      | An unexpected failure with no more specific code.                    |
+
+Adding a code is additive; changing or removing one is a breaking change to
+this Section A surface.
+
 ### Configuration file schemas
 
 `.yuurei/yuurei.yaml` — `version: 1`, a `profiles` map (`runtime`, `source`), and

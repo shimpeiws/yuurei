@@ -1,4 +1,4 @@
-import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
+import { ERROR_CODES, EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 import { ClaudeCodeRuntime } from './claude-code/index.js';
 import { CodexRuntime } from './codex/index.js';
 import { OpenCodeRuntime } from './opencode/index.js';
@@ -18,7 +18,11 @@ const RUNTIMES: Record<string, () => Runtime> = {
 export function getRuntime(id: string): Runtime {
   const factory = RUNTIMES[id];
   if (!factory) {
-    throw new YuureiError(`unknown runtime: ${id}`, EXIT_CODES.RUNTIME_UNSUPPORTED);
+    throw new YuureiError(
+      `unknown runtime: ${id}`,
+      EXIT_CODES.RUNTIME_UNSUPPORTED,
+      ERROR_CODES.UNKNOWN_RUNTIME,
+    );
   }
   return factory();
 }

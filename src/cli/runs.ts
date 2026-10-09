@@ -2,7 +2,7 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { findYuureiDir } from '../config/discovery.js';
 import { readTrace } from '../trace/reader.js';
-import { YuureiError, EXIT_CODES } from './exit-codes.js';
+import { YuureiError, ERROR_CODES, EXIT_CODES } from './exit-codes.js';
 import type { Trace } from '../trace/schema.js';
 import type { Logger } from '../util/logger.js';
 
@@ -53,7 +53,11 @@ function projectRow(trace: Trace): RunsRow {
 export async function runRuns(cwd: string, logger: Logger, json: boolean): Promise<void> {
   const yuureiDir = await findYuureiDir(cwd);
   if (!yuureiDir) {
-    throw new YuureiError('no .yuurei/ directory found', EXIT_CODES.CONFIG_ERROR);
+    throw new YuureiError(
+      'no .yuurei/ directory found',
+      EXIT_CODES.CONFIG_ERROR,
+      ERROR_CODES.NO_PROJECT,
+    );
   }
 
   const runsDir = join(yuureiDir, 'runs');

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { dirname, join, resolve } from 'node:path';
 import { listRuntimeIds } from '../runtime/registry.js';
 import { isPathWithin, pathExists } from '../util/fs.js';
-import { EXIT_CODES, YuureiError } from './exit-codes.js';
+import { ERROR_CODES, EXIT_CODES, YuureiError } from './exit-codes.js';
 import type { Logger } from '../util/logger.js';
 
 export interface InitOptions {
@@ -42,6 +42,7 @@ function validateName(value: string, what: string): void {
     throw new YuureiError(
       `invalid ${what} "${value}": use letters, digits, ".", "_" and "-", starting with a letter or digit`,
       EXIT_CODES.CONFIG_ERROR,
+      ERROR_CODES.INVALID_INPUT,
     );
   }
 }
@@ -148,6 +149,7 @@ export async function runInit(cwd: string, options: InitOptions, logger: Logger)
     throw new YuureiError(
       `unknown runtime "${options.runtime}": must be one of ${runtimeIds.join(', ')}`,
       EXIT_CODES.RUNTIME_UNSUPPORTED,
+      ERROR_CODES.UNKNOWN_RUNTIME,
     );
   }
   validateName(options.profile, 'profile name');
@@ -162,6 +164,7 @@ export async function runInit(cwd: string, options: InitOptions, logger: Logger)
       throw new YuureiError(
         `refusing to scaffold ${file.relPath}: escapes target directory ${targetDir}`,
         EXIT_CODES.CONFIG_ERROR,
+        ERROR_CODES.INVALID_INPUT,
       );
     }
   }
@@ -178,6 +181,7 @@ export async function runInit(cwd: string, options: InitOptions, logger: Logger)
       throw new YuureiError(
         `refusing to overwrite existing files: ${conflicts.join(', ')}`,
         EXIT_CODES.CONFIG_ERROR,
+        ERROR_CODES.INVALID_INPUT,
       );
     }
     printInitReport(buildInitReport(targetDir, options, false), options, logger);

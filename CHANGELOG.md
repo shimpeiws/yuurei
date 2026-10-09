@@ -7,6 +7,17 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Stable error codes on `--json` error lines**. Every `error` line now
+  carries a `code` and the `exit_code` beside `level` and `message`. The
+  `code`, not the prose `message`, is the contract: an agent can branch on
+  `no_project`, `unknown_run`, `unknown_profile`, `unknown_runtime`,
+  `runtime_unavailable`, `invalid_config`, `invalid_input`,
+  `task_path_escapes`, `no_trace`, `isolation_failed`, `save_failed`, or
+  `internal_error` without reading the message. The codes are a new Section A
+  surface in `docs/contract.md` (issue #192).
+
 ## [1.3.0] - 2026-09-28
 
 ### Added

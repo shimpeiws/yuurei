@@ -34,6 +34,8 @@ describe('CLI errors', () => {
     expect(JSON.parse(result.stderr)).toEqual({
       level: 'error',
       message: 'unknown profile action: unknown',
+      code: 'invalid_input',
+      exit_code: 2,
     });
   });
 

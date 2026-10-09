@@ -1,4 +1,5 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -318,5 +319,89 @@ describe('contract verification: configuration errors', () => {
     const result = await runCli(['run', 'smoke'], env, project.root);
 
     expect(result.code).toBe(3);
+  });
+});
+
+describe('contract verification: --json error codes', () => {
+  afterEach(cleanupFixtures);
+
+  it('makes each failure an agent must branch on distinguishable without reading message', async () => {
+    const project = await createFixtureProject(CLAUDE);
+    // A fresh directory with no `.yuurei/` anywhere above it.
+    const emptyRoot = await mkdtemp(join(tmpdir(), 'yuurei-no-project-'));
+    try {
+      // A named run whose task path would escape `.yuurei/`.
+      await writeFile(
+        join(project.root, '.yuurei', 'yuurei.yaml'),
+        [
+          'version: 1',
+          'profiles:',
+          '  fixture:',
+          '    runtime: claude-code',
+          '    source: ./profiles/fixture',
+          'runs:',
+          '  escaping:',
+          '    profile: fixture',
+          '    task: ../../escape.md',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const cases: Array<{ args: string[]; cwd: string; env: NodeJS.ProcessEnv; code: string }> = [
+        {
+          args: ['profile', 'list', '--json'],
+          cwd: emptyRoot,
+          env: process.env,
+          code: 'no_project',
+        },
+        {
+          args: ['profile', 'bogus', '--json'],
+          cwd: project.root,
+          env: project.env,
+          code: 'invalid_input',
+        },
+        {
+          args: ['run', 'missing', '--json'],
+          cwd: project.root,
+          env: project.env,
+          code: 'unknown_run',
+        },
+        {
+          args: ['inspect', 'missing', '--json'],
+          cwd: project.root,
+          env: project.env,
+          code: 'unknown_profile',
+        },
+        {
+          args: ['run', 'escaping', '--json'],
+          cwd: project.root,
+          env: project.env,
+          code: 'task_path_escapes',
+        },
+        {
+          args: ['trace', 'show', 'missing', '--json'],
+          cwd: project.root,
+          env: project.env,
+          code: 'no_trace',
+        },
+      ];
+
+      const observed: string[] = [];
+      for (const testCase of cases) {
+        const result = await runCli(testCase.args, testCase.env, testCase.cwd);
+        const line = JSON.parse(result.stderr.trim()) as Record<string, unknown>;
+        expect(line['level']).toBe('error');
+        expect(line['exit_code']).toBe(2);
+        expect(line['code']).toBe(testCase.code);
+        observed.push(line['code'] as string);
+      }
+
+      // The point of the surface: no two failures share a code, so a consumer
+      // never reads the prose `message` to tell them apart.
+      expect(new Set(observed).size).toBe(observed.length);
+    } finally {
+      await rm(emptyRoot, { recursive: true, force: true });
+    }
   });
 });
