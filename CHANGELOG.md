@@ -9,6 +9,14 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ### Added
 
+- **Stable error codes on `--json` error lines**. Every `error` line now
+  carries a `code` and the `exit_code` beside `level` and `message`. The
+  `code`, not the prose `message`, is the contract: an agent can branch on
+  `no_project`, `unknown_run`, `unknown_profile`, `unknown_runtime`,
+  `runtime_unavailable`, `invalid_config`, `invalid_input`,
+  `task_path_escapes`, `no_trace`, `isolation_failed`, `save_failed`, or
+  `internal_error` without reading the message. The codes are a new Section A
+  surface in `docs/contract.md` (issue #192).
 - **`yuurei run --task -` reads the task from standard input** (#195), so a
   caller that holds the task as a string can run it without writing a file
   into the project. A task read from stdin records `task.source: stdin` and

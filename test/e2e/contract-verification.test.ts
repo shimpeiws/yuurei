@@ -1,4 +1,5 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -374,18 +375,187 @@ describe('contract verification: configuration errors', () => {
     expect(result.stderr).toContain('--profile');
   });
 
+  it('rejects an unknown profile before reading stdin', async () => {
+    const project = await createFixtureProject(CLAUDE);
+
+    // The profile is validated before stdin is consumed, so an unknown profile
+    // is diagnosed without draining (and blocking on) a stream the run will
+    // never use. `--json` surfaces the category the caller branches on.
+    const result = await runCli(
+      ['run', '--profile', 'missing', '--task', '-', '--json'],
+      project.env,
+      project.root,
+      'do anything\n',
+    );
+
+    expect(result.code).toBe(2);
+    expect(JSON.parse(result.stderr.trim())).toMatchObject({
+      code: 'unknown_profile',
+      exit_code: 2,
+    });
+  });
+
   it('rejects a stdin task larger than the argument bound', async () => {
     const project = await createFixtureProject(CLAUDE);
     const oversized = 'x'.repeat(128 * 1024 + 1);
 
     const result = await runCli(
-      ['run', '--profile', 'fixture', '--task', '-'],
+      ['run', '--profile', 'fixture', '--task', '-', '--json'],
       project.env,
       project.root,
       oversized,
     );
 
     expect(result.code).toBe(2);
+    // The task bytes are invalid input, not a malformed configuration file.
+    expect(JSON.parse(result.stderr.trim())).toMatchObject({
+      code: 'invalid_input',
+      exit_code: 2,
+    });
     expect(result.stderr).toContain('argument bound');
+  });
+});
+
+describe('contract verification: --json error codes', () => {
+  afterEach(cleanupFixtures);
+
+  it('makes each failure an agent must branch on distinguishable without reading message', async () => {
+    const project = await createFixtureProject(CLAUDE);
+    // A fresh directory with no `.yuurei/` anywhere above it.
+    const emptyRoot = await mkdtemp(join(tmpdir(), 'yuurei-no-project-'));
+    // A project whose runtime is not installed, for the exit-3 category.
+    const noRuntimeProject = await createFixtureProject(CLAUDE);
+    await rm(join(noRuntimeProject.bin, 'claude'));
+    const noRuntimeEnv = {
+      ...noRuntimeProject.env,
+      PATH: `${noRuntimeProject.bin}:/usr/bin:/bin`,
+    };
+    try {
+      // A named run whose task path would escape `.yuurei/`.
+      await writeFile(
+        join(project.root, '.yuurei', 'yuurei.yaml'),
+        [
+          'version: 1',
+          'profiles:',
+          '  fixture:',
+          '    runtime: claude-code',
+          '    source: ./profiles/fixture',
+          'runs:',
+          '  escaping:',
+          '    profile: fixture',
+          '    task: ../../escape.md',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+
+      const cases: Array<{
+        args: string[];
+        cwd: string;
+        env: NodeJS.ProcessEnv;
+        code: string;
+        exitCode: number;
+      }> = [
+        {
+          args: ['profile', 'list', '--json'],
+          cwd: emptyRoot,
+          env: process.env,
+          code: 'no_project',
+          exitCode: 2,
+        },
+        {
+          args: ['profile', 'bogus', '--json'],
+          cwd: project.root,
+          env: project.env,
+          code: 'invalid_input',
+          exitCode: 2,
+        },
+        {
+          args: ['run', 'missing', '--json'],
+          cwd: project.root,
+          env: project.env,
+          code: 'unknown_run',
+          exitCode: 2,
+        },
+        {
+          args: ['inspect', 'missing', '--json'],
+          cwd: project.root,
+          env: project.env,
+          code: 'unknown_profile',
+          exitCode: 2,
+        },
+        {
+          args: ['run', 'escaping', '--json'],
+          cwd: project.root,
+          env: project.env,
+          code: 'task_path_escapes',
+          exitCode: 2,
+        },
+        {
+          args: ['trace', 'show', 'missing', '--json'],
+          cwd: project.root,
+          env: project.env,
+          code: 'no_trace',
+          exitCode: 2,
+        },
+        // Rejected by cac before any action runs, so these never reach the
+        // action wrapper yet must still carry the JSON envelope.
+        {
+          args: ['run', '--json', '--bogus'],
+          cwd: project.root,
+          env: project.env,
+          code: 'invalid_input',
+          exitCode: 2,
+        },
+        {
+          args: ['trace', 'show', '--json'],
+          cwd: project.root,
+          env: project.env,
+          code: 'invalid_input',
+          exitCode: 2,
+        },
+        // A supported runtime that is not installed is its own category.
+        {
+          args: ['run', 'smoke', '--json'],
+          cwd: noRuntimeProject.root,
+          env: noRuntimeEnv,
+          code: 'runtime_unavailable',
+          exitCode: 3,
+        },
+      ];
+
+      const observed: string[] = [];
+      for (const testCase of cases) {
+        const result = await runCli(testCase.args, testCase.env, testCase.cwd);
+        const line = JSON.parse(result.stderr.trim()) as Record<string, unknown>;
+        expect(line['level']).toBe('error');
+        expect(line['exit_code']).toBe(testCase.exitCode);
+        expect(line['code']).toBe(testCase.code);
+        observed.push(line['code'] as string);
+      }
+
+      expect(observed).toEqual(cases.map((testCase) => testCase.code));
+      // Every branch-worthy category is its own code; only `invalid_input`
+      // repeats, and only across call forms whose fix is the same (repair the
+      // invocation), so a consumer still never reads the prose `message`.
+      const branchWorthy = observed.filter((code) => code !== 'invalid_input');
+      expect(new Set(branchWorthy).size).toBe(branchWorthy.length);
+    } finally {
+      await rm(emptyRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('reports invalid_config, not invalid_input, for an unreadable configuration file', async () => {
+    const project = await createFixtureProject(CLAUDE);
+    await writeFile(join(project.root, '.yuurei', 'yuurei.yaml'), 'version: [\n', 'utf8');
+
+    const result = await runCli(['run', 'smoke', '--json'], project.env, project.root);
+
+    expect(result.code).toBe(2);
+    expect(JSON.parse(result.stderr.trim())).toMatchObject({
+      level: 'error',
+      code: 'invalid_config',
+      exit_code: 2,
+    });
   });
 });

@@ -8,7 +8,7 @@ import { MAX_TIMEOUT_MS } from '../runtime/exec.js';
 import { getRuntime } from '../runtime/registry.js';
 import { isPathWithin } from '../util/fs.js';
 import { readStdin } from '../util/stdin.js';
-import { YuureiError, EXIT_CODES } from './exit-codes.js';
+import { YuureiError, ERROR_CODES, EXIT_CODES } from './exit-codes.js';
 import { exitCodeForSignal } from '../run/signals.js';
 import { packageVersion } from '../version.js';
 import type { RunDefinition } from '../trace/schema.js';
@@ -73,7 +73,11 @@ const YUUREI_VERSION = packageVersion;
 export async function runRun(cwd: string, options: RunOptions, logger: Logger): Promise<void> {
   const yuureiDir = await findYuureiDir(cwd);
   if (!yuureiDir) {
-    throw new YuureiError('no .yuurei/ directory found', EXIT_CODES.CONFIG_ERROR);
+    throw new YuureiError(
+      'no .yuurei/ directory found',
+      EXIT_CODES.CONFIG_ERROR,
+      ERROR_CODES.NO_PROJECT,
+    );
   }
 
   const config = await loadYuureiConfig(yuureiDir);
@@ -87,12 +91,17 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
   if (options.runName) {
     runEntry = config.runs[options.runName];
     if (!runEntry) {
-      throw new YuureiError(`unknown run: ${options.runName}`, EXIT_CODES.CONFIG_ERROR);
+      throw new YuureiError(
+        `unknown run: ${options.runName}`,
+        EXIT_CODES.CONFIG_ERROR,
+        ERROR_CODES.UNKNOWN_RUN,
+      );
     }
     if (options.profile !== undefined || options.task !== undefined) {
       throw new YuureiError(
         `run '${options.runName}' names its own profile and task; --profile/--task cannot be combined with a run name`,
         EXIT_CODES.CONFIG_ERROR,
+        ERROR_CODES.INVALID_INPUT,
       );
     }
     profileName = runEntry.profile;
@@ -101,6 +110,7 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
       throw new YuureiError(
         `task path escapes the .yuurei directory: ${runEntry.task}`,
         EXIT_CODES.CONFIG_ERROR,
+        ERROR_CODES.TASK_PATH_ESCAPES,
       );
     }
   }
@@ -112,18 +122,8 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     throw new YuureiError(
       'either a run name or both --profile and --task are required',
       EXIT_CODES.CONFIG_ERROR,
+      ERROR_CODES.INVALID_INPUT,
     );
-  }
-
-  // `--task -` reads the task from stdin instead of a file: a caller that holds
-  // the task as a string (e.g. an agent) passes the bytes directly, with no
-  // file written into the operator's project or a temp dir to clean up. The
-  // content is what forms cell identity, so the digest is unchanged; the
-  // provenance recorded as `task.source` is `stdin` rather than a path.
-  if (taskPath === '-') {
-    taskContent = await readStdin();
-    taskSource = 'stdin';
-    taskPath = undefined;
   }
 
   // Per field, CLI first: the flag if given, else the run definition's entry,
@@ -144,6 +144,7 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     throw new YuureiError(
       `timeout must be a finite number of milliseconds between 1 and ${MAX_TIMEOUT_MS}`,
       EXIT_CODES.CONFIG_ERROR,
+      ERROR_CODES.INVALID_INPUT,
     );
   }
 
@@ -153,6 +154,7 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     throw new YuureiError(
       `isolation must be one of: ${ISOLATION_STRATEGIES.join(', ')}`,
       EXIT_CODES.CONFIG_ERROR,
+      ERROR_CODES.INVALID_INPUT,
     );
   }
   const isolationStrategy = isolationRaw;
@@ -171,7 +173,11 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
 
   const profileEntry = config.profiles[profileName];
   if (!profileEntry) {
-    throw new YuureiError(`unknown profile: ${profileName}`, EXIT_CODES.CONFIG_ERROR);
+    throw new YuureiError(
+      `unknown profile: ${profileName}`,
+      EXIT_CODES.CONFIG_ERROR,
+      ERROR_CODES.UNKNOWN_PROFILE,
+    );
   }
 
   const profile = await loadProfile({
@@ -179,6 +185,20 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     runtime: profileEntry.runtime,
     sourceDir: join(yuureiDir, profileEntry.source),
   });
+
+  // `--task -` reads the task from stdin instead of a file: a caller that holds
+  // the task as a string (e.g. an agent) passes the bytes directly, with no
+  // file written into the operator's project or a temp dir to clean up. The
+  // content is what forms cell identity, so the digest is unchanged; the
+  // provenance recorded as `task.source` is `stdin` rather than a path. Read
+  // after every validation above so a run that cannot start (unknown profile,
+  // bad timeout/isolation) reports its own failure instead of blocking on an
+  // interactive stdin the operator never meant to fill.
+  if (taskPath === '-') {
+    taskContent = await readStdin();
+    taskSource = 'stdin';
+    taskPath = undefined;
+  }
 
   const definition: RunDefinition = {
     run: options.runName ?? null,

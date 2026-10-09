@@ -4,7 +4,7 @@ import { runClean } from './cli/clean.js';
 import { printDoctorReport, runDoctor } from './cli/doctor.js';
 import { runInit } from './cli/init.js';
 import { runInspect } from './cli/inspect.js';
-import { EXIT_CODES, YuureiError } from './cli/exit-codes.js';
+import { ERROR_CODES, EXIT_CODES, YuureiError } from './cli/exit-codes.js';
 import { loggerForFlags } from './cli/output.js';
 import { runProfileList } from './cli/profile-list.js';
 import { runRun } from './cli/run.js';
@@ -14,6 +14,26 @@ import { packageVersion } from './version.js';
 
 const cli = cac('yuurei');
 
+function reportFailure(error: unknown, json: boolean): void {
+  const logger = loggerForFlags({ json });
+  const failure =
+    error instanceof YuureiError
+      ? { message: error.message, code: error.code, exitCode: error.exitCode }
+      : {
+          message: error instanceof Error ? error.message : String(error),
+          code: ERROR_CODES.INTERNAL_ERROR,
+          exitCode: EXIT_CODES.RUNTIME_EXECUTION_FAILED,
+        };
+  // The stable code and the exit code ride only on the --json line
+  // (contract Section A); the human line stays the plain message.
+  if (json) {
+    logger.error(failure.message, { code: failure.code, exit_code: failure.exitCode });
+  } else {
+    logger.error(failure.message);
+  }
+  process.exitCode = failure.exitCode;
+}
+
 function withErrorHandling<Args extends [...unknown[], { json?: boolean }]>(
   action: (...args: Args) => Promise<void>,
 ): (...args: Args) => Promise<void> {
@@ -22,14 +42,7 @@ function withErrorHandling<Args extends [...unknown[], { json?: boolean }]>(
       await action(...args);
     } catch (error) {
       const flags = args[args.length - 1] as { json?: boolean };
-      const logger = loggerForFlags(flags);
-      if (error instanceof YuureiError) {
-        logger.error(error.message);
-        process.exitCode = error.exitCode;
-        return;
-      }
-      logger.error(error instanceof Error ? error.message : String(error));
-      process.exitCode = EXIT_CODES.RUNTIME_EXECUTION_FAILED;
+      reportFailure(error, flags.json ?? false);
     }
   };
 }
@@ -50,7 +63,11 @@ cli
   .action(
     withErrorHandling(async (action: string, flags: { json?: boolean }) => {
       if (action !== 'list') {
-        throw new YuureiError(`unknown profile action: ${action}`, EXIT_CODES.CONFIG_ERROR);
+        throw new YuureiError(
+          `unknown profile action: ${action}`,
+          EXIT_CODES.CONFIG_ERROR,
+          ERROR_CODES.INVALID_INPUT,
+        );
       }
       await runProfileList(process.cwd(), loggerForFlags(flags));
     }),
@@ -188,7 +205,11 @@ cli
   .action(
     withErrorHandling(async (action: string, runId: string, flags: { json?: boolean }) => {
       if (action !== 'show') {
-        throw new YuureiError(`unknown trace action: ${action}`, EXIT_CODES.CONFIG_ERROR);
+        throw new YuureiError(
+          `unknown trace action: ${action}`,
+          EXIT_CODES.CONFIG_ERROR,
+          ERROR_CODES.INVALID_INPUT,
+        );
       }
       await runTraceShow(process.cwd(), runId, loggerForFlags(flags), flags.json ?? false);
     }),
@@ -217,4 +238,22 @@ function normalizeTaskStdinArgv(argv: string[]): string[] {
   return normalized;
 }
 
-cli.parse(normalizeTaskStdinArgv(process.argv));
+try {
+  cli.parse(normalizeTaskStdinArgv(process.argv));
+} catch (error) {
+  // `cli.parse()` runs outside the action wrappers above, so an invalid
+  // invocation (unknown option, missing required argument, unused argument)
+  // would otherwise escape as a raw stack trace with no JSON envelope. Those
+  // parser rejections are all invalid CLI input; route them through the same
+  // report so a `--json` consumer still gets a stable `code` and `exit_code`.
+  // `--json` comes straight from argv because parsing never handed it over.
+  const json = process.argv.some((arg) => arg === '--json' || arg.startsWith('--json='));
+  if (error instanceof Error && error.name === 'CACError') {
+    reportFailure(
+      new YuureiError(error.message, EXIT_CODES.CONFIG_ERROR, ERROR_CODES.INVALID_INPUT),
+      json,
+    );
+  } else {
+    reportFailure(error, json);
+  }
+}
