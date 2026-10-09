@@ -239,6 +239,17 @@ To choose both values at the command line, run:
 yuurei run --profile claude-basic --task .yuurei/tasks/hello.md
 ```
 
+If you already hold the task as a string, `--task -` reads it from standard
+input instead of a file, so nothing has to be written into the project:
+
+```sh
+printf 'Reply with the word ready.\n' | yuurei run --profile claude-basic --task -
+```
+
+A task's content forms cell identity; a task read from stdin records
+`task.source` as `stdin` and gets the same digest as a file holding the same
+bytes.
+
 After a run, use the printed run ID to inspect the result:
 
 ```sh
@@ -259,6 +270,9 @@ configuration automatically.
 The `task` path in a named run must stay inside `.yuurei/`. A direct
 `--task` path is an explicit operator choice and may point elsewhere. Keep
 profile and task files trusted because the runtime executes their contents.
+The task content is passed to the runtime as a positional argument, so a task
+larger than the platform's argument-size limit cannot run, whether it comes
+from a file or stdin.
 
 For runtime-specific authentication, config files, isolation levels, and
 security details, read the [Getting started guide](https://github.com/shimpeiws/yuurei/blob/main/docs/getting-started.md).
@@ -273,6 +287,7 @@ yuurei profile list
 yuurei inspect <profile-name>
 yuurei run <run-name>
 yuurei run --profile <profile> --task <path/to/task.md>
+yuurei run --profile <profile> --task -   # task from stdin
 yuurei run <run-name> --keep
 yuurei run <run-name> --bridge-codex-auth-file
 yuurei run <run-name> --bridge-opencode-auth-file
