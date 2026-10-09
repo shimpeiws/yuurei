@@ -375,18 +375,43 @@ describe('contract verification: configuration errors', () => {
     expect(result.stderr).toContain('--profile');
   });
 
+  it('rejects an unknown profile before reading stdin', async () => {
+    const project = await createFixtureProject(CLAUDE);
+
+    // The profile is validated before stdin is consumed, so an unknown profile
+    // is diagnosed without draining (and blocking on) a stream the run will
+    // never use. `--json` surfaces the category the caller branches on.
+    const result = await runCli(
+      ['run', '--profile', 'missing', '--task', '-', '--json'],
+      project.env,
+      project.root,
+      'do anything\n',
+    );
+
+    expect(result.code).toBe(2);
+    expect(JSON.parse(result.stderr.trim())).toMatchObject({
+      code: 'unknown_profile',
+      exit_code: 2,
+    });
+  });
+
   it('rejects a stdin task larger than the argument bound', async () => {
     const project = await createFixtureProject(CLAUDE);
     const oversized = 'x'.repeat(128 * 1024 + 1);
 
     const result = await runCli(
-      ['run', '--profile', 'fixture', '--task', '-'],
+      ['run', '--profile', 'fixture', '--task', '-', '--json'],
       project.env,
       project.root,
       oversized,
     );
 
     expect(result.code).toBe(2);
+    // The task bytes are invalid input, not a malformed configuration file.
+    expect(JSON.parse(result.stderr.trim())).toMatchObject({
+      code: 'invalid_input',
+      exit_code: 2,
+    });
     expect(result.stderr).toContain('argument bound');
   });
 });

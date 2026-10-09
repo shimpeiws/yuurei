@@ -126,17 +126,6 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     );
   }
 
-  // `--task -` reads the task from stdin instead of a file: a caller that holds
-  // the task as a string (e.g. an agent) passes the bytes directly, with no
-  // file written into the operator's project or a temp dir to clean up. The
-  // content is what forms cell identity, so the digest is unchanged; the
-  // provenance recorded as `task.source` is `stdin` rather than a path.
-  if (taskPath === '-') {
-    taskContent = await readStdin();
-    taskSource = 'stdin';
-    taskPath = undefined;
-  }
-
   // Per field, CLI first: the flag if given, else the run definition's entry,
   // else the default (ADR-0013). `cli_overrides` records which parameter
   // fields the CLI supplied, so one trace answers "was anything supplied
@@ -196,6 +185,20 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
     runtime: profileEntry.runtime,
     sourceDir: join(yuureiDir, profileEntry.source),
   });
+
+  // `--task -` reads the task from stdin instead of a file: a caller that holds
+  // the task as a string (e.g. an agent) passes the bytes directly, with no
+  // file written into the operator's project or a temp dir to clean up. The
+  // content is what forms cell identity, so the digest is unchanged; the
+  // provenance recorded as `task.source` is `stdin` rather than a path. Read
+  // after every validation above so a run that cannot start (unknown profile,
+  // bad timeout/isolation) reports its own failure instead of blocking on an
+  // interactive stdin the operator never meant to fill.
+  if (taskPath === '-') {
+    taskContent = await readStdin();
+    taskSource = 'stdin';
+    taskPath = undefined;
+  }
 
   const definition: RunDefinition = {
     run: options.runName ?? null,

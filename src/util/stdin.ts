@@ -1,4 +1,4 @@
-import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
+import { ERROR_CODES, EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 
 /**
  * Upper bound for a task read from stdin: 128 KiB, Linux's per-argument
@@ -25,6 +25,7 @@ export async function readStdin(): Promise<string> {
       throw new YuureiError(
         `task from stdin reaches the ${MAX_STDIN_TASK_BYTES}-byte argument bound; the runtime receives the task as a single argument and cannot run a task this large`,
         EXIT_CODES.CONFIG_ERROR,
+        ERROR_CODES.INVALID_INPUT,
       );
     }
     chunks.push(chunk as Buffer);
