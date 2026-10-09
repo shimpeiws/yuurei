@@ -14,6 +14,26 @@ import { packageVersion } from './version.js';
 
 const cli = cac('yuurei');
 
+function reportFailure(error: unknown, json: boolean): void {
+  const logger = loggerForFlags({ json });
+  const failure =
+    error instanceof YuureiError
+      ? { message: error.message, code: error.code, exitCode: error.exitCode }
+      : {
+          message: error instanceof Error ? error.message : String(error),
+          code: ERROR_CODES.INTERNAL_ERROR,
+          exitCode: EXIT_CODES.RUNTIME_EXECUTION_FAILED,
+        };
+  // The stable code and the exit code ride only on the --json line
+  // (contract Section A); the human line stays the plain message.
+  if (json) {
+    logger.error(failure.message, { code: failure.code, exit_code: failure.exitCode });
+  } else {
+    logger.error(failure.message);
+  }
+  process.exitCode = failure.exitCode;
+}
+
 function withErrorHandling<Args extends [...unknown[], { json?: boolean }]>(
   action: (...args: Args) => Promise<void>,
 ): (...args: Args) => Promise<void> {
@@ -22,23 +42,7 @@ function withErrorHandling<Args extends [...unknown[], { json?: boolean }]>(
       await action(...args);
     } catch (error) {
       const flags = args[args.length - 1] as { json?: boolean };
-      const logger = loggerForFlags(flags);
-      const failure =
-        error instanceof YuureiError
-          ? { message: error.message, code: error.code, exitCode: error.exitCode }
-          : {
-              message: error instanceof Error ? error.message : String(error),
-              code: ERROR_CODES.INTERNAL_ERROR,
-              exitCode: EXIT_CODES.RUNTIME_EXECUTION_FAILED,
-            };
-      // The stable code and the exit code ride only on the --json line
-      // (contract Section A); the human line stays the plain message.
-      if (flags.json) {
-        logger.error(failure.message, { code: failure.code, exit_code: failure.exitCode });
-      } else {
-        logger.error(failure.message);
-      }
-      process.exitCode = failure.exitCode;
+      reportFailure(error, flags.json ?? false);
     }
   };
 }
@@ -213,4 +217,22 @@ cli
 
 cli.help();
 cli.version(packageVersion);
-cli.parse();
+try {
+  cli.parse();
+} catch (error) {
+  // `cli.parse()` runs outside the action wrappers above, so an invalid
+  // invocation (unknown option, missing required argument, unused argument)
+  // would otherwise escape as a raw stack trace with no JSON envelope. Those
+  // parser rejections are all invalid CLI input; route them through the same
+  // report so a `--json` consumer still gets a stable `code` and `exit_code`.
+  // `--json` comes straight from argv because parsing never handed it over.
+  const json = process.argv.some((arg) => arg === '--json' || arg.startsWith('--json='));
+  if (error instanceof Error && error.name === 'CACError') {
+    reportFailure(
+      new YuureiError(error.message, EXIT_CODES.CONFIG_ERROR, ERROR_CODES.INVALID_INPUT),
+      json,
+    );
+  } else {
+    reportFailure(error, json);
+  }
+}

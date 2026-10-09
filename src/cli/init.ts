@@ -181,7 +181,7 @@ export async function runInit(cwd: string, options: InitOptions, logger: Logger)
       throw new YuureiError(
         `refusing to overwrite existing files: ${conflicts.join(', ')}`,
         EXIT_CODES.CONFIG_ERROR,
-        ERROR_CODES.INVALID_INPUT,
+        ERROR_CODES.INVALID_CONFIG,
       );
     }
     printInitReport(buildInitReport(targetDir, options, false), options, logger);
