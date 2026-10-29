@@ -9,7 +9,7 @@
   `cli/trace-show.ts`, `registry.ts`, and the `--bridge-opencode-auth-file` CLI
   flag.
 - **Tool:** Claude Code built-in `/security-review` (`claude -p
-"/security-review"`, Claude Code 2.1.270), scoped to the pending changes.
+  "/security-review"`, Claude Code 2.1.270), scoped to the pending changes.
 - **Policy:** this is the **required** per-change review for the first working
   implementation of a new runtime adapter
   (`docs/security/review-policy.md` → Trigger points → Required).

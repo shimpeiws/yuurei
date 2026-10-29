@@ -69,7 +69,7 @@ projects.
   the same project agree.
 - Hand-off: yuurei writes a versioned contract to `<cell>/source-project.json`
   — `{ "version": 1, "issuer": "yuurei", "cell_id", "source_project": { "id",
-"kind", "remote"?, "source", "head" } }` — and passes
+  "kind", "remote"?, "source", "head" } }` — and passes
   `YUUREI_SOURCE_PROJECT_ID` (the identity) and `YUUREI_SOURCE_PROJECT_FILE`
   (the contract path) on the pfl process environment. The observer consumes
   the declaration; it does not read the operator's host Git metadata to

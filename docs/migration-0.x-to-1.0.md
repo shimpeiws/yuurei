@@ -65,7 +65,7 @@ These landed during 0.3–0.5 and are all part of 1.0. If you last used an earli
 - **OpenCode is no longer experimental.** Its adapter passed the release-candidate
   real-runtime check on macOS and Linux, and requires OpenCode `1.18.0` or later.
 - **`yuurei runs`** lists the runs under `.yuurei/runs/`, and **`yuurei trace show
---json`** prints the complete trace, so a consumer does not read `trace.json`
+  --json`** prints the complete trace, so a consumer does not read `trace.json`
   directly to obtain a field.
 - **Each run executes in a fresh workspace**, copied after the run into
   `.yuurei/runs/<id>/workspace/` and recorded as an all-additions unified diff in

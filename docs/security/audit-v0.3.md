@@ -180,7 +180,7 @@ method is reusable when the runtime is upgraded. V3–V5 remain open and were re
 - **V2 — RESOLVED in yuurei's favour. No Keychain fallback; Level 1 isolation holds.** With
   `env -i` stripping every variable (so a leaked env credential cannot explain the outcome) and
   `HOME`/`CLAUDE_CONFIG_DIR` redirected, `claude --print` fails with `Not logged in · Please run
-/login` while the Keychain item (`svce="ClaudeCode-credentials"`, `acct=<the local user>`) remains present
+  /login` while the Keychain item (`svce="ClaudeCode-credentials"`, `acct=<the local user>`) remains present
   and readable by the same uid. An unisolated positive control run in the same session succeeded
   (real token usage, `stop_reason: end_turn`), so the failure is authentication and not network,
   quota, or arguments. The isolated run also wrote `.claude.json` into the isolated dir, confirming
