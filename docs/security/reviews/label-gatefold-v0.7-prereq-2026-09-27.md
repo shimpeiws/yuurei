@@ -36,7 +36,7 @@ Checked against each invariant in `CLAUDE.md` / Section C:
   Covered by `test/integration/run-pipeline.test.ts` ("persists the runtime
   result as a redacted result.txt artifact, never inlined").
 - **Diagnostics stay fixed-string.** The new diagnostics (`result: no final
-message emitted`, `result: final message could not be parsed`,
+  message emitted`, `result: final message could not be parsed`,
   `result: save failed; result.txt not recorded`) carry no runtime text and
   no paths, matching the existing patch/workspace convention.
 - **Credential backend / profile boundaries.** Unchanged — no new config or
