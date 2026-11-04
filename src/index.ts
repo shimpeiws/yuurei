@@ -163,7 +163,10 @@ cli
           timeout?: string;
           isolation?: string;
           bridgeCodexAuthFile?: boolean;
-          bridgeOpenCodeAuthFile?: boolean;
+          // cac camelCases each hyphen segment independently, so
+          // --bridge-opencode-auth-file lands on `bridgeOpencodeAuthFile`
+          // (lowercase c), not `bridgeOpenCodeAuthFile`.
+          bridgeOpencodeAuthFile?: boolean;
           seedRepo?: string;
           observe?: boolean;
           json?: boolean;
@@ -180,7 +183,7 @@ cli
             timeoutMs: flags.timeout !== undefined ? Number(flags.timeout) : undefined,
             isolation: flags.isolation,
             bridgeCodexAuthFile: flags.bridgeCodexAuthFile,
-            bridgeOpenCodeAuthFile: flags.bridgeOpenCodeAuthFile,
+            bridgeOpenCodeAuthFile: flags.bridgeOpencodeAuthFile,
             seedRepo: flags.seedRepo,
             observe: flags.observe,
           },

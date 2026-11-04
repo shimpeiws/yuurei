@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const repoRoot = process.cwd();
@@ -48,14 +48,18 @@ if (args.includes('--version')) {
   process.stdout.write('1.18.30\\n');
   process.exit(0);
 }
+const dataHome = process.env.XDG_DATA_HOME;
 fs.writeFileSync(path.join(dir, '..', 'shim-env.json'), JSON.stringify({
   args,
   HOME: process.env.HOME,
   XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
-  XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+  XDG_DATA_HOME: dataHome,
   TMPDIR: process.env.TMPDIR,
   DISABLE_PROJECT_CONFIG: process.env.OPENCODE_DISABLE_PROJECT_CONFIG,
   DISABLE_EXTERNAL_SKILLS: process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS,
+  authJsonPresent: dataHome
+    ? fs.existsSync(path.join(dataHome, 'opencode', 'auth.json'))
+    : false,
 }));
 const modePath = path.join(dir, 'mode');
 const mode = fs.existsSync(modePath) ? fs.readFileSync(modePath, 'utf8').trim() : 'ok';
@@ -178,6 +182,68 @@ describe('CLI end-to-end with a fixture OpenCode runtime', () => {
       expect.arrayContaining([expect.stringContaining('session error reported')]),
     );
     expect(JSON.stringify(trace)).not.toContain('sk-should-not-persist');
+  });
+
+  // Regression for #239: cac camelCases --bridge-opencode-auth-file to
+  // `bridgeOpencodeAuthFile`, but the CLI read `bridgeOpenCodeAuthFile`, so the
+  // flag never reached runRun and the bridge stayed off. These tests go through
+  // the real CLI so the flag name↔key mapping is exercised end to end.
+  it('bridges the real auth.json into the cell when --bridge-opencode-auth-file is passed', async () => {
+    const fixture = await createFixtureProject();
+    const realDataDir = join(fixture.root, '.local', 'share', 'opencode');
+    await mkdir(realDataDir, { recursive: true });
+    await writeFile(
+      join(realDataDir, 'auth.json'),
+      '{"p":{"type":"api","key":"BRIDGED"}}\n',
+      'utf8',
+    );
+
+    // --keep so the cell survives the run: it lets us assert the bridge fired
+    // during execution AND that the credential was still scrubbed afterward
+    // (§9.2 — --keep preserves config/logs, never credential material).
+    const result = await runCli(
+      ['run', 'smoke', '--bridge-opencode-auth-file', '--keep'],
+      envFor(fixture.root, fixture.bin),
+      fixture.root,
+    );
+    expect(result.code).toBe(0);
+
+    const seen = JSON.parse(await readFile(join(fixture.root, 'shim-env.json'), 'utf8')) as {
+      authJsonPresent: boolean;
+      HOME: string;
+      XDG_DATA_HOME: string;
+    };
+    expect(seen.authJsonPresent).toBe(true);
+
+    // The kept cell lives at dirname(HOME) under the OS temp dir; remove it
+    // once the scrub assertion is done.
+    const cellRoot = dirname(seen.HOME);
+    try {
+      await expect(
+        readFile(join(seen.XDG_DATA_HOME, 'opencode', 'auth.json'), 'utf8'),
+      ).rejects.toThrow();
+    } finally {
+      await rm(cellRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not bridge auth.json when the flag is omitted', async () => {
+    const fixture = await createFixtureProject();
+    const realDataDir = join(fixture.root, '.local', 'share', 'opencode');
+    await mkdir(realDataDir, { recursive: true });
+    await writeFile(
+      join(realDataDir, 'auth.json'),
+      '{"p":{"type":"api","key":"BRIDGED"}}\n',
+      'utf8',
+    );
+
+    const result = await runCli(['run', 'smoke'], envFor(fixture.root, fixture.bin), fixture.root);
+    expect(result.code).toBe(0);
+
+    const seen = JSON.parse(await readFile(join(fixture.root, 'shim-env.json'), 'utf8')) as {
+      authJsonPresent: boolean;
+    };
+    expect(seen.authJsonPresent).toBe(false);
   });
 
   it('runs under level0 isolation with the real HOME untouched', async () => {
