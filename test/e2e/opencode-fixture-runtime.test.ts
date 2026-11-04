@@ -56,6 +56,7 @@ fs.writeFileSync(path.join(dir, '..', 'shim-env.json'), JSON.stringify({
   TMPDIR: process.env.TMPDIR,
   DISABLE_PROJECT_CONFIG: process.env.OPENCODE_DISABLE_PROJECT_CONFIG,
   DISABLE_EXTERNAL_SKILLS: process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS,
+  authJsonPresent: fs.existsSync(path.join(process.env.XDG_DATA_HOME, 'opencode', 'auth.json')),
 }));
 const modePath = path.join(dir, 'mode');
 const mode = fs.existsSync(modePath) ? fs.readFileSync(modePath, 'utf8').trim() : 'ok';
@@ -178,6 +179,52 @@ describe('CLI end-to-end with a fixture OpenCode runtime', () => {
       expect.arrayContaining([expect.stringContaining('session error reported')]),
     );
     expect(JSON.stringify(trace)).not.toContain('sk-should-not-persist');
+  });
+
+  // Regression for #239: cac camelCases --bridge-opencode-auth-file to
+  // `bridgeOpencodeAuthFile`, but the CLI read `bridgeOpenCodeAuthFile`, so the
+  // flag never reached runRun and the bridge stayed off. These tests go through
+  // the real CLI so the flag name↔key mapping is exercised end to end.
+  it('bridges the real auth.json into the cell when --bridge-opencode-auth-file is passed', async () => {
+    const fixture = await createFixtureProject();
+    const realDataDir = join(fixture.root, '.local', 'share', 'opencode');
+    await mkdir(realDataDir, { recursive: true });
+    await writeFile(
+      join(realDataDir, 'auth.json'),
+      '{"p":{"type":"api","key":"BRIDGED"}}\n',
+      'utf8',
+    );
+
+    const result = await runCli(
+      ['run', 'smoke', '--bridge-opencode-auth-file'],
+      envFor(fixture.root, fixture.bin),
+      fixture.root,
+    );
+    expect(result.code).toBe(0);
+
+    const seen = JSON.parse(await readFile(join(fixture.root, 'shim-env.json'), 'utf8')) as {
+      authJsonPresent: boolean;
+    };
+    expect(seen.authJsonPresent).toBe(true);
+  });
+
+  it('does not bridge auth.json when the flag is omitted', async () => {
+    const fixture = await createFixtureProject();
+    const realDataDir = join(fixture.root, '.local', 'share', 'opencode');
+    await mkdir(realDataDir, { recursive: true });
+    await writeFile(
+      join(realDataDir, 'auth.json'),
+      '{"p":{"type":"api","key":"BRIDGED"}}\n',
+      'utf8',
+    );
+
+    const result = await runCli(['run', 'smoke'], envFor(fixture.root, fixture.bin), fixture.root);
+    expect(result.code).toBe(0);
+
+    const seen = JSON.parse(await readFile(join(fixture.root, 'shim-env.json'), 'utf8')) as {
+      authJsonPresent: boolean;
+    };
+    expect(seen.authJsonPresent).toBe(false);
   });
 
   it('runs under level0 isolation with the real HOME untouched', async () => {
