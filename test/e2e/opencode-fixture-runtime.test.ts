@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const repoRoot = process.cwd();
@@ -48,15 +48,18 @@ if (args.includes('--version')) {
   process.stdout.write('1.18.30\\n');
   process.exit(0);
 }
+const dataHome = process.env.XDG_DATA_HOME;
 fs.writeFileSync(path.join(dir, '..', 'shim-env.json'), JSON.stringify({
   args,
   HOME: process.env.HOME,
   XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
-  XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+  XDG_DATA_HOME: dataHome,
   TMPDIR: process.env.TMPDIR,
   DISABLE_PROJECT_CONFIG: process.env.OPENCODE_DISABLE_PROJECT_CONFIG,
   DISABLE_EXTERNAL_SKILLS: process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS,
-  authJsonPresent: fs.existsSync(path.join(process.env.XDG_DATA_HOME, 'opencode', 'auth.json')),
+  authJsonPresent: dataHome
+    ? fs.existsSync(path.join(dataHome, 'opencode', 'auth.json'))
+    : false,
 }));
 const modePath = path.join(dir, 'mode');
 const mode = fs.existsSync(modePath) ? fs.readFileSync(modePath, 'utf8').trim() : 'ok';
@@ -195,8 +198,11 @@ describe('CLI end-to-end with a fixture OpenCode runtime', () => {
       'utf8',
     );
 
+    // --keep so the cell survives the run: it lets us assert the bridge fired
+    // during execution AND that the credential was still scrubbed afterward
+    // (§9.2 — --keep preserves config/logs, never credential material).
     const result = await runCli(
-      ['run', 'smoke', '--bridge-opencode-auth-file'],
+      ['run', 'smoke', '--bridge-opencode-auth-file', '--keep'],
       envFor(fixture.root, fixture.bin),
       fixture.root,
     );
@@ -204,8 +210,21 @@ describe('CLI end-to-end with a fixture OpenCode runtime', () => {
 
     const seen = JSON.parse(await readFile(join(fixture.root, 'shim-env.json'), 'utf8')) as {
       authJsonPresent: boolean;
+      HOME: string;
+      XDG_DATA_HOME: string;
     };
     expect(seen.authJsonPresent).toBe(true);
+
+    // The kept cell lives at dirname(HOME) under the OS temp dir; remove it
+    // once the scrub assertion is done.
+    const cellRoot = dirname(seen.HOME);
+    try {
+      await expect(
+        readFile(join(seen.XDG_DATA_HOME, 'opencode', 'auth.json'), 'utf8'),
+      ).rejects.toThrow();
+    } finally {
+      await rm(cellRoot, { recursive: true, force: true });
+    }
   });
 
   it('does not bridge auth.json when the flag is omitted', async () => {
