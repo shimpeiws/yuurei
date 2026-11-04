@@ -25,6 +25,15 @@ What that covers is stated in [the public contract](docs/contract.md).
   strictest per-argument limit (Linux MAX_ARG_STRLEN) that applies to task
   content either way.
 
+### Fixed
+
+- **`yuurei run --bridge-opencode-auth-file` now takes effect** (#239). The
+  flag was parsed by cac into `flags.bridgeOpencodeAuthFile` but read back as
+  `flags.bridgeOpenCodeAuthFile`, so the parsed value was discarded and the
+  OpenCode `auth.json` bridge silently stayed off. The CLI now reads the key
+  cac produces, and an end-to-end regression test passes the real flag
+  through the real CLI.
+
 ## [1.3.0] - 2026-09-28
 
 ### Added
