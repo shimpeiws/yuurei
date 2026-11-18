@@ -265,6 +265,20 @@ describe('contract verification: run index', () => {
 describe('contract verification: CLI surface', () => {
   afterEach(cleanupFixtures);
 
+  it('reports the run id as a top-level field on the JSON completion line', async () => {
+    const project = await createFixtureProject(CLAUDE);
+    const result = await runCli(['run', 'smoke', '--json'], project.env, project.root);
+
+    expect(result.code).toBe(0);
+    const lines = result.stdout
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.filter((line) => 'run_id' in line)).toEqual([
+      expect.objectContaining({ level: 'info', run_id: runIdFrom(result.stdout) }),
+    ]);
+  });
+
   function parseLines(stdout: string): Record<string, unknown>[] {
     return stdout
       .trim()
