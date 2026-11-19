@@ -70,7 +70,12 @@ export interface RunOptions {
 
 const YUUREI_VERSION = packageVersion;
 
-export async function runRun(cwd: string, options: RunOptions, logger: Logger): Promise<void> {
+export async function runRun(
+  cwd: string,
+  options: RunOptions,
+  logger: Logger,
+  json = false,
+): Promise<void> {
   const yuureiDir = await findYuureiDir(cwd);
   if (!yuureiDir) {
     throw new YuureiError(
@@ -228,6 +233,7 @@ export async function runRun(cwd: string, options: RunOptions, logger: Logger): 
   });
 
   logger.info(`run ${result.runId} finished`, {
+    ...(json ? { run_id: result.runId } : {}),
     exitCode: result.trace.execution.exit_code,
     signal: result.trace.execution.signal,
     runDir: result.runDir,

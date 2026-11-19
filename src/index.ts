@@ -188,6 +188,7 @@ cli
             observe: flags.observe,
           },
           loggerForFlags(flags),
+          flags.json ?? false,
         );
       },
     ),

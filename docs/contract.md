@@ -99,6 +99,9 @@ One JSON object per line. Every line has `level` (`info`, `warn` or `error`) and
 `message`; command-specific fields sit alongside them at the top level. `error`
 lines go to stderr, the rest to stdout. Adding a field is an additive change.
 
+The `run --json` completion line carries a top-level `run_id` string. Use it
+to look up the run with `yuurei trace show <run-id>`.
+
 ### `--json` error codes
 
 Every `error` line carries a stable `code` and the `exit_code` beside `level`
