@@ -7,10 +7,17 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-20
+
 ### Added
 
 - **`yuurei run --json` includes a top-level `run_id` on completion** (#191),
   so consumers can look up the trace directly.
+
+### Changed
+
+- **Development dependencies and pinned GitHub Actions updated** (#243, #245,
+  #248). No user-facing behavior changes.
 
 ## [1.4.0] - 2026-11-05
 
