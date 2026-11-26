@@ -131,17 +131,17 @@ describe('collectSeededWorkspace', () => {
     );
 
     expect(result.complete).toBe(false);
-    // At most the first entry's file was copied; a root-only check would let
-    // nested copies through (sub/c.txt), which the recursive count catches.
-    const countFiles = async (dir: string): Promise<number> => {
+    // At most the first entry was processed — one file or one empty
+    // directory. Counting entries recursively (not just files) also catches
+    // an abort that still creates directories afterwards.
+    const countEntries = async (dir: string): Promise<number> => {
       let count = 0;
       for (const entry of await readdir(dir, { withFileTypes: true })) {
-        if (entry.isDirectory()) count += await countFiles(join(dir, entry.name));
-        else count += 1;
+        count += entry.isDirectory() ? 1 + (await countEntries(join(dir, entry.name))) : 1;
       }
       return count;
     };
-    expect(await countFiles(durable)).toBeLessThanOrEqual(1);
+    expect(await countEntries(durable)).toBeLessThanOrEqual(1);
   });
 
   it('keeps a file whose name contains a legitimate U+FFFD', async () => {
