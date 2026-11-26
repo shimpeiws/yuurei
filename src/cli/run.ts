@@ -16,6 +16,8 @@ import type { RunDefinition } from '../trace/schema.js';
 import type { Logger } from '../util/logger.js';
 import type { IsolationStrategy } from '../isolation/types.js';
 
+import { ownsTerminal } from './terminal.js';
+
 const ISOLATION_STRATEGIES: readonly IsolationStrategy[] = ['level0', 'level1'];
 const DEFAULT_ISOLATION_STRATEGY: IsolationStrategy = 'level1';
 
@@ -204,9 +206,10 @@ export async function runRun(
   // unconditionally — it is the script-facing surface, not a terminal
   // feature — and shares the resolved interval. Resolved before any stdin
   // read for the same reason as the validations above.
+  const foreground = options.progress !== false && !json && ownsTerminal();
   const progress = resolveProgress(options.progress, {
     json,
-    stderrIsTTY: Boolean(process.stderr.isTTY),
+    stderrIsTTY: foreground,
   });
 
   // `--task -` reads the task from stdin instead of a file: a caller that holds
@@ -228,6 +231,21 @@ export async function runRun(
     cli_overrides: cliOverrides,
   };
 
+  const sink = progress.enabled
+    ? createProgressSink({
+        json,
+        automatic: options.progress === undefined,
+        tty: foreground,
+        animate: Boolean(
+          process.env['TERM'] && process.env['TERM'] !== 'dumb' && !process.env['CI'],
+        ),
+        stream: process.stderr,
+      })
+    : undefined;
+  // After job-control suspension the shell may have moved the cursor,
+  // and the job may have resumed in the background.
+  const onContinue = () => sink?.loseTerminal();
+  if (sink && foreground) process.on('SIGCONT', onContinue);
   const result = await runPipeline({
     runtimeId: profile.runtime,
     requestedModel,
@@ -247,19 +265,17 @@ export async function runRun(
       bridge_opencode_auth_file: options.bridgeOpenCodeAuthFile ?? false,
     },
     definition,
-    onWarning: (message) => logger.warn(message),
+    onWarning: (message) => {
+      sink?.clear();
+      logger.warn(message);
+    },
     progress: {
       intervalMs: progress.intervalMs,
-      ...(progress.enabled
-        ? {
-            onProgress: createProgressSink({
-              json,
-              tty: Boolean(process.stderr.isTTY),
-              stream: process.stderr,
-            }),
-          }
-        : {}),
+      ...(sink ? { onProgress: sink } : {}),
     },
+  }).finally(() => {
+    process.off('SIGCONT', onContinue);
+    sink?.stop();
   });
 
   logger.info(`run ${result.runId} finished`, {

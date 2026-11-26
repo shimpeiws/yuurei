@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RunStatusSnapshot } from '../run/status.js';
 import { createProgressSink, formatElapsed, resolveProgress } from './progress.js';
 import { EXIT_CODES, YuureiError } from './exit-codes.js';
@@ -66,6 +66,120 @@ describe('createProgressSink', () => {
     const chunks: string[] = [];
     return { stream: { write: (c: string) => (chunks.push(c), true) }, chunks };
   }
+
+  it('skips blocked frames, falls back on resize, and stops on interruption', () => {
+    vi.useFakeTimers();
+    const { stream, chunks } = collect();
+    const terminal = { ...stream, columns: 40, rows: 24, writableNeedDrain: false };
+    const sink = createProgressSink({ json: false, tty: true, animate: true, stream: terminal });
+    try {
+      sink(snapshot());
+      expect(chunks[0]).toMatch(/[\u2801-\u28ff]/u);
+      terminal.writableNeedDrain = true;
+      vi.advanceTimersByTime(1000);
+      expect(chunks).toHaveLength(1);
+      terminal.writableNeedDrain = false;
+      terminal.columns = 20;
+      vi.advanceTimersByTime(100);
+      expect(chunks[1]).toContain('\x1b[2A');
+      terminal.columns = 80;
+      vi.advanceTimersByTime(100);
+      expect(chunks.at(-1)).toMatch(/[\u2801-\u28ff]/u);
+      sink(snapshot({ state: 'interrupted' }));
+      const count = chunks.length;
+      expect(chunks.at(-1)).toContain('interrupted');
+      vi.advanceTimersByTime(1000);
+      expect(chunks).toHaveLength(count);
+    } finally {
+      sink.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops the autonomous timer if interactive stderr closes mid-frame', () => {
+    vi.useFakeTimers();
+    const { stream, chunks } = collect();
+    let onError: ((error: Error) => void) | undefined;
+    const sink = createProgressSink({
+      json: false,
+      tty: true,
+      animate: true,
+      stream: {
+        ...stream,
+        columns: 80,
+        rows: 24,
+        on: (_event, listener) => {
+          onError = listener;
+        },
+      },
+    });
+    try {
+      sink(snapshot());
+      vi.advanceTimersByTime(200);
+      expect(chunks).toHaveLength(3);
+      onError?.(new Error('write EPIPE'));
+      vi.advanceTimersByTime(60_000);
+      sink(snapshot({ state: 'interrupted' }));
+      expect(chunks).toHaveLength(3);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      sink.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the first narrow status on one row before widening', () => {
+    vi.useFakeTimers();
+    const { stream, chunks } = collect();
+    const terminal = { ...stream, columns: 29, rows: 24 };
+    const sink = createProgressSink({ json: false, tty: true, animate: true, stream: terminal });
+    try {
+      sink(snapshot({ run_id: '20261126T192400Z-6c67' }));
+      expect(chunks[0]?.startsWith('\r\x1b[K12m04s running')).toBe(true);
+      expect(chunks[0]?.slice(4).length).toBeLessThan(29);
+      terminal.columns = 40;
+      vi.advanceTimersByTime(100);
+      expect(chunks[1]).toMatch(/[\u2801-\u28ff]/u);
+    } finally {
+      sink.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([true, false])(
+    'avoids cursor writes after losing the terminal (auto=%s)',
+    (automatic) => {
+      const { stream, chunks } = collect();
+      const sink = createProgressSink({
+        json: false,
+        tty: true,
+        animate: true,
+        automatic,
+        stream: { ...stream, columns: 80, rows: 24 },
+      });
+      sink(snapshot());
+      sink.loseTerminal();
+      sink(snapshot({ state: 'finished' }));
+      sink.stop();
+      if (automatic) expect(chunks).toHaveLength(1);
+      else expect(chunks.slice(1)).toEqual(['[yuurei] run-abc finished after 12m04s\n']);
+    },
+  );
+
+  it.each([
+    ['finished', 'finished'],
+    ['timed_out', 'timed out'],
+    ['interrupted', 'interrupted'],
+  ] as const)('keeps the %s outcome readable in a narrow terminal', (state, expected) => {
+    const { stream, chunks } = collect();
+    const sink = createProgressSink({
+      json: false,
+      tty: true,
+      stream: { ...stream, columns: 29 },
+    });
+    sink(snapshot({ state, run_id: '20261126T192400Z-6c67' }));
+    expect(chunks).toEqual([`\r\x1b[K${expected} after 12m04s\n`]);
+  });
 
   it('rewrites one line in place on a terminal', () => {
     const { stream, chunks } = collect();

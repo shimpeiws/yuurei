@@ -373,10 +373,11 @@ atomically (a unique temp file plus rename) at the `--progress` interval —
   appear in `artifacts.json`.
 
 Independently, `yuurei run` shows a one-line liveness indicator on **stderr**
-at the same interval when stderr is a terminal and `--json` is not given;
+at the same interval when stderr is a foreground terminal and `--json` is not given;
 `--progress [seconds]` forces it on and sets the interval, `--no-progress`
-forces it off. On a terminal the line is rewritten in place; anywhere else
-each tick appends a line. With `--json` a forced-on progress emits the same
+forces it off. In the foreground the line is rewritten in place. Supported
+terminals may show up to two additional animation rows. Forced progress
+in the background or on a non-terminal appends one line per tick. With `--json` a forced-on progress emits the same
 fields as `status.json`, one JSON object per line on stderr — those lines are
 a separate stream from the `--json` output on stdout. Nothing is ever
 written to stdout by this feature. The human-readable line is a summary and
