@@ -7,6 +7,25 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Run liveness reporting** (#258): `yuurei run` now writes
+  `.yuurei/runs/<run-id>/status.json` atomically on an interval (30 s by
+  default) while a run is in progress, recording `state`
+  (`running`/`finished`/`timed_out`/`interrupted`), `elapsed_s`,
+  `last_activity_at`, and `pid`. A matching one-line progress indicator is
+  shown on stderr (in place on a terminal); `--progress[=<seconds>]` forces
+  it on and sets the interval, `--no-progress` forces it off, and under
+  `--json` a forced-on progress emits JSON lines on stderr instead.
+
+### Changed
+
+- **A caught `SIGINT`/`SIGTERM` now retains the run directory** (#258) so
+  `status.json` can record the `interrupted` terminal state with
+  `finished_at`; the directory holds `status.json` only (pre-run outputs
+  are pruned). The cell temp dir is still disposed and credentials still
+  scrubbed, and a plain failure still removes the run directory.
+
 ## [1.5.0] - 2026-11-20
 
 ### Added

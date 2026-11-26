@@ -220,6 +220,32 @@ describe('run status monitor', () => {
     await expect(readStatus(statusPath)).rejects.toThrow();
   });
 
+  it('does not accumulate a write backlog when the probe outlasts the interval', async () => {
+    // With a probe slower than the interval, ticks must coalesce rather
+    // than queue: finish() should only ever wait for the one write in
+    // flight, not a backlog built up while the caller waited.
+    let releaseProbe: () => void = () => {};
+    const gate = new Promise<string[]>((resolve) => {
+      releaseProbe = () => resolve([cellRoot]);
+    });
+    const seen: RunStatusSnapshot[] = [];
+    const monitor = makeMonitor({
+      intervalMs: 5,
+      activityRoots: () => gate,
+      onProgress: (s) => seen.push(s),
+    });
+    monitor.start();
+    await sleep(80);
+    const finishing = monitor.finish('finished');
+    await sleep(80);
+    // Still blocked only on the single in-flight write — not on dozens of
+    // queued ticks an interval timer would have enqueued.
+    releaseProbe();
+    await finishing;
+    expect(seen.length).toBeLessThanOrEqual(3);
+    expect(seen[seen.length - 1]?.state).toBe('finished');
+  });
+
   it('does not reject stop() when the activity probe throws', async () => {
     const monitor = makeMonitor({
       activityRoots: () => {

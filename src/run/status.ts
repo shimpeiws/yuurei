@@ -127,14 +127,19 @@ export function createRunStatusMonitor(options: RunStatusMonitorOptions): RunSta
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
 
-  let timer: ReturnType<typeof setInterval> | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   let started = false;
   let finalized = false;
+  let stopped = false;
   let warned = false;
   // The newest activity mtime ever observed: last_activity_at is a
   // monotonically non-decreasing hint, so a file that held the max being
   // deleted between ticks cannot move the reported value backwards.
   let newestActivityMs = 0;
+  // elapsed_s is non-decreasing like last_activity_at: the final snapshot's
+  // finished_at (the runtime's exit time) can precede the last tick's
+  // elapsed, which includes post-execution artifact collection.
+  let newestElapsedS = 0;
   // Writes serialize through this chain so a scheduled tick and a finish()
   // can never write status.json concurrently or out of order.
   let chain: Promise<void> = Promise.resolve();
@@ -158,11 +163,16 @@ export function createRunStatusMonitor(options: RunStatusMonitorOptions): RunSta
     if (activityMs !== null && activityMs > newestActivityMs) newestActivityMs = activityMs;
     const parsedFinishMs = finishedAt !== undefined ? Date.parse(finishedAt) : Number.NaN;
     const elapsedSourceMs = Number.isNaN(parsedFinishMs) ? nowMs : parsedFinishMs;
+    const elapsedS = Math.max(
+      newestElapsedS,
+      Math.max(0, Math.floor((elapsedSourceMs - startedAtMs) / 1000)),
+    );
+    newestElapsedS = elapsedS;
     const snapshot: RunStatusSnapshot = {
       run_id: runId,
       state,
       started_at: startedAt,
-      elapsed_s: Math.max(0, Math.floor((elapsedSourceMs - startedAtMs) / 1000)),
+      elapsed_s: elapsedS,
       last_activity_at: newestActivityMs > 0 ? new Date(newestActivityMs).toISOString() : null,
       pid,
       ...(finishedAt !== undefined ? { finished_at: finishedAt } : {}),
@@ -195,29 +205,46 @@ export function createRunStatusMonitor(options: RunStatusMonitorOptions): RunSta
     chain = chain.then(() => writeSnapshot(state));
   };
 
+  const scheduleNext = () => {
+    if (stopped || finalized) return;
+    timer = setTimeout(tick, intervalMs);
+    // The interval is a convenience, not a reason to keep the process
+    // alive: unref so a leaked timer can never hang the CLI.
+    timer.unref();
+  };
+
+  // Self-rescheduling instead of setInterval: the next tick is only armed
+  // once the write this tick queued has settled, so a scan slower than the
+  // interval can never build a backlog that finish()/stop() would have to
+  // drain while the caller waits to clean up.
+  function tick() {
+    if (stopped || finalized) return;
+    enqueue('running');
+    chain.then(scheduleNext);
+  }
+
   return {
     start() {
       if (started || finalized) return;
       started = true;
       enqueue('running');
-      timer = setInterval(() => enqueue('running'), intervalMs);
-      // The interval is a convenience, not a reason to keep the process
-      // alive: unref so a leaked timer can never hang the CLI.
-      timer.unref();
+      scheduleNext();
     },
     finish(state, finishedAt) {
       if (finalized) return chain;
       finalized = true;
+      stopped = true;
       if (timer) {
-        clearInterval(timer);
+        clearTimeout(timer);
         timer = null;
       }
       chain = chain.then(() => writeSnapshot(state, finishedAt));
       return chain;
     },
     stop() {
+      stopped = true;
       if (timer) {
-        clearInterval(timer);
+        clearTimeout(timer);
         timer = null;
       }
       return chain;

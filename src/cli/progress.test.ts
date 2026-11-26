@@ -104,4 +104,36 @@ describe('createProgressSink', () => {
     expect(parsed.elapsed_s).toBe(724);
     expect(parsed.pid).toBe(1234);
   });
+
+  it('stops writing after an async stream error (closed pipe) instead of crashing', () => {
+    const chunks: string[] = [];
+    const listeners: Record<string, (error: Error) => void> = {};
+    const stream = {
+      write: (c: string) => (chunks.push(c), true),
+      on: (event: string, listener: (error: Error) => void) => {
+        listeners[event] = listener;
+      },
+    };
+    const sink = createProgressSink({ json: false, tty: false, stream });
+    sink(snapshot());
+    // A closed reader surfaces as an 'error' event (EPIPE) — the sink
+    // must absorb it and go quiet rather than let Node exit mid-run.
+    listeners['error']?.(new Error('write EPIPE'));
+    sink(snapshot());
+    expect(chunks).toHaveLength(1);
+  });
+
+  it('disables itself after a synchronous write throw', () => {
+    let calls = 0;
+    const stream = {
+      write: () => {
+        calls += 1;
+        throw new Error('write failed');
+      },
+    };
+    const sink = createProgressSink({ json: false, tty: false, stream });
+    sink(snapshot());
+    sink(snapshot());
+    expect(calls).toBe(1);
+  });
 });

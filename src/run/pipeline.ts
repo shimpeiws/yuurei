@@ -1,6 +1,6 @@
-import { rename, rm, writeFile } from 'node:fs/promises';
+import { readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 import { NoopCostModel } from '../cost/noop.js';
 import { installSignalCleanup } from './signals.js';
@@ -257,11 +257,26 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     try {
       await disposeContext(cannotIdentifyCredentials);
     } finally {
-      // An interrupted run keeps its directory: status.json records the
-      // `interrupted` terminal state, so a poller can still tell a run that
-      // was deliberately stopped from one that vanished (#258).
       if (!traceWritten && !interrupted) {
         await removeRunDir();
+      } else if (interrupted && !traceWritten) {
+        // An interrupted run keeps its directory, but it is documented by
+        // status.json alone: pre-run outputs (a seeded baseline manifest, a
+        // durable workspace dir, observation artifacts) are not a complete
+        // record, so they are pruned to keep the retained dir's meaning
+        // unambiguous (#258).
+        try {
+          for (const entry of await readdir(layout.runDir)) {
+            if (entry === basename(layout.statusPath)) continue;
+            await rm(join(layout.runDir, entry), { recursive: true, force: true });
+          }
+        } catch (error) {
+          warn(
+            `failed to prune the interrupted run directory: ${layout.runDir} (${
+              error instanceof Error ? error.message : String(error)
+            })`,
+          );
+        }
       }
     }
   };

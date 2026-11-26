@@ -47,6 +47,7 @@ describe('signal cleanup', () => {
   async function runFixtureUntilSignal(
     signal: string,
     fixture: string = FIXTURE,
+    beforeSignal?: (marker: Record<string, string>) => Promise<void>,
   ): Promise<{ code: number | null; marker: Record<string, string> }> {
     const markerPath = join(markerDir, 'marker');
     const child = spawn(process.execPath, ['--import', 'tsx', fixture], {
@@ -82,6 +83,7 @@ describe('signal cleanup', () => {
       );
     }
 
+    if (beforeSignal !== undefined) await beforeSignal(parsed);
     child.kill(signal);
     const code = await exited;
     return { code, marker: parsed };
@@ -97,6 +99,9 @@ describe('signal cleanup', () => {
     const runEntries = await readdir(runsDir).catch(() => []);
     expect(runEntries).toHaveLength(1);
     const runDir = join(runsDir, runEntries[0] as string);
+    // The retained directory is documented by status.json alone: any
+    // pre-run outputs written before the signal are pruned.
+    expect(await readdir(runDir)).toEqual(['status.json']);
     const status = JSON.parse(await readFile(join(runDir, 'status.json'), 'utf8')) as {
       state: string;
       run_id: string;
@@ -116,7 +121,13 @@ describe('signal cleanup', () => {
     ['SIGINT', SIGNAL_EXIT_CODES.SIGINT],
     ['SIGTERM', SIGNAL_EXIT_CODES.SIGTERM],
   ])('scrubs credentials and disposes the isolation temp dir on %s', async (signal, exitCode) => {
-    const { code, marker } = await runFixtureUntilSignal(signal);
+    const { code, marker } = await runFixtureUntilSignal(signal, FIXTURE, async (m) => {
+      // Reproduce a run that wrote a pre-run output before the signal: the
+      // retained interrupted directory must still end up status.json-only.
+      const { runsDir } = m as unknown as HangMarker;
+      const [runId] = await readdir(runsDir);
+      await writeFile(join(runsDir, runId as string, 'baseline-manifest.json'), '{}', 'utf8');
+    });
     const { rootDir, runsDir } = marker as unknown as HangMarker;
     rootDirs.push(rootDir);
 

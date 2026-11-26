@@ -90,28 +90,48 @@ export interface ProgressSinkOptions {
   /** Whether `stream` is a terminal (enables in-place rewrite). */
   tty: boolean;
   /** Injectable for tests; production passes process.stderr. */
-  stream: { write(chunk: string): unknown };
+  stream: {
+    write(chunk: string): unknown;
+    /** Optional Node stream surface used to catch async EPIPE ('error'). */
+    on?(event: string, listener: (error: Error) => void): unknown;
+  };
 }
 
 /**
  * Renders each monitor snapshot to stderr. On a terminal the running line is
  * rewritten in place (`\r` + erase-to-EOL); anywhere else each tick appends
  * a line. With `--json` each tick is a JSON line carrying the same fields
- * as status.json.
+ * as status.json. A broken stream (closed pipe) disables the sink rather
+ * than crashing the run — a liveness aid must never kill the pipeline.
  */
 export function createProgressSink(
   options: ProgressSinkOptions,
 ): (snapshot: RunStatusSnapshot) => void {
+  // A closed reader surfaces asynchronously as a stream 'error' event
+  // (EPIPE), not a synchronous throw — without a listener it would
+  // terminate the process mid-run, before cleanup can scrub credentials.
+  let broken = false;
+  options.stream.on?.('error', () => {
+    broken = true;
+  });
+  const write = (chunk: string) => {
+    if (broken) return;
+    try {
+      options.stream.write(chunk);
+    } catch {
+      broken = true;
+    }
+  };
   return (snapshot) => {
     if (options.json) {
-      options.stream.write(`${JSON.stringify(snapshot)}\n`);
+      write(`${JSON.stringify(snapshot)}\n`);
       return;
     }
     const line = renderHumanLine(snapshot);
     if (options.tty) {
-      options.stream.write(`\r\x1b[K${line}${snapshot.state === 'running' ? '' : '\n'}`);
+      write(`\r\x1b[K${line}${snapshot.state === 'running' ? '' : '\n'}`);
     } else {
-      options.stream.write(`${line}\n`);
+      write(`${line}\n`);
     }
   };
 }
