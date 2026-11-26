@@ -296,8 +296,18 @@ describe('signal cleanup', () => {
     const runDir = join(runsDir, runEntries[0] as string);
     const entries = await readdir(runDir);
     expect(entries).not.toEqual(['status.json']);
-    expect(entries).toContain('trace.json');
-    expect(entries).toContain('status.json');
+    // A kept directory is the complete record: every required durable output
+    // per contract Section C is present, not just the trace marker.
+    for (const required of [
+      'trace.json',
+      'status.json',
+      'stdout.log',
+      'stderr.log',
+      'artifacts.json',
+      'resolved-profile.json',
+    ]) {
+      expect(entries).toContain(required);
+    }
     const status = JSON.parse(await readFile(join(runDir, 'status.json'), 'utf8')) as {
       state: string;
     };

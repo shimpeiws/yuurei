@@ -539,13 +539,19 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       if (cell.seed !== undefined) {
         const seedFiles = cell.seed.files;
         const collected = await publish(() =>
-          collectSeededWorkspace(context.workspaceDir, layout.workspaceDir, seedFiles),
+          collectSeededWorkspace(context.workspaceDir, layout.workspaceDir, seedFiles, {
+            aborted: () => interrupted,
+          }),
         );
         workspaceDiagnostics = collected.diagnostics;
         workspaceComplete = collected.complete;
         if (collected.complete) changes = collected.changes;
       } else {
-        const copy = await publish(() => copyWorkspace(context.workspaceDir, layout.workspaceDir));
+        const copy = await publish(() =>
+          copyWorkspace(context.workspaceDir, layout.workspaceDir, {
+            aborted: () => interrupted,
+          }),
+        );
         workspaceDiagnostics = copy.diagnostics;
         workspaceComplete = copy.complete;
       }

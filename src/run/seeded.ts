@@ -40,6 +40,7 @@ export async function collectSeededWorkspace(
   sourceDir: string,
   destDir: string,
   baseline: SeedManifest,
+  options?: { aborted?: () => boolean },
 ): Promise<SeededCollectResult> {
   const diagnostics: string[] = [];
   const added: string[] = [];
@@ -61,6 +62,12 @@ export async function collectSeededWorkspace(
       return;
     }
     for (const entry of entries) {
+      // Checked per entry so an interrupting teardown can stop the traversal
+      // before it issues further file operations (#258).
+      if (options?.aborted?.()) {
+        failed = true;
+        return;
+      }
       // Names are decoded from their raw bytes: a name that is not valid
       // UTF-8 cannot be recorded in the change set, so collection reports
       // incomplete rather than silently renaming the file. A literal
