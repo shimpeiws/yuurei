@@ -351,7 +351,10 @@ atomically (a unique temp file plus rename) at the `--progress` interval —
   `timed_out` or `interrupted` at the end; every final state carries
   `finished_at`. `interrupted` means the run was stopped by a signal —
   either caught by yuurei (`SIGINT`/`SIGTERM`) or delivered to the runtime
-  child. A `finished` or `timed_out` state is written after `trace.json`, so
+  child. A signal caught after the terminal write — during post-run cleanup —
+  leaves the earlier `finished`/`timed_out` state in place even though the
+  CLI still exits with the signal's code: the run had already ended. A
+  `finished` or `timed_out` state is written after `trace.json`, so
   a poller that sees one can read the trace; a `SIGINT`/`SIGTERM`
   `interrupted` directory holds `status.json` only when the run never
   reached the trace — a signal landing during trace publication keeps the

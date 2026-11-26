@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -54,6 +54,21 @@ describe('copyWorkspace', () => {
     expect(result.diagnostics).toEqual([
       'workspace: copy failed; durable workspace may be incomplete',
     ]);
+  });
+
+  // #258: an interrupting teardown must stop the traversal rather than copy
+  // files the cleanup is about to delete.
+  it('stops issuing file operations once aborted', async () => {
+    await writeFile(join(src, 'a.txt'), 'a', 'utf8');
+    await writeFile(join(src, 'b.txt'), 'b', 'utf8');
+    await mkdir(join(src, 'sub'), { recursive: true });
+    await writeFile(join(src, 'sub', 'c.txt'), 'c', 'utf8');
+
+    const result = await copyWorkspace(src, dest, { aborted: () => true });
+
+    expect(result.complete).toBe(false);
+    // Nothing was copied: the abort fires before the first entry is processed.
+    expect(await readdir(dest)).toEqual([]);
   });
 });
 

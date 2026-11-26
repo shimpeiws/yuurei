@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
@@ -97,6 +97,20 @@ describe('collectSeededWorkspace', () => {
     expect(result.changes.deleted).toEqual(['a.txt', 'b.txt']);
     expect(result.diagnostics.some((d) => d.includes('symlink'))).toBe(true);
     await expect(readFile(join(durable, 'a.txt'))).rejects.toThrow();
+  });
+
+  // #258: an interrupting teardown must stop the traversal rather than copy
+  // files the cleanup is about to delete.
+  it('stops issuing file operations once aborted', async () => {
+    const cell = await tempDir('yuurei-seeded-cell-');
+    const durable = await tempDir('yuurei-seeded-durable-');
+    await writeTree(cell, { 'a.txt': 'a\n', 'b.txt': 'b\n', 'sub/c.txt': 'c\n' });
+
+    const result = await collectSeededWorkspace(cell, durable, {}, { aborted: () => true });
+
+    expect(result.complete).toBe(false);
+    // Nothing was copied: the abort fires before the first entry is processed.
+    expect(await readdir(durable)).toEqual([]);
   });
 
   it('keeps a file whose name contains a legitimate U+FFFD', async () => {
