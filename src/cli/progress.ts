@@ -1,3 +1,4 @@
+import { renderGhost } from './ghost.js';
 import type { RunStatusSnapshot } from '../run/status.js';
 import { DEFAULT_PROGRESS_INTERVAL_MS } from '../run/status.js';
 import { MAX_TIMEOUT_MS } from '../runtime/exec.js';
@@ -89,9 +90,13 @@ export interface ProgressSinkOptions {
   json: boolean;
   /** Whether `stream` is a terminal (enables in-place rewrite). */
   tty: boolean;
+  animate?: boolean;
   /** Injectable for tests; production passes process.stderr. */
   stream: {
     write(chunk: string): unknown;
+    readonly columns?: number;
+    readonly rows?: number;
+    readonly writableNeedDrain?: boolean;
     /** Optional Node stream surface used to catch async EPIPE ('error'). */
     on?(event: string, listener: (error: Error) => void): unknown;
   };
@@ -106,13 +111,24 @@ export interface ProgressSinkOptions {
  */
 export function createProgressSink(
   options: ProgressSinkOptions,
-): (snapshot: RunStatusSnapshot) => void {
+): ((snapshot: RunStatusSnapshot) => void) & { clear(): void; stop(): void } {
+  let snapshot: RunStatusSnapshot | undefined;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let visible = false;
+  const seed = Math.floor(Math.random() * 0xffffffff);
+  const start = performance.now();
+  const clearRows = '\r\x1b[2K\n\r\x1b[2K\n\r\x1b[2K\x1b[2A';
+  const stopTimer = () => {
+    clearInterval(timer);
+    timer = undefined;
+  };
   // A closed reader surfaces asynchronously as a stream 'error' event
   // (EPIPE), not a synchronous throw — without a listener it would
   // terminate the process mid-run, before cleanup can scrub credentials.
   let broken = false;
   options.stream.on?.('error', () => {
     broken = true;
+    stopTimer();
   });
   const write = (chunk: string) => {
     if (broken) return;
@@ -120,9 +136,52 @@ export function createProgressSink(
       options.stream.write(chunk);
     } catch {
       broken = true;
+      stopTimer();
     }
   };
-  return (snapshot) => {
+  const clear = () => {
+    if (!visible) return;
+    visible = false;
+    write(clearRows);
+  };
+  const draw = () => {
+    if (!snapshot || broken || options.stream.writableNeedDrain) return;
+    const columns = options.stream.columns ?? 0;
+    const width = Math.min(columns - 1, 160);
+    if (width < 30 || (options.stream.rows ?? 0) < 4) {
+      if (visible) {
+        clear();
+        write(`\r\x1b[K${renderHumanLine(snapshot).slice(0, Math.max(0, width))}`);
+      }
+      return;
+    }
+    const [top, bottom] = renderGhost({ seed, width, time: performance.now() - start });
+    const full = renderHumanLine(snapshot);
+    const age =
+      snapshot.last_activity_at === null
+        ? '?'
+        : formatElapsed((Date.now() - Date.parse(snapshot.last_activity_at)) / 1000);
+    const line =
+      full.length <= width ? full : `[yuurei] ${formatElapsed(snapshot.elapsed_s)} / idle ${age}`;
+    visible = true;
+    write(`\r\x1b[2K${line.slice(0, width)}\n\r\x1b[2K${top}\n\r\x1b[2K${bottom}\x1b[2A\r`);
+  };
+  const update = (next: RunStatusSnapshot) => {
+    snapshot = next;
+    if (options.animate && options.tty && !options.json && next.state === 'running' && !broken) {
+      if (!timer) {
+        timer = setInterval(draw, 100);
+        timer.unref();
+      }
+      if ((options.stream.columns ?? 0) >= 31 && (options.stream.rows ?? 0) >= 4) {
+        draw();
+        return;
+      }
+      clear();
+    } else {
+      stopTimer();
+      clear();
+    }
     if (options.json) {
       write(`${JSON.stringify(snapshot)}\n`);
       return;
@@ -134,4 +193,11 @@ export function createProgressSink(
       write(`${line}\n`);
     }
   };
+  return Object.assign(update, {
+    clear,
+    stop() {
+      stopTimer();
+      clear();
+    },
+  });
 }

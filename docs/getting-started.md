@@ -388,3 +388,13 @@ each profile's `config/` are copied.
 
 See the [design document](design/yuurei-design-v0.3.md) for the broader
 runtime and isolation model.
+
+### Preview the Wandering Ghost
+
+Interactive run progress includes a two-row Braille ghost on supported
+terminals. Narrow terminals use the text progress display. Preview the
+animation from a development checkout without starting an agent:
+
+```sh
+pnpm exec tsx scripts/ghost-demo.ts --seed=7 --width=40 --seconds=30
+```

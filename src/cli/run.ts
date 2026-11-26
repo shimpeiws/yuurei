@@ -228,6 +228,16 @@ export async function runRun(
     cli_overrides: cliOverrides,
   };
 
+  const sink = progress.enabled
+    ? createProgressSink({
+        json,
+        tty: Boolean(process.stderr.isTTY),
+        animate: Boolean(
+          process.env['TERM'] && process.env['TERM'] !== 'dumb' && !process.env['CI'],
+        ),
+        stream: process.stderr,
+      })
+    : undefined;
   const result = await runPipeline({
     runtimeId: profile.runtime,
     requestedModel,
@@ -247,20 +257,15 @@ export async function runRun(
       bridge_opencode_auth_file: options.bridgeOpenCodeAuthFile ?? false,
     },
     definition,
-    onWarning: (message) => logger.warn(message),
+    onWarning: (message) => {
+      sink?.clear();
+      logger.warn(message);
+    },
     progress: {
       intervalMs: progress.intervalMs,
-      ...(progress.enabled
-        ? {
-            onProgress: createProgressSink({
-              json,
-              tty: Boolean(process.stderr.isTTY),
-              stream: process.stderr,
-            }),
-          }
-        : {}),
+      ...(sink ? { onProgress: sink } : {}),
     },
-  });
+  }).finally(() => sink?.stop());
 
   logger.info(`run ${result.runId} finished`, {
     ...(json ? { run_id: result.runId } : {}),

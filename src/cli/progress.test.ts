@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RunStatusSnapshot } from '../run/status.js';
 import { createProgressSink, formatElapsed, resolveProgress } from './progress.js';
 import { EXIT_CODES, YuureiError } from './exit-codes.js';
@@ -66,6 +66,35 @@ describe('createProgressSink', () => {
     const chunks: string[] = [];
     return { stream: { write: (c: string) => (chunks.push(c), true) }, chunks };
   }
+
+  it('skips blocked frames, falls back on resize, and stops on interruption', () => {
+    vi.useFakeTimers();
+    const { stream, chunks } = collect();
+    const terminal = { ...stream, columns: 40, rows: 24, writableNeedDrain: false };
+    const sink = createProgressSink({ json: false, tty: true, animate: true, stream: terminal });
+    try {
+      sink(snapshot());
+      expect(chunks[0]).toMatch(/[\u2801-\u28ff]/u);
+      terminal.writableNeedDrain = true;
+      vi.advanceTimersByTime(1000);
+      expect(chunks).toHaveLength(1);
+      terminal.writableNeedDrain = false;
+      terminal.columns = 20;
+      vi.advanceTimersByTime(100);
+      expect(chunks[1]).toContain('\x1b[2A');
+      terminal.columns = 80;
+      vi.advanceTimersByTime(100);
+      expect(chunks.at(-1)).toMatch(/[\u2801-\u28ff]/u);
+      sink(snapshot({ state: 'interrupted' }));
+      const count = chunks.length;
+      expect(chunks.at(-1)).toContain('interrupted');
+      vi.advanceTimersByTime(1000);
+      expect(chunks).toHaveLength(count);
+    } finally {
+      sink.stop();
+      vi.useRealTimers();
+    }
+  });
 
   it('rewrites one line in place on a terminal', () => {
     const { stream, chunks } = collect();

@@ -9,6 +9,8 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ### Added
 
+- A wandering Braille ghost accompanies interactive run progress on supported terminals (#260).
+
 - **Run liveness reporting** (#258): `yuurei run` now writes
   `.yuurei/runs/<run-id>/status.json` atomically on an interval (30 s by
   default) while a run is in progress, recording `state`
