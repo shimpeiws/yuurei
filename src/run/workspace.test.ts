@@ -83,9 +83,17 @@ describe('copyWorkspace', () => {
     const result = await copyWorkspace(src, dest, { aborted: () => checks++ >= 1 });
 
     expect(result.complete).toBe(false);
-    // At most the first entry was processed (a file copied, or a directory
-    // created before its contents were aborted).
-    expect((await readdir(dest)).length).toBeLessThanOrEqual(1);
+    // At most the first entry's file was copied; a root-only check would let
+    // nested copies through (sub/c.txt), which the recursive count catches.
+    const countFiles = async (dir: string): Promise<number> => {
+      let count = 0;
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) count += await countFiles(join(dir, entry.name));
+        else count += 1;
+      }
+      return count;
+    };
+    expect(await countFiles(dest)).toBeLessThanOrEqual(1);
   });
 });
 
