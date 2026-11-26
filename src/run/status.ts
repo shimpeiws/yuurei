@@ -228,7 +228,9 @@ export function createRunStatusMonitor(options: RunStatusMonitorOptions): RunSta
       if (started || finalized) return;
       started = true;
       enqueue('running');
-      scheduleNext();
+      // The timer arms only once the first write settles — otherwise a
+      // slow initial scan would let a second tick queue behind it.
+      chain.then(scheduleNext);
     },
     finish(state, finishedAt) {
       if (finalized) return chain;

@@ -26,6 +26,7 @@ import { redactFile, redactText } from '../trace/redact.js';
 import type { RunDefinition, Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
 import { createUniqueRunLayout } from './layout.js';
+import { pathExists } from '../util/fs.js';
 import {
   createRunStatusMonitor,
   DEFAULT_PROGRESS_INTERVAL_MS,
@@ -78,6 +79,14 @@ export interface RunPipelineInput extends CellResolutionInput {
     intervalMs?: number;
     onProgress?: (snapshot: RunStatusSnapshot) => void;
   };
+  /**
+   * Test seam only. Awaited inside the trace publication while it is
+   * already tracked as in-flight, so a test can hold the rename open and
+   * land a signal mid-publication — the window in which interrupted
+   * cleanup could otherwise prune durable outputs around a surviving
+   * trace (#258). Production callers omit it.
+   */
+  holdTracePublish?: () => Promise<void>;
 }
 
 export interface RunPipelineResult {
@@ -143,6 +152,26 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   // terminal state. A plain failure still removes it.
   let interrupted = false;
   const warn = (message: string) => input.onWarning?.(message);
+
+  /**
+   * Publications into the run directory pass through this gate: once a
+   * signal is caught (`interrupted`), no new publish may start, and the
+   * interrupted-retention prune drains the ones already in flight before
+   * deleting entries — a late writeFile/rename can never survive the
+   * prune as a stray file or a half-published record (e.g. a trace.json
+   * renamed in while its required outputs were being removed).
+   */
+  const inFlightPublishes = new Set<Promise<unknown>>();
+  const publish = async <T>(operation: () => Promise<T>): Promise<T> => {
+    if (interrupted) throw new Error('run interrupted by signal');
+    const pending = operation();
+    inFlightPublishes.add(pending);
+    try {
+      return await pending;
+    } finally {
+      inFlightPublishes.delete(pending);
+    }
+  };
 
   // The liveness probe scans the whole cell root — the runtime's session
   // record under the isolated home, the workspace, and the captured logs
@@ -264,11 +293,19 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         // status.json alone: pre-run outputs (a seeded baseline manifest, a
         // durable workspace dir, observation artifacts) are not a complete
         // record, so they are pruned to keep the retained dir's meaning
-        // unambiguous (#258).
+        // unambiguous (#258). In-flight publishers are drained first, and
+        // if the trace managed to land the run is complete — keep it whole
+        // rather than pruning a valid record.
+        await Promise.allSettled([...inFlightPublishes]);
         try {
-          for (const entry of await readdir(layout.runDir)) {
-            if (entry === basename(layout.statusPath)) continue;
-            await rm(join(layout.runDir, entry), { recursive: true, force: true });
+          // traceWritten is set in the main flow a few microtasks after the
+          // write resolves, so it can lag the drain — check the file itself.
+          // If the trace won the race the run is complete; keep it whole.
+          if (!(await pathExists(layout.tracePath))) {
+            for (const entry of await readdir(layout.runDir)) {
+              if (entry === basename(layout.statusPath)) continue;
+              await rm(join(layout.runDir, entry), { recursive: true, force: true });
+            }
           }
         } catch (error) {
           warn(
@@ -306,7 +343,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // handled separately and do not reach here.
     const save = async <T>(operation: () => Promise<T>): Promise<T> => {
       try {
-        return await operation();
+        return await publish(operation);
       } catch (error) {
         if (error instanceof YuureiError) throw error;
         throw new YuureiError(
@@ -409,13 +446,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         const inputPath = join(layout.runDir, artifact.path);
         const tempPath = `${inputPath}.redact-${randomUUID()}`;
         try {
-          const { truncated } = await redactFile(
-            inputPath,
-            tempPath,
-            credentialValues,
-            maxArtifactBytes,
+          const { truncated } = await publish(() =>
+            redactFile(inputPath, tempPath, credentialValues, maxArtifactBytes),
           );
-          await rename(tempPath, inputPath);
+          await publish(() => rename(tempPath, inputPath));
           if (truncated) observationTruncatedPaths.push(artifact.path);
         } catch {
           // Redaction failed — remove original to prevent unredacted content
@@ -503,16 +537,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     let changes: WorkspaceChanges | undefined;
     try {
       if (cell.seed !== undefined) {
-        const collected = await collectSeededWorkspace(
-          context.workspaceDir,
-          layout.workspaceDir,
-          cell.seed.files,
+        const seedFiles = cell.seed.files;
+        const collected = await publish(() =>
+          collectSeededWorkspace(context.workspaceDir, layout.workspaceDir, seedFiles),
         );
         workspaceDiagnostics = collected.diagnostics;
         workspaceComplete = collected.complete;
         if (collected.complete) changes = collected.changes;
       } else {
-        const copy = await copyWorkspace(context.workspaceDir, layout.workspaceDir);
+        const copy = await publish(() => copyWorkspace(context.workspaceDir, layout.workspaceDir));
         workspaceDiagnostics = copy.diagnostics;
         workspaceComplete = copy.complete;
       }
@@ -570,8 +603,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         const redaction = redactText(patch.diff, knownCredentialValues, maxArtifactBytes);
         patchTruncated = redaction.truncated;
         patchRedacted = redaction.redacted;
-        await writeFile(tempOutput, redaction.text, 'utf8');
-        await rename(tempOutput, layout.patchPath);
+        await publish(() => writeFile(tempOutput, redaction.text, 'utf8'));
+        await publish(() => rename(tempOutput, layout.patchPath));
         patchPublished = true;
       } catch {
         // Reached only before the rename, so patch.diff was not published and
@@ -601,8 +634,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       try {
         const redacted = redactText(runResult.text, knownCredentialValues, maxArtifactBytes);
         resultTruncated = redacted.truncated;
-        await writeFile(tempOutput, redacted.text, 'utf8');
-        await rename(tempOutput, layout.resultPath);
+        await publish(() => writeFile(tempOutput, redacted.text, 'utf8'));
+        await publish(() => rename(tempOutput, layout.resultPath));
       } catch {
         resultDiagnostics.push('result: save failed; result.txt not recorded');
       } finally {
@@ -761,7 +794,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       ...(observation !== undefined ? { observation } : {}),
     };
 
-    await save(() => writeTrace(layout.runDir, trace));
+    await save(async () => {
+      await input.holdTracePublish?.();
+      await writeTrace(layout.runDir, trace);
+    });
     traceWritten = true;
 
     // The terminal state for pollers is written after trace.json (the

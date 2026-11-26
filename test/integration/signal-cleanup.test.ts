@@ -9,6 +9,11 @@ import { pathExists } from '../../src/util/fs.js';
 const FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-hang.ts');
 const PREPARE_FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-during-prepare.ts');
 const CLEANUP_FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-during-cleanup.ts');
+const TRACE_PUBLISH_FIXTURE = join(
+  import.meta.dirname,
+  'fixtures',
+  'signal-during-trace-publish.ts',
+);
 
 interface HangMarker {
   rootDir: string;
@@ -219,5 +224,87 @@ describe('signal cleanup', () => {
     // dispose() completed before the process exited — the exit waited for the
     // shared lifecycle.
     await expect(stat(disposeDonePath)).resolves.toBeDefined();
+  });
+
+  // Devin Review finding on #258: a signal landing while trace.json is being
+  // published must not let the interrupted prune delete required outputs
+  // around a surviving trace (a "complete" marker over a broken record).
+  // The drain waits for the in-flight publish; when the trace lands the
+  // retained directory is the complete record, never a pruned one.
+  it('keeps the complete directory when a signal lands mid trace publication', async () => {
+    const markerPath = join(markerDir, 'marker');
+    const holdEnteredPath = join(markerDir, 'hold-entered');
+    const releasePath = join(markerDir, 'release');
+
+    const child = spawn(process.execPath, ['--import', 'tsx', TRACE_PUBLISH_FIXTURE], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        YUUREI_SIGNAL_MARKER: markerPath,
+        YUUREI_TRACE_HOLD_ENTERED: holdEnteredPath,
+        YUUREI_TRACE_HOLD_RELEASE: releasePath,
+      },
+    });
+    const stderrChunks: Buffer[] = [];
+    child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+
+    let exitedInfo: { code: number | null; signal: string | null } | null = null;
+    const exited = new Promise<void>((resolve) => {
+      child.on('close', (code, sig) => {
+        exitedInfo = { code, signal: sig };
+        resolve();
+      });
+    });
+
+    const waitForPath = async (path: string, what: string): Promise<void> => {
+      const deadline = Date.now() + 15_000;
+      while (!(await pathExists(path))) {
+        if (Date.now() > deadline) {
+          child.kill('SIGKILL');
+          throw new Error(
+            `fixture never reached ${what} (stderr: ${Buffer.concat(stderrChunks).toString()})`,
+          );
+        }
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    };
+
+    await waitForPath(markerPath, 'the marker');
+    const { runsDir } = JSON.parse(await readFile(markerPath, 'utf8')) as { runsDir: string };
+    rootDirs.push(join(runsDir, '..'));
+    // The trace publish op is provably in flight and tracked.
+    await waitForPath(holdEnteredPath, 'the trace-publish barrier');
+
+    child.kill('SIGINT');
+
+    // The interrupted cleanup's drain is waiting on the held publish, so
+    // the process must still be alive — an exit here would mean the prune
+    // ran without draining the publisher it could race.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(exitedInfo).toBeNull();
+
+    await writeFile(releasePath, 'go', 'utf8');
+    await exited;
+
+    expect(exitedInfo?.code).toBe(SIGNAL_EXIT_CODES.SIGINT);
+
+    // The trace won the race: the retained directory is the complete
+    // record — trace.json plus its required outputs — never a pruned dir
+    // with a dangling trace.
+    const runEntries = await readdir(runsDir);
+    expect(runEntries).toHaveLength(1);
+    const runDir = join(runsDir, runEntries[0] as string);
+    const entries = await readdir(runDir);
+    expect(entries).not.toEqual(['status.json']);
+    expect(entries).toContain('trace.json');
+    expect(entries).toContain('status.json');
+    const status = JSON.parse(await readFile(join(runDir, 'status.json'), 'utf8')) as {
+      state: string;
+    };
+    expect(status.state).toBe('interrupted');
+    const trace = JSON.parse(await readFile(join(runDir, 'trace.json'), 'utf8')) as {
+      schema_version: string;
+    };
+    expect(trace.schema_version).toBeDefined();
   });
 });
