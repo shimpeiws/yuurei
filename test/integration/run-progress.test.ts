@@ -207,4 +207,22 @@ describe('run progress and status.json', () => {
     expect(result.code).toBe(2);
     expect(result.stderr).toContain('--progress interval');
   });
+
+  it('rejects an invalid --progress before reading stdin for --task -', async () => {
+    const project = await createFixtureProject({
+      runtime: 'claude-code',
+      command: 'claude',
+      shim: SLOW_SHIM,
+    });
+    // stdin is deliberately never written: if --progress were resolved after
+    // the stdin read, this child would block forever instead of exiting 2.
+    const result = await runCli(
+      ['run', '--profile', 'fixture', '--task', '-', '--progress=abc'],
+      project.env,
+      project.root,
+    );
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('--progress interval');
+  });
 });

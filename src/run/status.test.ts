@@ -165,6 +165,78 @@ describe('run status monitor', () => {
     }
   });
 
+  it('does not regress last_activity_at when the newest file is deleted between ticks', async () => {
+    const monitor = makeMonitor({ intervalMs: 20 });
+    monitor.start();
+    try {
+      // A file with a far-future mtime wins the first scan outright.
+      const marker = join(cellRoot, 'newest.txt');
+      await writeFile(marker, 'x', 'utf8');
+      const future = new Date('2030-06-01T00:00:00Z');
+      await utimes(marker, future, future);
+      await waitForStatus(statusPath);
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        const status = await readStatus(statusPath);
+        if (status.last_activity_at !== null) break;
+        if (Date.now() > deadline) throw new Error('last_activity_at never observed');
+        await sleep(20);
+      }
+      const observed = (await readStatus(statusPath)).last_activity_at;
+
+      // The file that held the max vanishes; the hint must not move backwards.
+      await rm(marker);
+      await sleep(80);
+      expect((await readStatus(statusPath)).last_activity_at).toBe(observed);
+    } finally {
+      await monitor.stop();
+    }
+  });
+
+  it('stop() resolves only after an in-flight write has settled', async () => {
+    // Hold the first tick's activity probe in flight, then call stop() while
+    // the write is still blocked: a caller removing the run directory right
+    // after stop() must not race a late status write.
+    let releaseProbe: () => void = () => {};
+    const probeGate = new Promise<string[]>((resolve) => {
+      releaseProbe = () => resolve([cellRoot]);
+    });
+    const monitor = makeMonitor({ activityRoots: () => probeGate });
+    monitor.start();
+    let stopped = false;
+    const stopping = monitor.stop().then(() => {
+      stopped = true;
+    });
+    await sleep(50);
+    expect(stopped).toBe(false);
+
+    releaseProbe();
+    await stopping;
+    // The held write landed before stop() resolved: the directory can be
+    // removed now with no status write still in flight.
+    expect((await readStatus(statusPath)).state).toBe('running');
+    await rm(statusPath, { force: true });
+    await sleep(50);
+    await expect(readStatus(statusPath)).rejects.toThrow();
+  });
+
+  it('does not reject stop() when the activity probe throws', async () => {
+    const monitor = makeMonitor({
+      activityRoots: () => {
+        throw new Error('probe exploded');
+      },
+    });
+    monitor.start();
+    try {
+      const status = await waitForStatus(statusPath);
+      expect(status.state).toBe('running');
+      expect(status.last_activity_at).toBeNull();
+    } finally {
+      await expect(monitor.stop()).resolves.toBeUndefined();
+      await expect(monitor.finish('finished')).resolves.toBeUndefined();
+    }
+  });
+
   it('writes the terminal state exactly once — first finish wins', async () => {
     const monitor = makeMonitor();
     monitor.start();

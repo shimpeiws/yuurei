@@ -199,6 +199,16 @@ export async function runRun(
     sourceDir: join(yuureiDir, profileEntry.source),
   });
 
+  // The progress line defaults on for an interactive terminal without
+  // --json; an explicit flag forces it either way. status.json is written
+  // unconditionally — it is the script-facing surface, not a terminal
+  // feature — and shares the resolved interval. Resolved before any stdin
+  // read for the same reason as the validations above.
+  const progress = resolveProgress(options.progress, {
+    json,
+    stderrIsTTY: Boolean(process.stderr.isTTY),
+  });
+
   // `--task -` reads the task from stdin instead of a file: a caller that holds
   // the task as a string (e.g. an agent) passes the bytes directly, with no
   // file written into the operator's project or a temp dir to clean up. The
@@ -217,15 +227,6 @@ export async function runRun(
     run: options.runName ?? null,
     cli_overrides: cliOverrides,
   };
-
-  // The progress line defaults on for an interactive terminal without
-  // --json; an explicit flag forces it either way. status.json is written
-  // unconditionally — it is the script-facing surface, not a terminal
-  // feature — and shares the resolved interval.
-  const progress = resolveProgress(options.progress, {
-    json,
-    stderrIsTTY: Boolean(process.stderr.isTTY),
-  });
 
   const result = await runPipeline({
     runtimeId: profile.runtime,

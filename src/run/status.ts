@@ -90,8 +90,9 @@ export interface RunStatusMonitorOptions {
   /**
    * Cell-internal directories scanned for the newest mtime each tick
    * (evaluated per tick so the probe always sees the current roots).
+   * May return a promise — a test seam that lets a write be held in flight.
    */
-  activityRoots: () => string[];
+  activityRoots: () => string[] | Promise<string[]>;
   pid?: number;
   /**
    * Called with each computed snapshot — the stderr progress-line hook.
@@ -146,7 +147,14 @@ export function createRunStatusMonitor(options: RunStatusMonitorOptions): RunSta
 
   const writeSnapshot = async (state: RunState, finishedAt?: string): Promise<void> => {
     const nowMs = Date.now();
-    const activityMs = await lastActivityMs(activityRoots());
+    // The probe is a liveness hint: a throwing activityRoots or scan must
+    // never reject the write chain — stop()/finish() promise to settle.
+    let activityMs: number | null = null;
+    try {
+      activityMs = await lastActivityMs(await activityRoots());
+    } catch {
+      // Probe failed this tick; the snapshot is written without it.
+    }
     if (activityMs !== null && activityMs > newestActivityMs) newestActivityMs = activityMs;
     const parsedFinishMs = finishedAt !== undefined ? Date.parse(finishedAt) : Number.NaN;
     const elapsedSourceMs = Number.isNaN(parsedFinishMs) ? nowMs : parsedFinishMs;

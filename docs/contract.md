@@ -50,11 +50,11 @@ the same kind and a flat list produces promises that cannot be kept.
 
 ### Flags
 
-| Command                                                                                        | Flags                                                                  |
-| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `init`                                                                                         | `--runtime`, `--profile`, `--task`, `--run`                            |
-| `run`                                                                                          | `--profile`, `--task`, `--model`, `--keep`, `--timeout`, `--isolation` |
-| all of the above, plus `doctor` / `profile list` / `inspect` / `runs` / `trace show` / `clean` | `--json`                                                               |
+| Command                                                                                        | Flags                                                                                                           |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `init`                                                                                         | `--runtime`, `--profile`, `--task`, `--run`                                                                     |
+| `run`                                                                                          | `--profile`, `--task`, `--model`, `--keep`, `--timeout`, `--isolation`, `--progress [seconds]`, `--no-progress` |
+| all of the above, plus `doctor` / `profile list` / `inspect` / `runs` / `trace show` / `clean` | `--json`                                                                                                        |
 
 The credential-bridge flags and `--seed-repo` are **not** here; they are in
 Section B.
@@ -313,9 +313,12 @@ below.
 `trace.json` is written atomically and last, so its presence means the run
 reached its end and the identity-and-outcome record is complete. The **required**
 durable outputs are `stdout.log`, `stderr.log`, `artifacts.json`,
-`resolved-profile.json` and `trace.json`; their files are present whenever the
-run directory is retained, and a failure to write any of them removes the run
-directory. Their **content** is not all-or-nothing: the logs are capped and
+`resolved-profile.json` and `trace.json`; on a completed run these files are
+present whenever the run directory is retained, and a failure to write any of
+them removes the run directory. A run stopped by a caught `SIGINT`/`SIGTERM`
+is the one exception: its directory is retained holding **only** `status.json`
+(state `interrupted`, no `trace.json`) so a poller can tell a deliberately
+stopped run from a vanished one — see the next section. Their **content** is not all-or-nothing: the logs are capped and
 redacted, so a stored log can be truncated (Section D). Only the workspace copy
 and `patch.diff` are additionally best-effort as files: either may be absent or
 partial, and the trace's `artifacts` (which files exist) and `diagnostics` (why
@@ -342,12 +345,16 @@ atomically (a unique temp file plus rename) at the `--progress` interval —
 ```
 
 - `state` is `running` while the run is in progress and one of `finished`,
-  `timed_out` or `interrupted` at the end. `interrupted` means the run was
-  stopped by a signal — either caught by yuurei (`SIGINT`/`SIGTERM`) or
-  delivered to the runtime child. A final state also carries `finished_at`
-  and is written after `trace.json`, so a poller that sees a final state can
-  read the trace; a poller that sees no terminal state and a dead `pid`
-  knows the run vanished (`SIGKILL`, a crash, power loss).
+  `timed_out` or `interrupted` at the end; every final state carries
+  `finished_at`. `interrupted` means the run was stopped by a signal —
+  either caught by yuurei (`SIGINT`/`SIGTERM`) or delivered to the runtime
+  child. A `finished` or `timed_out` state is written after `trace.json`, so
+  a poller that sees one can read the trace; a `SIGINT`/`SIGTERM`
+  `interrupted` directory holds `status.json` only (the run never reached
+  the trace), so a final state does not by itself promise a trace exists —
+  `trace.json`'s own presence is the completion marker. A poller that sees
+  no terminal state and a dead `pid` knows the run vanished (`SIGKILL`, a
+  crash, power loss).
 - `started_at` is when the run began, `elapsed_s` whole seconds since, and
   `pid` the yuurei CLI process id — not the runtime child's.
 - `last_activity_at` is the newest modification time observed inside the

@@ -96,11 +96,20 @@ describe('signal cleanup', () => {
   async function expectInterruptedRunDir(runsDir: string): Promise<void> {
     const runEntries = await readdir(runsDir).catch(() => []);
     expect(runEntries).toHaveLength(1);
-    const status = JSON.parse(
-      await readFile(join(runsDir, runEntries[0] as string, 'status.json'), 'utf8'),
-    ) as { state: string; run_id: string; pid: number };
+    const runDir = join(runsDir, runEntries[0] as string);
+    const status = JSON.parse(await readFile(join(runDir, 'status.json'), 'utf8')) as {
+      state: string;
+      run_id: string;
+      pid: number;
+      finished_at?: string;
+    };
     expect(status.state).toBe('interrupted');
     expect(status.run_id).toBe(runEntries[0]);
+    // A final state carries finished_at on every path, including a caught
+    // signal — a poller computing elapsed time must not get undefined.
+    expect(status.finished_at).toBeDefined();
+    // The run never reached the trace: status.json alone documents it.
+    expect(await pathExists(join(runDir, 'trace.json'))).toBe(false);
   }
 
   it.each([

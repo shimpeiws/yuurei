@@ -279,7 +279,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       // persist the terminal state before cleanup, then keep the run
       // directory (flag above) so the record survives process.exit().
       interrupted = true;
-      await statusMonitor.finish('interrupted');
+      await statusMonitor.finish('interrupted', new Date().toISOString());
       await cleanup();
     },
   });
