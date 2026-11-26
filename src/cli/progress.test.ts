@@ -128,6 +128,44 @@ describe('createProgressSink', () => {
     }
   });
 
+  it('keeps the first narrow status on one row before widening', () => {
+    vi.useFakeTimers();
+    const { stream, chunks } = collect();
+    const terminal = { ...stream, columns: 29, rows: 24 };
+    const sink = createProgressSink({ json: false, tty: true, animate: true, stream: terminal });
+    try {
+      sink(snapshot({ run_id: '20261126T192400Z-6c67' }));
+      expect(chunks[0]?.startsWith('\r\x1b[K12m04s running')).toBe(true);
+      expect(chunks[0]?.slice(4).length).toBeLessThan(29);
+      terminal.columns = 40;
+      vi.advanceTimersByTime(100);
+      expect(chunks[1]).toMatch(/[\u2801-\u28ff]/u);
+    } finally {
+      sink.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([true, false])(
+    'avoids cursor writes after losing the terminal (auto=%s)',
+    (automatic) => {
+      const { stream, chunks } = collect();
+      const sink = createProgressSink({
+        json: false,
+        tty: true,
+        animate: true,
+        automatic,
+        stream: { ...stream, columns: 80, rows: 24 },
+      });
+      sink(snapshot());
+      sink.loseTerminal();
+      sink(snapshot({ state: 'finished' }));
+      sink.stop();
+      if (automatic) expect(chunks).toHaveLength(1);
+      else expect(chunks.slice(1)).toEqual(['[yuurei] run-abc finished after 12m04s\n']);
+    },
+  );
+
   it('rewrites one line in place on a terminal', () => {
     const { stream, chunks } = collect();
     const sink = createProgressSink({ json: false, tty: true, stream });

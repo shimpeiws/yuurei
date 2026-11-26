@@ -43,12 +43,13 @@ if (
 const behavior = createGhostBehavior(seed);
 const start = performance.now();
 let frame = 0;
+let drawn = false;
 const timer = setInterval(() => {
   const time = mode === 'autonomous' ? performance.now() - start : frame * 100;
   const beat = mode === 'autonomous' ? behavior.sample(time) : undefined;
   const rows = renderGhost({
     seed,
-    width,
+    width: process.stdout.isTTY ? Math.max(1, Math.min(width, process.stdout.columns - 1)) : width,
     time,
     mode: mode === 'float' || mode === 'curl' ? mode : 'full',
     ...(beat ? { beat } : {}),
@@ -61,9 +62,10 @@ const timer = setInterval(() => {
     frame++;
     return;
   }
-  const prefix = process.stdout.isTTY && frame > 0 ? '\x1b[2A' : '';
+  const prefix = process.stdout.isTTY && drawn ? '\x1b[2A' : '';
   process.stdout.write(
     prefix + rows.map((row) => (process.stdout.isTTY ? '\r\x1b[2K' + row : row)).join('\n') + '\n',
   );
+  drawn = true;
   if (++frame >= seconds * 10) clearInterval(timer);
 }, 100);

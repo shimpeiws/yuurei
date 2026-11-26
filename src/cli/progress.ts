@@ -92,6 +92,7 @@ export interface ProgressSinkOptions {
   /** Whether `stream` is a terminal (enables in-place rewrite). */
   tty: boolean;
   animate?: boolean;
+  automatic?: boolean;
   /** Injectable for tests; production passes process.stderr. */
   stream: {
     write(chunk: string): unknown;
@@ -112,10 +113,11 @@ export interface ProgressSinkOptions {
  */
 export function createProgressSink(
   options: ProgressSinkOptions,
-): ((snapshot: RunStatusSnapshot) => void) & { clear(): void; stop(): void } {
+): ((snapshot: RunStatusSnapshot) => void) & { clear(): void; stop(): void; loseTerminal(): void } {
   let snapshot: RunStatusSnapshot | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let visible = false;
+  let tty = options.tty;
   const seed = Math.floor(Math.random() * 0xffffffff);
   const start = performance.now();
   const behavior = createGhostBehavior(seed);
@@ -146,6 +148,18 @@ export function createProgressSink(
     visible = false;
     write(clearRows);
   };
+  const terminalLine = (snapshot: RunStatusSnapshot) => {
+    const width =
+      options.stream.columns === undefined ? Infinity : Math.max(0, options.stream.columns - 1);
+    const full = renderHumanLine(snapshot);
+    const age =
+      snapshot.last_activity_at === null
+        ? '?'
+        : formatElapsed((Date.now() - Date.parse(snapshot.last_activity_at)) / 1000);
+    if (full.length <= width) return full;
+    if (snapshot.state !== 'running') return full.slice(0, width);
+    return `${formatElapsed(snapshot.elapsed_s)} running / idle ${age}`.slice(0, width);
+  };
   const draw = () => {
     if (!snapshot || broken || options.stream.writableNeedDrain) return;
     const columns = options.stream.columns ?? 0;
@@ -153,25 +167,20 @@ export function createProgressSink(
     if (width < 30 || (options.stream.rows ?? 0) < 4) {
       if (visible) {
         clear();
-        write(`\r\x1b[K${renderHumanLine(snapshot).slice(0, Math.max(0, width))}`);
+        write(`\r\x1b[K${terminalLine(snapshot)}`);
       }
       return;
     }
     const time = performance.now() - start;
     const [top, bottom] = renderGhost({ seed, width, time, beat: behavior.sample(time) });
-    const full = renderHumanLine(snapshot);
-    const age =
-      snapshot.last_activity_at === null
-        ? '?'
-        : formatElapsed((Date.now() - Date.parse(snapshot.last_activity_at)) / 1000);
-    const line =
-      full.length <= width ? full : `[yuurei] ${formatElapsed(snapshot.elapsed_s)} / idle ${age}`;
+    const line = terminalLine(snapshot);
     visible = true;
     write(`\r\x1b[2K${line.slice(0, width)}\n\r\x1b[2K${top}\n\r\x1b[2K${bottom}\x1b[2A\r`);
   };
   const update = (next: RunStatusSnapshot) => {
+    if (options.automatic && !tty) return;
     snapshot = next;
-    if (options.animate && options.tty && !options.json && next.state === 'running' && !broken) {
+    if (options.animate && tty && !options.json && next.state === 'running' && !broken) {
       if (!timer) {
         timer = setInterval(draw, 100);
         timer.unref();
@@ -190,14 +199,19 @@ export function createProgressSink(
       return;
     }
     const line = renderHumanLine(snapshot);
-    if (options.tty) {
-      write(`\r\x1b[K${line}${snapshot.state === 'running' ? '' : '\n'}`);
+    if (tty) {
+      write(`\r\x1b[K${terminalLine(snapshot)}${snapshot.state === 'running' ? '' : '\n'}`);
     } else {
       write(`${line}\n`);
     }
   };
   return Object.assign(update, {
     clear,
+    loseTerminal() {
+      stopTimer();
+      visible = false;
+      tty = false;
+    },
     stop() {
       stopTimer();
       clear();

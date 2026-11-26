@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { findYuureiDir } from '../config/discovery.js';
 import { loadYuureiConfig } from '../config/yuurei-config.js';
@@ -15,6 +16,26 @@ import { packageVersion } from '../version.js';
 import type { RunDefinition } from '../trace/schema.js';
 import type { Logger } from '../util/logger.js';
 import type { IsolationStrategy } from '../isolation/types.js';
+
+function ownsTerminal(): boolean {
+  if (!process.stderr.isTTY || !['darwin', 'linux'].includes(process.platform)) return false;
+  try {
+    const [group, foreground] = execFileSync(
+      '/bin/ps',
+      ['-o', 'pgid=,tpgid=', '-p', String(process.pid)],
+      {
+        encoding: 'utf8',
+        timeout: 250,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    )
+      .trim()
+      .split(/\s+/u);
+    return group !== undefined && Number(group) > 0 && group === foreground;
+  } catch {
+    return false;
+  }
+}
 
 const ISOLATION_STRATEGIES: readonly IsolationStrategy[] = ['level0', 'level1'];
 const DEFAULT_ISOLATION_STRATEGY: IsolationStrategy = 'level1';
@@ -204,9 +225,10 @@ export async function runRun(
   // unconditionally — it is the script-facing surface, not a terminal
   // feature — and shares the resolved interval. Resolved before any stdin
   // read for the same reason as the validations above.
+  const foreground = options.progress !== false && !json && ownsTerminal();
   const progress = resolveProgress(options.progress, {
     json,
-    stderrIsTTY: Boolean(process.stderr.isTTY),
+    stderrIsTTY: foreground,
   });
 
   // `--task -` reads the task from stdin instead of a file: a caller that holds
@@ -231,13 +253,18 @@ export async function runRun(
   const sink = progress.enabled
     ? createProgressSink({
         json,
-        tty: Boolean(process.stderr.isTTY),
+        automatic: options.progress === undefined,
+        tty: foreground,
         animate: Boolean(
           process.env['TERM'] && process.env['TERM'] !== 'dumb' && !process.env['CI'],
         ),
         stream: process.stderr,
       })
     : undefined;
+  // After job-control suspension the shell may have moved the cursor,
+  // and the job may have resumed in the background.
+  const onContinue = () => sink?.loseTerminal();
+  if (sink && foreground) process.on('SIGCONT', onContinue);
   const result = await runPipeline({
     runtimeId: profile.runtime,
     requestedModel,
@@ -265,7 +292,10 @@ export async function runRun(
       intervalMs: progress.intervalMs,
       ...(sink ? { onProgress: sink } : {}),
     },
-  }).finally(() => sink?.stop());
+  }).finally(() => {
+    process.off('SIGCONT', onContinue);
+    sink?.stop();
+  });
 
   logger.info(`run ${result.runId} finished`, {
     ...(json ? { run_id: result.runId } : {}),
