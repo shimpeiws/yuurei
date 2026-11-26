@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { findYuureiDir } from '../config/discovery.js';
 import { loadYuureiConfig } from '../config/yuurei-config.js';
@@ -17,25 +16,7 @@ import type { RunDefinition } from '../trace/schema.js';
 import type { Logger } from '../util/logger.js';
 import type { IsolationStrategy } from '../isolation/types.js';
 
-function ownsTerminal(): boolean {
-  if (!process.stderr.isTTY || !['darwin', 'linux'].includes(process.platform)) return false;
-  try {
-    const [group, foreground] = execFileSync(
-      '/bin/ps',
-      ['-o', 'pgid=,tpgid=', '-p', String(process.pid)],
-      {
-        encoding: 'utf8',
-        timeout: 250,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      },
-    )
-      .trim()
-      .split(/\s+/u);
-    return group !== undefined && Number(group) > 0 && group === foreground;
-  } catch {
-    return false;
-  }
-}
+import { ownsTerminal } from './terminal.js';
 
 const ISOLATION_STRATEGIES: readonly IsolationStrategy[] = ['level0', 'level1'];
 const DEFAULT_ISOLATION_STRATEGY: IsolationStrategy = 'level1';

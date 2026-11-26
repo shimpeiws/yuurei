@@ -157,7 +157,12 @@ export function createProgressSink(
         ? '?'
         : formatElapsed((Date.now() - Date.parse(snapshot.last_activity_at)) / 1000);
     if (full.length <= width) return full;
-    if (snapshot.state !== 'running') return full.slice(0, width);
+    if (snapshot.state !== 'running') {
+      return `${FINAL_STATE_TEXT[snapshot.state]} after ${formatElapsed(snapshot.elapsed_s)}`.slice(
+        0,
+        width,
+      );
+    }
     return `${formatElapsed(snapshot.elapsed_s)} running / idle ${age}`.slice(0, width);
   };
   const draw = () => {

@@ -166,6 +166,21 @@ describe('createProgressSink', () => {
     },
   );
 
+  it.each([
+    ['finished', 'finished'],
+    ['timed_out', 'timed out'],
+    ['interrupted', 'interrupted'],
+  ] as const)('keeps the %s outcome readable in a narrow terminal', (state, expected) => {
+    const { stream, chunks } = collect();
+    const sink = createProgressSink({
+      json: false,
+      tty: true,
+      stream: { ...stream, columns: 29 },
+    });
+    sink(snapshot({ state, run_id: '20261126T192400Z-6c67' }));
+    expect(chunks).toEqual([`\r\x1b[K${expected} after 12m04s\n`]);
+  });
+
   it('rewrites one line in place on a terminal', () => {
     const { stream, chunks } = collect();
     const sink = createProgressSink({ json: false, tty: true, stream });
