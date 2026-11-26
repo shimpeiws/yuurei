@@ -27,4 +27,33 @@ describe('Wandering Ghost', () => {
       frame(15000).map((row) => row.trimStart()),
     );
   });
+  it('separates into two visible bodies and rejoins without resetting position', () => {
+    const frame = (time: number) => renderGhost({ seed: 7, width: 40, time });
+    expect(frame(22_000)[0].trim()).toMatch(/\S+ {2,}\S+/u);
+    expect(frame(30_000)[0].trim()).toMatch(/^\S+$/u);
+    const position = (time: number) => frame(time)[0].search(/\S/u);
+    const cycleEnd = (40 + (7 / 97) * 8) * 1000;
+    expect(Math.abs(position(cycleEnd + 50) - position(cycleEnd - 50))).toBeLessThan(2);
+  });
+
+  it('keeps the quiet floating demo free of mist throughout the excursion', () => {
+    for (const time of [0, 10_000, 16_000, 25_000, 30_000]) {
+      const [head, hem] = renderGhost({ seed: 7, width: 40, time, mode: 'float' });
+      expect(head.trim()).toMatch(/^\S+$/u);
+      expect(hem.trim()).toMatch(/[\u2801-\u28ff]{4}/u);
+    }
+  });
+  it('preserves the reference silhouette, eyes and hem at terminal resolution', () => {
+    expect(
+      renderGhost({ seed: 7, width: 24, time: 0, mode: 'still', design: 'reference' }),
+    ).toEqual(['          ⣴⢻⡟⣦', '         ⠰⣿⠿⡿⢿⠆']);
+  });
+
+  it('curls out of ordinary floating, then returns along the same trajectory', () => {
+    const frame = (time: number, mode: 'curl' | 'float') =>
+      renderGhost({ seed: 7, width: 40, time, mode });
+    expect(frame(0, 'curl')).toEqual(frame(0, 'float'));
+    expect(frame(5000, 'curl')).not.toEqual(frame(5000, 'float'));
+    expect(frame(9000, 'curl')).toEqual(frame(9000, 'float'));
+  });
 });

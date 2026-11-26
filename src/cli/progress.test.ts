@@ -96,6 +96,38 @@ describe('createProgressSink', () => {
     }
   });
 
+  it('stops the autonomous timer if interactive stderr closes mid-frame', () => {
+    vi.useFakeTimers();
+    const { stream, chunks } = collect();
+    let onError: ((error: Error) => void) | undefined;
+    const sink = createProgressSink({
+      json: false,
+      tty: true,
+      animate: true,
+      stream: {
+        ...stream,
+        columns: 80,
+        rows: 24,
+        on: (_event, listener) => {
+          onError = listener;
+        },
+      },
+    });
+    try {
+      sink(snapshot());
+      vi.advanceTimersByTime(200);
+      expect(chunks).toHaveLength(3);
+      onError?.(new Error('write EPIPE'));
+      vi.advanceTimersByTime(60_000);
+      sink(snapshot({ state: 'interrupted' }));
+      expect(chunks).toHaveLength(3);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      sink.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it('rewrites one line in place on a terminal', () => {
     const { stream, chunks } = collect();
     const sink = createProgressSink({ json: false, tty: true, stream });

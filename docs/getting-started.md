@@ -396,5 +396,15 @@ terminals. Narrow terminals use the text progress display. Preview the
 animation from a development checkout without starting an agent:
 
 ```sh
-pnpm exec tsx scripts/ghost-demo.ts --seed=7 --width=40 --seconds=30
+pnpm exec tsx scripts/ghost-demo.ts --mode=compare --width=24
+pnpm exec tsx scripts/ghost-demo.ts --mode=float --seed=7 --width=40 --seconds=15
+pnpm exec tsx scripts/ghost-demo.ts --mode=curl --seed=7 --width=40 --seconds=11
+pnpm exec tsx scripts/ghost-demo.ts --mode=showcase --seed=7 --width=79 --seconds=42
+pnpm exec tsx scripts/ghost-demo.ts --mode=autonomous --seed=7 --width=79 --seconds=180
+pnpm exec tsx scripts/ghost-sim.ts > ghost-simulation.json
 ```
+
+The showcase packs all transformations into a short demonstration. The
+autonomous demo uses the same behavior controller as interactive progress:
+quiet periods and transformations vary with the seed. The simulation steps
+through behavior boundaries without waiting or drawing terminal frames.

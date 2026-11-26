@@ -1,3 +1,4 @@
+import { createGhostBehavior } from './ghost-behavior.js';
 import { renderGhost } from './ghost.js';
 import type { RunStatusSnapshot } from '../run/status.js';
 import { DEFAULT_PROGRESS_INTERVAL_MS } from '../run/status.js';
@@ -117,6 +118,7 @@ export function createProgressSink(
   let visible = false;
   const seed = Math.floor(Math.random() * 0xffffffff);
   const start = performance.now();
+  const behavior = createGhostBehavior(seed);
   const clearRows = '\r\x1b[2K\n\r\x1b[2K\n\r\x1b[2K\x1b[2A';
   const stopTimer = () => {
     clearInterval(timer);
@@ -155,7 +157,8 @@ export function createProgressSink(
       }
       return;
     }
-    const [top, bottom] = renderGhost({ seed, width, time: performance.now() - start });
+    const time = performance.now() - start;
+    const [top, bottom] = renderGhost({ seed, width, time, beat: behavior.sample(time) });
     const full = renderHumanLine(snapshot);
     const age =
       snapshot.last_activity_at === null
