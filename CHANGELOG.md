@@ -7,6 +7,8 @@ What that covers is stated in [the public contract](docs/contract.md).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-27
+
 ### Added
 
 - A wandering Braille ghost accompanies interactive run progress on supported terminals (#260).
@@ -16,7 +18,7 @@ What that covers is stated in [the public contract](docs/contract.md).
   default) while a run is in progress, recording `state`
   (`running`/`finished`/`timed_out`/`interrupted`), `elapsed_s`,
   `last_activity_at`, and `pid`. A matching one-line progress indicator is
-  shown on stderr (in place on a terminal); `--progress[=<seconds>]` forces
+  shown on stderr (in place in a supported foreground terminal); `--progress[=<seconds>]` forces
   it on and sets the interval, `--no-progress` forces it off, and under
   `--json` a forced-on progress emits JSON lines on stderr instead.
 
@@ -525,7 +527,9 @@ First published release. It implements the v0.3 design scope: single-runtime
 - `trace.json` is written atomically and last, so it is a reliable completion
   marker and can never be read half-written.
 
-[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/shimpeiws/yuurei/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/shimpeiws/yuurei/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/shimpeiws/yuurei/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/shimpeiws/yuurei/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/shimpeiws/yuurei/releases/tag/v1.3.0
 [1.2.0]: https://github.com/shimpeiws/yuurei/releases/tag/v1.2.0
