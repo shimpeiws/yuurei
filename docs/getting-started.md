@@ -316,6 +316,33 @@ overrides the definition for that field only, so `--model` does not discard a
 After execution, yuurei prints `run <run-id> finished` with `exitCode`
 and `runDir`. The agent's response is in the saved logs.
 
+## Watch a long run
+
+While a run is in progress yuurei shows its liveness in two places:
+
+- A one-line indicator on **stderr**, rewritten in place on a terminal:
+  `[yuurei] <run-id> running 12m04s, last activity 8s ago`. "Last activity"
+  is the newest modification time yuurei can see inside the cell — a hint
+  that something is writing, not a guarantee of progress. It is on by
+  default for an interactive terminal; `--progress [seconds]` forces it on
+  and sets the interval (default 30s), `--no-progress` turns it off. It is
+  never written to stdout, so piping `yuurei run` stays clean; with
+  `--json`, a forced-on progress is emitted as JSON lines on stderr.
+- `.yuurei/runs/<run-id>/status.json`, rewritten atomically at the same
+  interval for scripts and pollers:
+  `{"run_id": "...", "state": "running", "started_at": "...",
+  "elapsed_s": 724, "last_activity_at": "...", "pid": 12345}`.
+  When the run ends it is replaced by the final state (`finished`,
+  `timed_out`, or `interrupted`) with `finished_at` added.
+
+Interrupting a run (`SIGINT`/`SIGTERM` — for example Ctrl-C) exits with the
+shell-convention code (130/143) after cleanup: the temporary cell is
+disposed and credential material is scrubbed as usual, and the run
+directory is retained holding `status.json` with `state: "interrupted"` —
+no `trace.json` exists for it. A `SIGKILL` or crash bypasses this and may
+leave a `status.json` still saying `running` with a dead `pid`; `yuurei
+clean` removes orphaned cells either way.
+
 ## Read the trace and logs
 
 Replace the value below with the run ID printed by your command:

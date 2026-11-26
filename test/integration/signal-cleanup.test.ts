@@ -87,6 +87,22 @@ describe('signal cleanup', () => {
     return { code, marker: parsed };
   }
 
+  /**
+   * After a caught signal the run directory survives holding only
+   * status.json with the `interrupted` terminal state (#258): the directory
+   * is documented by that file, and a poller can tell a deliberately
+   * stopped run from a vanished one.
+   */
+  async function expectInterruptedRunDir(runsDir: string): Promise<void> {
+    const runEntries = await readdir(runsDir).catch(() => []);
+    expect(runEntries).toHaveLength(1);
+    const status = JSON.parse(
+      await readFile(join(runsDir, runEntries[0] as string, 'status.json'), 'utf8'),
+    ) as { state: string; run_id: string; pid: number };
+    expect(status.state).toBe('interrupted');
+    expect(status.run_id).toBe(runEntries[0]);
+  }
+
   it.each([
     ['SIGINT', SIGNAL_EXIT_CODES.SIGINT],
     ['SIGTERM', SIGNAL_EXIT_CODES.SIGTERM],
@@ -97,9 +113,7 @@ describe('signal cleanup', () => {
 
     expect(code).toBe(exitCode);
     await expect(stat(rootDir)).rejects.toThrow();
-    // Defect B: no partial run directory should remain after a caught signal.
-    const runEntries = await readdir(runsDir).catch(() => []);
-    expect(runEntries).toHaveLength(0);
+    await expectInterruptedRunDir(runsDir);
   });
 
   // §9.2: --keep preserves config and logs for debugging, never credential
@@ -124,9 +138,7 @@ describe('signal cleanup', () => {
       // ... while the isolation root is kept under --keep for debugging
       // (precise scrub, so nothing needs to be discarded wholesale).
       await expect(stat(rootDir)).resolves.toBeDefined();
-      // Defect B: no partial run directory should remain after a caught signal.
-      const runEntries = await readdir(runsDir).catch(() => []);
-      expect(runEntries).toHaveLength(0);
+      await expectInterruptedRunDir(runsDir);
     },
   );
 

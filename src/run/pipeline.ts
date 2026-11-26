@@ -26,6 +26,11 @@ import { redactFile, redactText } from '../trace/redact.js';
 import type { RunDefinition, Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
 import { createUniqueRunLayout } from './layout.js';
+import {
+  createRunStatusMonitor,
+  DEFAULT_PROGRESS_INTERVAL_MS,
+  type RunStatusSnapshot,
+} from './status.js';
 import { resolvePflBinary, runObserver } from '../observer/index.js';
 import type { ObservationRecord } from '../observer/index.js';
 import { loadYuureiConfig } from '../config/yuurei-config.js';
@@ -62,6 +67,17 @@ export interface RunPipelineInput extends CellResolutionInput {
    * and the caller never sees a return value to read warnings off.
    */
   onWarning?: (message: string) => void;
+  /**
+   * Run-liveness reporting (#258). `status.json` is rewritten atomically in
+   * the run directory every `intervalMs` (default 30s) while the run is in
+   * progress, and once more with the terminal state. `onProgress`, when
+   * given, additionally receives each snapshot — the CLI wires it to the
+   * stderr progress line.
+   */
+  progress?: {
+    intervalMs?: number;
+    onProgress?: (snapshot: RunStatusSnapshot) => void;
+  };
 }
 
 export interface RunPipelineResult {
@@ -121,7 +137,25 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   let disposed = false;
   let traceWritten = false;
   let runDirRemoved = false;
+  // Set by the signal path only: a caught SIGINT/SIGTERM keeps the run
+  // directory so its status.json can record `interrupted` for a poller
+  // (#258) — the run dir is no longer undocumented once it carries a
+  // terminal state. A plain failure still removes it.
+  let interrupted = false;
   const warn = (message: string) => input.onWarning?.(message);
+
+  // The liveness probe scans the whole cell root — the runtime's session
+  // record under the isolated home, the workspace, and the captured logs
+  // are all inside it. The scan reads mtimes only and never follows
+  // symlinks, so it cannot leave the cell.
+  const statusMonitor = createRunStatusMonitor({
+    runId,
+    statusPath: layout.statusPath,
+    intervalMs: input.progress?.intervalMs ?? DEFAULT_PROGRESS_INTERVAL_MS,
+    activityRoots: () => [context.rootDir],
+    ...(input.progress?.onProgress !== undefined ? { onProgress: input.progress.onProgress } : {}),
+    onWarning: warn,
+  });
 
   /**
    * Every credential path an adapter writes during `prepare()` is registered
@@ -193,6 +227,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
    * rm/dispose had settled.
    */
   const runCleanup = async () => {
+    // Stop the ticker before the run directory can be removed: no status
+    // write may be in flight or scheduled when rm runs.
+    await statusMonitor.stop();
     // Scrub before dispose() so this runs regardless of which branch above
     // threw, and so a signal killing the process mid-dispose never leaves
     // credential material behind.
@@ -220,7 +257,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     try {
       await disposeContext(cannotIdentifyCredentials);
     } finally {
-      if (!traceWritten) {
+      // An interrupted run keeps its directory: status.json records the
+      // `interrupted` terminal state, so a poller can still tell a run that
+      // was deliberately stopped from one that vanished (#258).
+      if (!traceWritten && !interrupted) {
         await removeRunDir();
       }
     }
@@ -232,7 +272,17 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     return cleanupPromise;
   };
 
-  const signalCleanup = installSignalCleanup({ cleanup });
+  statusMonitor.start();
+  const signalCleanup = installSignalCleanup({
+    cleanup: async () => {
+      // A signal caught mid-run is a deliberate stop, not a vanished run:
+      // persist the terminal state before cleanup, then keep the run
+      // directory (flag above) so the record survives process.exit().
+      interrupted = true;
+      await statusMonitor.finish('interrupted');
+      await cleanup();
+    },
+  });
   let primaryError: unknown;
   try {
     // A failure to persist a required output is a trace/artifact save failure
@@ -698,6 +748,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
 
     await save(() => writeTrace(layout.runDir, trace));
     traceWritten = true;
+
+    // The terminal state for pollers is written after trace.json (the
+    // completion marker), so a status of finished/timed_out implies the
+    // trace is there to read. timed_out wins over the SIGTERM the timeout
+    // itself delivers; a child killed by any other signal is 'interrupted'.
+    await statusMonitor.finish(
+      result.timedOut ? 'timed_out' : result.signal !== null ? 'interrupted' : 'finished',
+      result.finishedAt,
+    );
 
     return { runId, runDir: layout.runDir, cell, trace };
   } catch (error) {

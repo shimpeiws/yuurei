@@ -150,6 +150,10 @@ cli
     'Experimental: bridge the real OpenCode auth.json into the isolated run (OpenCode only, off by default)',
   )
   .option('--observe', 'Experimental: enable pre-run observation phase (#210)')
+  .option(
+    '--progress [seconds]',
+    'Show a liveness line on stderr while the run executes (default: on for a terminal, 30s interval; --no-progress forces off)',
+  )
   .option('--json', 'Output as JSON')
   .action(
     withErrorHandling(
@@ -169,6 +173,7 @@ cli
           bridgeOpencodeAuthFile?: boolean;
           seedRepo?: string;
           observe?: boolean;
+          progress?: boolean | number | string;
           json?: boolean;
         },
       ) => {
@@ -186,6 +191,7 @@ cli
             bridgeOpenCodeAuthFile: flags.bridgeOpencodeAuthFile,
             seedRepo: flags.seedRepo,
             observe: flags.observe,
+            progress: flags.progress,
           },
           loggerForFlags(flags),
           flags.json ?? false,

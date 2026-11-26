@@ -20,6 +20,8 @@ export interface RunLayout {
   baselineManifestPath: string;
   /** Seeded runs only: the added/modified/deleted record against the baseline. */
   changesPath: string;
+  /** Liveness record rewritten while the run is in progress (#258). */
+  statusPath: string;
 }
 
 function runLayout(yuureiDir: string, runId: string): RunLayout {
@@ -36,6 +38,7 @@ function runLayout(yuureiDir: string, runId: string): RunLayout {
     resultPath: join(runDir, 'result.txt'),
     baselineManifestPath: join(runDir, 'baseline-manifest.json'),
     changesPath: join(runDir, 'changes.json'),
+    statusPath: join(runDir, 'status.json'),
   };
 }
 
