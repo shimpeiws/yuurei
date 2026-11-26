@@ -70,6 +70,23 @@ describe('copyWorkspace', () => {
     // Nothing was copied: the abort fires before the first entry is processed.
     expect(await readdir(dest)).toEqual([]);
   });
+
+  it('stops mid-copy when the signal lands after the first entry', async () => {
+    await writeFile(join(src, 'a.txt'), 'a', 'utf8');
+    await writeFile(join(src, 'b.txt'), 'b', 'utf8');
+    await mkdir(join(src, 'sub'), { recursive: true });
+    await writeFile(join(src, 'sub', 'c.txt'), 'c', 'utf8');
+
+    // False for the first entry, true for every one after — a check done only
+    // before the traversal would copy all three files instead.
+    let checks = 0;
+    const result = await copyWorkspace(src, dest, { aborted: () => checks++ >= 1 });
+
+    expect(result.complete).toBe(false);
+    // At most the first entry was processed (a file copied, or a directory
+    // created before its contents were aborted).
+    expect((await readdir(dest)).length).toBeLessThanOrEqual(1);
+  });
 });
 
 describe('buildPatch', () => {

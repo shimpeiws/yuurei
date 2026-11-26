@@ -113,6 +113,27 @@ describe('collectSeededWorkspace', () => {
     expect(await readdir(durable)).toEqual([]);
   });
 
+  it('stops mid-copy when the signal lands after the first entry', async () => {
+    const cell = await tempDir('yuurei-seeded-cell-');
+    const durable = await tempDir('yuurei-seeded-durable-');
+    await writeTree(cell, { 'a.txt': 'a\n', 'b.txt': 'b\n', 'sub/c.txt': 'c\n' });
+
+    // False for the first entry, true for every one after — a check done only
+    // before the traversal would copy all three files instead.
+    let checks = 0;
+    const result = await collectSeededWorkspace(
+      cell,
+      durable,
+      {},
+      {
+        aborted: () => checks++ >= 1,
+      },
+    );
+
+    expect(result.complete).toBe(false);
+    expect((await readdir(durable)).length).toBeLessThanOrEqual(1);
+  });
+
   it('keeps a file whose name contains a legitimate U+FFFD', async () => {
     const cell = await tempDir('yuurei-seeded-cell-');
     const durable = await tempDir('yuurei-seeded-durable-');
