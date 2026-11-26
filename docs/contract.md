@@ -50,11 +50,11 @@ the same kind and a flat list produces promises that cannot be kept.
 
 ### Flags
 
-| Command                                                                                        | Flags                                                                  |
-| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `init`                                                                                         | `--runtime`, `--profile`, `--task`, `--run`                            |
-| `run`                                                                                          | `--profile`, `--task`, `--model`, `--keep`, `--timeout`, `--isolation` |
-| all of the above, plus `doctor` / `profile list` / `inspect` / `runs` / `trace show` / `clean` | `--json`                                                               |
+| Command                                                                                        | Flags                                                                                                           |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `init`                                                                                         | `--runtime`, `--profile`, `--task`, `--run`                                                                     |
+| `run`                                                                                          | `--profile`, `--task`, `--model`, `--keep`, `--timeout`, `--isolation`, `--progress [seconds]`, `--no-progress` |
+| all of the above, plus `doctor` / `profile list` / `inspect` / `runs` / `trace show` / `clean` | `--json`                                                                                                        |
 
 The credential-bridge flags and `--seed-repo` are **not** here; they are in
 Section B.
@@ -304,18 +304,24 @@ configuration change".
 ### The run directory
 
 `.yuurei/runs/<run-id>/` contains `trace.json`, `resolved-profile.json`,
-`stdout.log`, `stderr.log`, `artifacts.json`, `patch.diff`, `result.txt` and
-`workspace/`. A run seeded with `--seed-repo` additionally contains
-`baseline-manifest.json` and `changes.json` — see Section B. A run with
+`stdout.log`, `stderr.log`, `artifacts.json`, `patch.diff`, `result.txt`,
+`status.json` and `workspace/`. A run seeded with `--seed-repo` additionally
+contains `baseline-manifest.json` and `changes.json` — see Section B. A run with
 `--observe` may additionally contain `observation/` — see "Pre-run observation"
 below.
 
 `trace.json` is written atomically and last, so its presence means the run
 reached its end and the identity-and-outcome record is complete. The **required**
 durable outputs are `stdout.log`, `stderr.log`, `artifacts.json`,
-`resolved-profile.json` and `trace.json`; their files are present whenever the
-run directory is retained, and a failure to write any of them removes the run
-directory. Their **content** is not all-or-nothing: the logs are capped and
+`resolved-profile.json` and `trace.json`; on a completed run these files are
+present whenever the run directory is retained, and a failure to write any of
+them removes the run directory. A run stopped by a caught `SIGINT`/`SIGTERM`
+is the one exception: its directory is retained either holding **only**
+`status.json` (state `interrupted`, no `trace.json`), or — when the signal
+landed while the trace was being published — as the complete record with
+`status.json` still reading `interrupted`. Either way a poller can tell a
+deliberately stopped run from a vanished one, and `trace.json`'s presence
+remains the completion marker — see the next section. Their **content** is not all-or-nothing: the logs are capped and
 redacted, so a stored log can be truncated (Section D). Only the workspace copy
 and `patch.diff` are additionally best-effort as files: either may be absent or
 partial, and the trace's `artifacts` (which files exist) and `diagnostics` (why
@@ -323,6 +329,58 @@ one does not) say so. `result.txt` is best-effort the same way.
 
 Two concurrent `yuurei run` invocations never share a run directory: the
 directory is claimed atomically and the run id regenerated on collision.
+
+### `status.json` and the progress line
+
+While a run is in progress, `status.json` in its run directory is rewritten
+atomically (a unique temp file plus rename) at the `--progress` interval —
+30 seconds by default — so every external read yields valid JSON:
+
+```json
+{
+  "run_id": "...",
+  "state": "running",
+  "started_at": "...",
+  "elapsed_s": 724,
+  "last_activity_at": "...",
+  "pid": 12345
+}
+```
+
+- `state` is `running` while the run is in progress and one of `finished`,
+  `timed_out` or `interrupted` at the end; every final state carries
+  `finished_at`. `interrupted` means the run was stopped by a signal —
+  either caught by yuurei (`SIGINT`/`SIGTERM`) or delivered to the runtime
+  child. A signal caught after the terminal write — during post-run cleanup —
+  leaves the earlier `finished`/`timed_out` state in place even though the
+  CLI still exits with the signal's code: the run had already ended. A
+  `finished` or `timed_out` state is written after `trace.json`, so
+  a poller that sees one can read the trace; a `SIGINT`/`SIGTERM`
+  `interrupted` directory holds `status.json` only when the run never
+  reached the trace — a signal landing during trace publication keeps the
+  complete record instead — so a final state does not by itself promise a
+  trace exists, and `trace.json`'s own presence is the completion marker. A poller that sees
+  no terminal state and a dead `pid` knows the run vanished (`SIGKILL`, a
+  crash, power loss).
+- `started_at` is when the run began, `elapsed_s` whole seconds since, and
+  `pid` the yuurei CLI process id — not the runtime child's.
+- `last_activity_at` is the newest modification time observed inside the
+  cell — the runtime's session record, the workspace, the captured logs —
+  a liveness **hint**, not a guarantee: a runtime that is alive but writing
+  nothing looks idle. It never moves backwards across reads.
+- The file is best-effort: a write failure surfaces a warning to the
+  operator and never aborts the run. It is not an artifact and does not
+  appear in `artifacts.json`.
+
+Independently, `yuurei run` shows a one-line liveness indicator on **stderr**
+at the same interval when stderr is a terminal and `--json` is not given;
+`--progress [seconds]` forces it on and sets the interval, `--no-progress`
+forces it off. On a terminal the line is rewritten in place; anywhere else
+each tick appends a line. With `--json` a forced-on progress emits the same
+fields as `status.json`, one JSON object per line on stderr — those lines are
+a separate stream from the `--json` output on stdout. Nothing is ever
+written to stdout by this feature. The human-readable line is a summary and
+is not part of this promise.
 
 ### `patch.diff` and `workspace/`
 

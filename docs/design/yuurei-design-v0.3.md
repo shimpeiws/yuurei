@@ -322,8 +322,10 @@ At minimum, it holds the following.
 `execution.signal` is the OS signal name (`"SIGINT"`, `"SIGTERM"`, etc.) when the runtime child
 was killed by a signal, or `null` otherwise. When a signal is recorded, `exit_code` is `null`
 because the process had no exit code to report. A run interrupted by a signal that yuurei itself
-caught (SIGINT/SIGTERM during the run) produces no durable run directory (the partial directory
-is removed before exit); a signal delivered to the runtime child after the pipeline completes
+caught (SIGINT/SIGTERM during the run) produces no trace, but the run directory is retained with
+its `status.json` recording `state: "interrupted"` (see "status.json and the progress line" in
+the contract) — a poller can tell a deliberately stopped run from a vanished one; a signal
+delivered to the runtime child after the pipeline completes
 execution produces a valid trace with `signal` set and `exit_code: null`.
 
 The trace distinguishes "a value that could not be observed" from "zero." It never fills in an unknown value by guessing.

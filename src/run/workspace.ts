@@ -35,8 +35,16 @@ export interface CopyResult {
  * regular files are copied; a symlink entry is skipped and never followed, and
  * directories are recreated. Every skip and a failed copy are reported as fixed
  * strings; the count is the only variable and no path is included.
+ *
+ * `aborted`, when given, is checked per entry and stops the traversal before
+ * issuing further file operations — the caller uses it to cut a copy short
+ * when the run is being torn down (#258).
  */
-export async function copyWorkspace(sourceDir: string, destDir: string): Promise<CopyResult> {
+export async function copyWorkspace(
+  sourceDir: string,
+  destDir: string,
+  options?: { aborted?: () => boolean },
+): Promise<CopyResult> {
   const diagnostics: string[] = [];
   let symlinks = 0;
   let special = 0;
@@ -54,6 +62,10 @@ export async function copyWorkspace(sourceDir: string, destDir: string): Promise
       return;
     }
     for (const entry of entries) {
+      if (options?.aborted?.()) {
+        failed = true;
+        return;
+      }
       // Names are decoded from their raw bytes: a name that is not valid
       // UTF-8 cannot be recorded faithfully, so the copy reports incomplete
       // rather than silently renaming the file. A literal U+FFFD in a name

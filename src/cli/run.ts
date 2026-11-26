@@ -9,6 +9,7 @@ import { getRuntime } from '../runtime/registry.js';
 import { isPathWithin } from '../util/fs.js';
 import { readStdin } from '../util/stdin.js';
 import { YuureiError, ERROR_CODES, EXIT_CODES } from './exit-codes.js';
+import { createProgressSink, resolveProgress } from './progress.js';
 import { exitCodeForSignal } from '../run/signals.js';
 import { packageVersion } from '../version.js';
 import type { RunDefinition } from '../trace/schema.js';
@@ -66,6 +67,13 @@ export interface RunOptions {
    * the trace.
    */
   observe: boolean | undefined;
+  /**
+   * `--progress [seconds]` flag value (#258): true (on, default interval),
+   * false (--no-progress), or the interval in seconds. undefined = auto:
+   * on only when stderr is a terminal and --json is absent. status.json is
+   * written during the run regardless of this flag.
+   */
+  progress: boolean | number | string | undefined;
 }
 
 const YUUREI_VERSION = packageVersion;
@@ -191,6 +199,16 @@ export async function runRun(
     sourceDir: join(yuureiDir, profileEntry.source),
   });
 
+  // The progress line defaults on for an interactive terminal without
+  // --json; an explicit flag forces it either way. status.json is written
+  // unconditionally — it is the script-facing surface, not a terminal
+  // feature — and shares the resolved interval. Resolved before any stdin
+  // read for the same reason as the validations above.
+  const progress = resolveProgress(options.progress, {
+    json,
+    stderrIsTTY: Boolean(process.stderr.isTTY),
+  });
+
   // `--task -` reads the task from stdin instead of a file: a caller that holds
   // the task as a string (e.g. an agent) passes the bytes directly, with no
   // file written into the operator's project or a temp dir to clean up. The
@@ -230,6 +248,18 @@ export async function runRun(
     },
     definition,
     onWarning: (message) => logger.warn(message),
+    progress: {
+      intervalMs: progress.intervalMs,
+      ...(progress.enabled
+        ? {
+            onProgress: createProgressSink({
+              json,
+              tty: Boolean(process.stderr.isTTY),
+              stream: process.stderr,
+            }),
+          }
+        : {}),
+    },
   });
 
   logger.info(`run ${result.runId} finished`, {

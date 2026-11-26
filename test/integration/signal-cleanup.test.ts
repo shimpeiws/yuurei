@@ -9,6 +9,11 @@ import { pathExists } from '../../src/util/fs.js';
 const FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-hang.ts');
 const PREPARE_FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-during-prepare.ts');
 const CLEANUP_FIXTURE = join(import.meta.dirname, 'fixtures', 'signal-during-cleanup.ts');
+const TRACE_PUBLISH_FIXTURE = join(
+  import.meta.dirname,
+  'fixtures',
+  'signal-during-trace-publish.ts',
+);
 
 interface HangMarker {
   rootDir: string;
@@ -47,6 +52,7 @@ describe('signal cleanup', () => {
   async function runFixtureUntilSignal(
     signal: string,
     fixture: string = FIXTURE,
+    beforeSignal?: (marker: Record<string, string>) => Promise<void>,
   ): Promise<{ code: number | null; marker: Record<string, string> }> {
     const markerPath = join(markerDir, 'marker');
     const child = spawn(process.execPath, ['--import', 'tsx', fixture], {
@@ -82,24 +88,57 @@ describe('signal cleanup', () => {
       );
     }
 
+    if (beforeSignal !== undefined) await beforeSignal(parsed);
     child.kill(signal);
     const code = await exited;
     return { code, marker: parsed };
+  }
+
+  /**
+   * After a caught signal the run directory survives holding only
+   * status.json with the `interrupted` terminal state (#258): the directory
+   * is documented by that file, and a poller can tell a deliberately
+   * stopped run from a vanished one.
+   */
+  async function expectInterruptedRunDir(runsDir: string): Promise<void> {
+    const runEntries = await readdir(runsDir).catch(() => []);
+    expect(runEntries).toHaveLength(1);
+    const runDir = join(runsDir, runEntries[0] as string);
+    // The retained directory is documented by status.json alone: any
+    // pre-run outputs written before the signal are pruned.
+    expect(await readdir(runDir)).toEqual(['status.json']);
+    const status = JSON.parse(await readFile(join(runDir, 'status.json'), 'utf8')) as {
+      state: string;
+      run_id: string;
+      pid: number;
+      finished_at?: string;
+    };
+    expect(status.state).toBe('interrupted');
+    expect(status.run_id).toBe(runEntries[0]);
+    // A final state carries finished_at on every path, including a caught
+    // signal — a poller computing elapsed time must not get undefined.
+    expect(status.finished_at).toBeDefined();
+    // The run never reached the trace: status.json alone documents it.
+    expect(await pathExists(join(runDir, 'trace.json'))).toBe(false);
   }
 
   it.each([
     ['SIGINT', SIGNAL_EXIT_CODES.SIGINT],
     ['SIGTERM', SIGNAL_EXIT_CODES.SIGTERM],
   ])('scrubs credentials and disposes the isolation temp dir on %s', async (signal, exitCode) => {
-    const { code, marker } = await runFixtureUntilSignal(signal);
+    const { code, marker } = await runFixtureUntilSignal(signal, FIXTURE, async (m) => {
+      // Reproduce a run that wrote a pre-run output before the signal: the
+      // retained interrupted directory must still end up status.json-only.
+      const { runsDir } = m as unknown as HangMarker;
+      const [runId] = await readdir(runsDir);
+      await writeFile(join(runsDir, runId as string, 'baseline-manifest.json'), '{}', 'utf8');
+    });
     const { rootDir, runsDir } = marker as unknown as HangMarker;
     rootDirs.push(rootDir);
 
     expect(code).toBe(exitCode);
     await expect(stat(rootDir)).rejects.toThrow();
-    // Defect B: no partial run directory should remain after a caught signal.
-    const runEntries = await readdir(runsDir).catch(() => []);
-    expect(runEntries).toHaveLength(0);
+    await expectInterruptedRunDir(runsDir);
   });
 
   // §9.2: --keep preserves config and logs for debugging, never credential
@@ -124,9 +163,7 @@ describe('signal cleanup', () => {
       // ... while the isolation root is kept under --keep for debugging
       // (precise scrub, so nothing needs to be discarded wholesale).
       await expect(stat(rootDir)).resolves.toBeDefined();
-      // Defect B: no partial run directory should remain after a caught signal.
-      const runEntries = await readdir(runsDir).catch(() => []);
-      expect(runEntries).toHaveLength(0);
+      await expectInterruptedRunDir(runsDir);
     },
   );
 
@@ -187,5 +224,97 @@ describe('signal cleanup', () => {
     // dispose() completed before the process exited — the exit waited for the
     // shared lifecycle.
     await expect(stat(disposeDonePath)).resolves.toBeDefined();
+  });
+
+  // Devin Review finding on #258: a signal landing while trace.json is being
+  // published must not let the interrupted prune delete required outputs
+  // around a surviving trace (a "complete" marker over a broken record).
+  // The drain waits for the in-flight publish; when the trace lands the
+  // retained directory is the complete record, never a pruned one.
+  it('keeps the complete directory when a signal lands mid trace publication', async () => {
+    const markerPath = join(markerDir, 'marker');
+    const holdEnteredPath = join(markerDir, 'hold-entered');
+    const releasePath = join(markerDir, 'release');
+
+    const child = spawn(process.execPath, ['--import', 'tsx', TRACE_PUBLISH_FIXTURE], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        YUUREI_SIGNAL_MARKER: markerPath,
+        YUUREI_TRACE_HOLD_ENTERED: holdEnteredPath,
+        YUUREI_TRACE_HOLD_RELEASE: releasePath,
+      },
+    });
+    const stderrChunks: Buffer[] = [];
+    child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+
+    let exitedInfo: { code: number | null; signal: string | null } | null = null;
+    const exited = new Promise<void>((resolve) => {
+      child.on('close', (code, sig) => {
+        exitedInfo = { code, signal: sig };
+        resolve();
+      });
+    });
+
+    const waitForPath = async (path: string, what: string): Promise<void> => {
+      const deadline = Date.now() + 15_000;
+      while (!(await pathExists(path))) {
+        if (Date.now() > deadline) {
+          child.kill('SIGKILL');
+          throw new Error(
+            `fixture never reached ${what} (stderr: ${Buffer.concat(stderrChunks).toString()})`,
+          );
+        }
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    };
+
+    await waitForPath(markerPath, 'the marker');
+    const { runsDir } = JSON.parse(await readFile(markerPath, 'utf8')) as { runsDir: string };
+    rootDirs.push(join(runsDir, '..'));
+    // The trace publish op is provably in flight and tracked.
+    await waitForPath(holdEnteredPath, 'the trace-publish barrier');
+
+    child.kill('SIGINT');
+
+    // The interrupted cleanup's drain is waiting on the held publish, so
+    // the process must still be alive — an exit here would mean the prune
+    // ran without draining the publisher it could race.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(exitedInfo).toBeNull();
+
+    await writeFile(releasePath, 'go', 'utf8');
+    await exited;
+
+    expect(exitedInfo?.code).toBe(SIGNAL_EXIT_CODES.SIGINT);
+
+    // The trace won the race: the retained directory is the complete
+    // record — trace.json plus its required outputs — never a pruned dir
+    // with a dangling trace.
+    const runEntries = await readdir(runsDir);
+    expect(runEntries).toHaveLength(1);
+    const runDir = join(runsDir, runEntries[0] as string);
+    const entries = await readdir(runDir);
+    expect(entries).not.toEqual(['status.json']);
+    // A kept directory is the complete record: every required durable output
+    // per contract Section C is present, not just the trace marker.
+    for (const required of [
+      'trace.json',
+      'status.json',
+      'stdout.log',
+      'stderr.log',
+      'artifacts.json',
+      'resolved-profile.json',
+    ]) {
+      expect(entries).toContain(required);
+    }
+    const status = JSON.parse(await readFile(join(runDir, 'status.json'), 'utf8')) as {
+      state: string;
+    };
+    expect(status.state).toBe('interrupted');
+    const trace = JSON.parse(await readFile(join(runDir, 'trace.json'), 'utf8')) as {
+      schema_version: string;
+    };
+    expect(trace.schema_version).toBeDefined();
   });
 });

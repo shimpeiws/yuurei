@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -54,6 +54,46 @@ describe('copyWorkspace', () => {
     expect(result.diagnostics).toEqual([
       'workspace: copy failed; durable workspace may be incomplete',
     ]);
+  });
+
+  // #258: an interrupting teardown must stop the traversal rather than copy
+  // files the cleanup is about to delete.
+  it('stops issuing file operations once aborted', async () => {
+    await writeFile(join(src, 'a.txt'), 'a', 'utf8');
+    await writeFile(join(src, 'b.txt'), 'b', 'utf8');
+    await mkdir(join(src, 'sub'), { recursive: true });
+    await writeFile(join(src, 'sub', 'c.txt'), 'c', 'utf8');
+
+    const result = await copyWorkspace(src, dest, { aborted: () => true });
+
+    expect(result.complete).toBe(false);
+    // Nothing was copied: the abort fires before the first entry is processed.
+    expect(await readdir(dest)).toEqual([]);
+  });
+
+  it('stops mid-copy when the signal lands after the first entry', async () => {
+    await writeFile(join(src, 'a.txt'), 'a', 'utf8');
+    await writeFile(join(src, 'b.txt'), 'b', 'utf8');
+    await mkdir(join(src, 'sub'), { recursive: true });
+    await writeFile(join(src, 'sub', 'c.txt'), 'c', 'utf8');
+
+    // False for the first entry, true for every one after — a check done only
+    // before the traversal would copy all three files instead.
+    let checks = 0;
+    const result = await copyWorkspace(src, dest, { aborted: () => checks++ >= 1 });
+
+    expect(result.complete).toBe(false);
+    // At most the first entry was processed — one file or one empty
+    // directory. Counting entries recursively (not just files) also catches
+    // an abort that still creates directories afterwards.
+    const countEntries = async (dir: string): Promise<number> => {
+      let count = 0;
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        count += entry.isDirectory() ? 1 + (await countEntries(join(dir, entry.name))) : 1;
+      }
+      return count;
+    };
+    expect(await countEntries(dest)).toBeLessThanOrEqual(1);
   });
 });
 

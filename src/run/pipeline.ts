@@ -1,6 +1,6 @@
-import { rename, rm, writeFile } from 'node:fs/promises';
+import { readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { EXIT_CODES, YuureiError } from '../cli/exit-codes.js';
 import { NoopCostModel } from '../cost/noop.js';
 import { installSignalCleanup } from './signals.js';
@@ -26,6 +26,12 @@ import { redactFile, redactText } from '../trace/redact.js';
 import type { RunDefinition, Trace } from '../trace/schema.js';
 import { TRACE_SCHEMA_VERSION } from '../trace/schema.js';
 import { createUniqueRunLayout } from './layout.js';
+import { pathExists } from '../util/fs.js';
+import {
+  createRunStatusMonitor,
+  DEFAULT_PROGRESS_INTERVAL_MS,
+  type RunStatusSnapshot,
+} from './status.js';
 import { resolvePflBinary, runObserver } from '../observer/index.js';
 import type { ObservationRecord } from '../observer/index.js';
 import { loadYuureiConfig } from '../config/yuurei-config.js';
@@ -62,6 +68,25 @@ export interface RunPipelineInput extends CellResolutionInput {
    * and the caller never sees a return value to read warnings off.
    */
   onWarning?: (message: string) => void;
+  /**
+   * Run-liveness reporting (#258). `status.json` is rewritten atomically in
+   * the run directory every `intervalMs` (default 30s) while the run is in
+   * progress, and once more with the terminal state. `onProgress`, when
+   * given, additionally receives each snapshot — the CLI wires it to the
+   * stderr progress line.
+   */
+  progress?: {
+    intervalMs?: number;
+    onProgress?: (snapshot: RunStatusSnapshot) => void;
+  };
+  /**
+   * Test seam only. Awaited inside the trace publication while it is
+   * already tracked as in-flight, so a test can hold the rename open and
+   * land a signal mid-publication — the window in which interrupted
+   * cleanup could otherwise prune durable outputs around a surviving
+   * trace (#258). Production callers omit it.
+   */
+  holdTracePublish?: () => Promise<void>;
 }
 
 export interface RunPipelineResult {
@@ -121,7 +146,45 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
   let disposed = false;
   let traceWritten = false;
   let runDirRemoved = false;
+  // Set by the signal path only: a caught SIGINT/SIGTERM keeps the run
+  // directory so its status.json can record `interrupted` for a poller
+  // (#258) — the run dir is no longer undocumented once it carries a
+  // terminal state. A plain failure still removes it.
+  let interrupted = false;
   const warn = (message: string) => input.onWarning?.(message);
+
+  /**
+   * Publications into the run directory pass through this gate: once a
+   * signal is caught (`interrupted`), no new publish may start, and the
+   * interrupted-retention prune drains the ones already in flight before
+   * deleting entries — a late writeFile/rename can never survive the
+   * prune as a stray file or a half-published record (e.g. a trace.json
+   * renamed in while its required outputs were being removed).
+   */
+  const inFlightPublishes = new Set<Promise<unknown>>();
+  const publish = async <T>(operation: () => Promise<T>): Promise<T> => {
+    if (interrupted) throw new Error('run interrupted by signal');
+    const pending = operation();
+    inFlightPublishes.add(pending);
+    try {
+      return await pending;
+    } finally {
+      inFlightPublishes.delete(pending);
+    }
+  };
+
+  // The liveness probe scans the whole cell root — the runtime's session
+  // record under the isolated home, the workspace, and the captured logs
+  // are all inside it. The scan reads mtimes only and never follows
+  // symlinks, so it cannot leave the cell.
+  const statusMonitor = createRunStatusMonitor({
+    runId,
+    statusPath: layout.statusPath,
+    intervalMs: input.progress?.intervalMs ?? DEFAULT_PROGRESS_INTERVAL_MS,
+    activityRoots: () => [context.rootDir],
+    ...(input.progress?.onProgress !== undefined ? { onProgress: input.progress.onProgress } : {}),
+    onWarning: warn,
+  });
 
   /**
    * Every credential path an adapter writes during `prepare()` is registered
@@ -193,6 +256,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
    * rm/dispose had settled.
    */
   const runCleanup = async () => {
+    // Stop the ticker before the run directory can be removed: no status
+    // write may be in flight or scheduled when rm runs.
+    await statusMonitor.stop();
     // Scrub before dispose() so this runs regardless of which branch above
     // threw, and so a signal killing the process mid-dispose never leaves
     // credential material behind.
@@ -220,8 +286,34 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     try {
       await disposeContext(cannotIdentifyCredentials);
     } finally {
-      if (!traceWritten) {
+      if (!traceWritten && !interrupted) {
         await removeRunDir();
+      } else if (interrupted && !traceWritten) {
+        // An interrupted run keeps its directory, but it is documented by
+        // status.json alone: pre-run outputs (a seeded baseline manifest, a
+        // durable workspace dir, observation artifacts) are not a complete
+        // record, so they are pruned to keep the retained dir's meaning
+        // unambiguous (#258). In-flight publishers are drained first, and
+        // if the trace managed to land the run is complete — keep it whole
+        // rather than pruning a valid record.
+        await Promise.allSettled([...inFlightPublishes]);
+        try {
+          // traceWritten is set in the main flow a few microtasks after the
+          // write resolves, so it can lag the drain — check the file itself.
+          // If the trace won the race the run is complete; keep it whole.
+          if (!(await pathExists(layout.tracePath))) {
+            for (const entry of await readdir(layout.runDir)) {
+              if (entry === basename(layout.statusPath)) continue;
+              await rm(join(layout.runDir, entry), { recursive: true, force: true });
+            }
+          }
+        } catch (error) {
+          warn(
+            `failed to prune the interrupted run directory: ${layout.runDir} (${
+              error instanceof Error ? error.message : String(error)
+            })`,
+          );
+        }
       }
     }
   };
@@ -232,7 +324,17 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     return cleanupPromise;
   };
 
-  const signalCleanup = installSignalCleanup({ cleanup });
+  statusMonitor.start();
+  const signalCleanup = installSignalCleanup({
+    cleanup: async () => {
+      // A signal caught mid-run is a deliberate stop, not a vanished run:
+      // persist the terminal state before cleanup, then keep the run
+      // directory (flag above) so the record survives process.exit().
+      interrupted = true;
+      await statusMonitor.finish('interrupted', new Date().toISOString());
+      await cleanup();
+    },
+  });
   let primaryError: unknown;
   try {
     // A failure to persist a required output is a trace/artifact save failure
@@ -241,7 +343,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     // handled separately and do not reach here.
     const save = async <T>(operation: () => Promise<T>): Promise<T> => {
       try {
-        return await operation();
+        return await publish(operation);
       } catch (error) {
         if (error instanceof YuureiError) throw error;
         throw new YuureiError(
@@ -344,13 +446,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         const inputPath = join(layout.runDir, artifact.path);
         const tempPath = `${inputPath}.redact-${randomUUID()}`;
         try {
-          const { truncated } = await redactFile(
-            inputPath,
-            tempPath,
-            credentialValues,
-            maxArtifactBytes,
+          const { truncated } = await publish(() =>
+            redactFile(inputPath, tempPath, credentialValues, maxArtifactBytes),
           );
-          await rename(tempPath, inputPath);
+          await publish(() => rename(tempPath, inputPath));
           if (truncated) observationTruncatedPaths.push(artifact.path);
         } catch {
           // Redaction failed — remove original to prevent unredacted content
@@ -438,16 +537,21 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
     let changes: WorkspaceChanges | undefined;
     try {
       if (cell.seed !== undefined) {
-        const collected = await collectSeededWorkspace(
-          context.workspaceDir,
-          layout.workspaceDir,
-          cell.seed.files,
+        const seedFiles = cell.seed.files;
+        const collected = await publish(() =>
+          collectSeededWorkspace(context.workspaceDir, layout.workspaceDir, seedFiles, {
+            aborted: () => interrupted,
+          }),
         );
         workspaceDiagnostics = collected.diagnostics;
         workspaceComplete = collected.complete;
         if (collected.complete) changes = collected.changes;
       } else {
-        const copy = await copyWorkspace(context.workspaceDir, layout.workspaceDir);
+        const copy = await publish(() =>
+          copyWorkspace(context.workspaceDir, layout.workspaceDir, {
+            aborted: () => interrupted,
+          }),
+        );
         workspaceDiagnostics = copy.diagnostics;
         workspaceComplete = copy.complete;
       }
@@ -505,8 +609,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
         const redaction = redactText(patch.diff, knownCredentialValues, maxArtifactBytes);
         patchTruncated = redaction.truncated;
         patchRedacted = redaction.redacted;
-        await writeFile(tempOutput, redaction.text, 'utf8');
-        await rename(tempOutput, layout.patchPath);
+        await publish(() => writeFile(tempOutput, redaction.text, 'utf8'));
+        await publish(() => rename(tempOutput, layout.patchPath));
         patchPublished = true;
       } catch {
         // Reached only before the rename, so patch.diff was not published and
@@ -536,8 +640,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       try {
         const redacted = redactText(runResult.text, knownCredentialValues, maxArtifactBytes);
         resultTruncated = redacted.truncated;
-        await writeFile(tempOutput, redacted.text, 'utf8');
-        await rename(tempOutput, layout.resultPath);
+        await publish(() => writeFile(tempOutput, redacted.text, 'utf8'));
+        await publish(() => rename(tempOutput, layout.resultPath));
       } catch {
         resultDiagnostics.push('result: save failed; result.txt not recorded');
       } finally {
@@ -696,8 +800,20 @@ export async function runPipeline(input: RunPipelineInput): Promise<RunPipelineR
       ...(observation !== undefined ? { observation } : {}),
     };
 
-    await save(() => writeTrace(layout.runDir, trace));
+    await save(async () => {
+      await input.holdTracePublish?.();
+      await writeTrace(layout.runDir, trace);
+    });
     traceWritten = true;
+
+    // The terminal state for pollers is written after trace.json (the
+    // completion marker), so a status of finished/timed_out implies the
+    // trace is there to read. timed_out wins over the SIGTERM the timeout
+    // itself delivers; a child killed by any other signal is 'interrupted'.
+    await statusMonitor.finish(
+      result.timedOut ? 'timed_out' : result.signal !== null ? 'interrupted' : 'finished',
+      result.finishedAt,
+    );
 
     return { runId, runDir: layout.runDir, cell, trace };
   } catch (error) {
